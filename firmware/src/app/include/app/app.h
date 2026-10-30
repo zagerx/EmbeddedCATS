@@ -28,16 +28,16 @@ extern "C" {
 #endif
 
 typedef enum {
-  CATS_APP_OK = 0,
-  CATS_APP_ERR_BUS,   /* CAN 通道打不开，或收发过程中总线出错 */
-  CATS_APP_ERR_STATE, /* 状态不允许：重复 start / 没 start 就 poll */
-  CATS_APP_ERR_PARAM  /* 参数不合法：通道名为空 */
+	CATS_APP_OK = 0,
+	CATS_APP_ERR_BUS,   /* CAN 通道打不开，或收发过程中总线出错 */
+	CATS_APP_ERR_STATE, /* 状态不允许：重复 start / 没 start 就 poll */
+	CATS_APP_ERR_PARAM  /* 参数不合法：通道名为空 */
 } cats_app_result_t;
 
 typedef enum {
-  CATS_APP_IDLE = 0, /* 未启动 */
-  CATS_APP_RUNNING,  /* 已打开总线，周期推进中 */
-  CATS_APP_FAULT     /* 出过错，需 stop 后重新 start */
+	CATS_APP_IDLE = 0, /* 未启动 */
+	CATS_APP_RUNNING,  /* 已打开总线，周期推进中 */
+	CATS_APP_FAULT     /* 出过错，需 stop 后重新 start */
 } cats_app_state_t;
 
 /* 启动：接管调用方给的总线，进入 RUNNING。已在运行则返回 ERR_STATE。

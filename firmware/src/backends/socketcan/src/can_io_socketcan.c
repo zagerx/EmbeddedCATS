@@ -19,107 +19,110 @@
 #include <linux/can/raw.h>
 #include <sys/socket.h>
 
-static can_io_status_t sc_send(void *ctx, const can_io_frame_t *frame) {
-  socketcan_dev_t *dev = ctx;
-  struct can_frame cf;
+static can_io_status_t sc_send(void *ctx, const can_io_frame_t *frame)
+{
+	socketcan_dev_t *dev = ctx;
+	struct can_frame cf;
 
-  if (frame->id > 0x7FFu || frame->dlc > CAN_IO_MAX_DLC) {
-    return CAN_IO_ERR_INVAL; /* CANopen 只用 11 位标准帧 */
-  }
+	if (frame->id > 0x7FFu || frame->dlc > CAN_IO_MAX_DLC) {
+		return CAN_IO_ERR_INVAL; /* CANopen 只用 11 位标准帧 */
+	}
 
-  memset(&cf, 0, sizeof cf);
-  cf.can_id = frame->id;
-  cf.can_dlc = frame->dlc;
-  memcpy(cf.data, frame->data, frame->dlc);
-  if (write(dev->fd, &cf, sizeof cf) != (ssize_t)sizeof cf) {
-    return CAN_IO_ERR_BUS;
-  }
-  return CAN_IO_OK;
+	memset(&cf, 0, sizeof cf);
+	cf.can_id = frame->id;
+	cf.can_dlc = frame->dlc;
+	memcpy(cf.data, frame->data, frame->dlc);
+	if (write(dev->fd, &cf, sizeof cf) != (ssize_t)sizeof cf) {
+		return CAN_IO_ERR_BUS;
+	}
+	return CAN_IO_OK;
 }
 
-static can_io_status_t sc_recv(void *ctx, can_io_frame_t *frame,
-                               uint32_t timeout_ms) {
-  socketcan_dev_t *dev = ctx;
-  struct can_frame cf;
-  struct pollfd pfd = {.fd = dev->fd, .events = POLLIN};
-  int rc;
+static can_io_status_t sc_recv(void *ctx, can_io_frame_t *frame, uint32_t timeout_ms)
+{
+	socketcan_dev_t *dev = ctx;
+	struct can_frame cf;
+	struct pollfd pfd = {.fd = dev->fd, .events = POLLIN};
+	int rc;
 
-  rc = poll(&pfd, 1, (int)timeout_ms);
-  if (rc == 0) {
-    return CAN_IO_TIMEOUT;
-  }
-  if (rc < 0) {
-    return (errno == EINTR) ? CAN_IO_TIMEOUT : CAN_IO_ERR_BUS;
-  }
-  if (read(dev->fd, &cf, sizeof cf) != (ssize_t)sizeof cf) {
-    return CAN_IO_ERR_BUS;
-  }
-  /* 只认 11 位标准数据帧；错误帧 / 远程帧 / 扩展帧一律丢弃，让上层当"没收到" */
-  if ((cf.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG | CAN_EFF_FLAG)) != 0) {
-    return CAN_IO_TIMEOUT;
-  }
+	rc = poll(&pfd, 1, (int)timeout_ms);
+	if (rc == 0) {
+		return CAN_IO_TIMEOUT;
+	}
+	if (rc < 0) {
+		return (errno == EINTR) ? CAN_IO_TIMEOUT : CAN_IO_ERR_BUS;
+	}
+	if (read(dev->fd, &cf, sizeof cf) != (ssize_t)sizeof cf) {
+		return CAN_IO_ERR_BUS;
+	}
+	/* 只认 11 位标准数据帧；错误帧 / 远程帧 / 扩展帧一律丢弃，让上层当"没收到" */
+	if ((cf.can_id & (CAN_ERR_FLAG | CAN_RTR_FLAG | CAN_EFF_FLAG)) != 0) {
+		return CAN_IO_TIMEOUT;
+	}
 
-  frame->id = cf.can_id;
-  frame->dlc = cf.can_dlc;
-  memcpy(frame->data, cf.data, cf.can_dlc);
-  return CAN_IO_OK;
+	frame->id = cf.can_id;
+	frame->dlc = cf.can_dlc;
+	memcpy(frame->data, cf.data, cf.can_dlc);
+	return CAN_IO_OK;
 }
 
-static void sc_close(void *ctx) {
-  socketcan_dev_t *dev = ctx;
+static void sc_close(void *ctx)
+{
+	socketcan_dev_t *dev = ctx;
 
-  if (dev->fd >= 0) {
-    close(dev->fd);
-    dev->fd = -1;
-  }
+	if (dev->fd >= 0) {
+		close(dev->fd);
+		dev->fd = -1;
+	}
 }
 
-static uint32_t sc_now_ms(void *ctx) {
-  struct timespec ts;
+static uint32_t sc_now_ms(void *ctx)
+{
+	struct timespec ts;
 
-  (void)ctx;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (uint32_t)(ts.tv_sec * 1000u + (uint32_t)ts.tv_nsec / 1000000u);
+	(void)ctx;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint32_t)(ts.tv_sec * 1000u + (uint32_t)ts.tv_nsec / 1000000u);
 }
 
 static const can_io_ops_t SOCKETCAN_OPS = {
-    .send = sc_send,
-    .recv = sc_recv,
-    .close = sc_close,
-    .now_ms = sc_now_ms,
+	.send = sc_send,
+	.recv = sc_recv,
+	.close = sc_close,
+	.now_ms = sc_now_ms,
 };
 
-can_io_status_t socketcan_open(can_io_t *io, socketcan_dev_t *dev,
-                               const char *ifname) {
-  struct sockaddr_can addr;
-  unsigned ifindex;
-  int fd;
+can_io_status_t socketcan_open(can_io_t *io, socketcan_dev_t *dev, const char *ifname)
+{
+	struct sockaddr_can addr;
+	unsigned ifindex;
+	int fd;
 
-  if (io == NULL || dev == NULL || ifname == NULL) {
-    return CAN_IO_ERR_INVAL;
-  }
+	if (io == NULL || dev == NULL || ifname == NULL) {
+		return CAN_IO_ERR_INVAL;
+	}
 
-  fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-  if (fd < 0) {
-    return CAN_IO_ERR_BUS;
-  }
+	fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+	if (fd < 0) {
+		return CAN_IO_ERR_BUS;
+	}
 
-  ifindex = if_nametoindex(ifname); /* 接口不存在或未 up 时这里就失败 */
-  if (ifindex == 0) {
-    close(fd);
-    return CAN_IO_ERR_BUS;
-  }
+	ifindex = if_nametoindex(ifname); /* 接口不存在或未 up 时这里就失败 */
+	if (ifindex == 0) {
+		close(fd);
+		return CAN_IO_ERR_BUS;
+	}
 
-  memset(&addr, 0, sizeof addr);
-  addr.can_family = AF_CAN;
-  addr.can_ifindex = (int)ifindex;
-  if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
-    close(fd);
-    return CAN_IO_ERR_BUS;
-  }
+	memset(&addr, 0, sizeof addr);
+	addr.can_family = AF_CAN;
+	addr.can_ifindex = (int)ifindex;
+	if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
+		close(fd);
+		return CAN_IO_ERR_BUS;
+	}
 
-  dev->fd = fd;
-  io->ops = &SOCKETCAN_OPS;
-  io->ctx = dev;
-  return CAN_IO_OK;
+	dev->fd = fd;
+	io->ops = &SOCKETCAN_OPS;
+	io->ctx = dev;
+	return CAN_IO_OK;
 }

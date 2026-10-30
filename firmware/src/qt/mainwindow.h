@@ -16,28 +16,29 @@ class QLabel;
 class QPushButton;
 class QTimer;
 
-class MainWindow : public QMainWindow {
-  Q_OBJECT
+class MainWindow : public QMainWindow
+{
+	Q_OBJECT
 
-public:
-  explicit MainWindow(QWidget *parent = nullptr);
-  ~MainWindow() override;
+      public:
+	explicit MainWindow(QWidget *parent = nullptr);
+	~MainWindow() override;
 
-private slots:
-  void on_button_clicked();
-  void on_tick();
+      private slots:
+	void on_button_clicked();
+	void on_tick();
 
-private:
-  void set_ui_running(bool running);
-  void show_message(const QString &text);
+      private:
+	void set_ui_running(bool running);
+	void show_message(const QString &text);
 
-  QPushButton *button_ = nullptr;
-  QLabel *status_ = nullptr;
-  QTimer *timer_ = nullptr;
+	QPushButton *button_ = nullptr;
+	QLabel *status_ = nullptr;
+	QTimer *timer_ = nullptr;
 
-  socketcan_dev_t dev_{}; /* 通道存储归壳所有 */
-  can_io_t bus_{};
-  bool bus_open_ = false;
+	socketcan_dev_t dev_{}; /* 通道存储归壳所有 */
+	can_io_t bus_{};
+	bool bus_open_ = false;
 };
 
 #endif /* MAINWINDOW_H */

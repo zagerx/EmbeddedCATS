@@ -26,12 +26,11 @@ extern "C" {
 
 /* SocketCAN 通道句柄。字段只为让调用方分配存储，不当公共接口使用 */
 typedef struct {
-  int fd;
+	int fd;
 } socketcan_dev_t;
 
 /* 打开并绑定 ifname（如 "can0"）；成功时填好 io->ops 与 io->ctx */
-can_io_status_t socketcan_open(can_io_t *io, socketcan_dev_t *dev,
-                               const char *ifname);
+can_io_status_t socketcan_open(can_io_t *io, socketcan_dev_t *dev, const char *ifname);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -24,29 +24,29 @@ extern "C" {
 #endif
 
 typedef enum {
-  CO_SDO_OK = 0,
-  CO_SDO_TIMEOUT, /* 期限内没等到应答 */
-  CO_SDO_ABORT,   /* 从站回了 abort，码在 client->last_abort 里 */
-  CO_SDO_ERR_IO,  /* 底层收发失败（总线错误、接口挂了） */
-  CO_SDO_ERR_PROTOCOL /* 应答形状不对：分段传输、索引不符、非上传响应… */
+	CO_SDO_OK = 0,
+	CO_SDO_TIMEOUT,     /* 期限内没等到应答 */
+	CO_SDO_ABORT,       /* 从站回了 abort，码在 client->last_abort 里 */
+	CO_SDO_ERR_IO,      /* 底层收发失败（总线错误、接口挂了） */
+	CO_SDO_ERR_PROTOCOL /* 应答形状不对：分段传输、索引不符、非上传响应… */
 } co_sdo_result_t;
 
 typedef struct {
-  can_io_t *io;        /* 边界层注入的 CAN 收发能力 */
-  uint32_t timeout_ms; /* 一次请求等应答的总时长 */
-  uint32_t last_abort; /* 上一次 CO_SDO_ABORT 的 abort 码；0 表示没有 */
+	can_io_t *io;        /* 边界层注入的 CAN 收发能力 */
+	uint32_t timeout_ms; /* 一次请求等应答的总时长 */
+	uint32_t last_abort; /* 上一次 CO_SDO_ABORT 的 abort 码；0 表示没有 */
 } co_sdo_client_t;
 
 typedef struct {
-  uint32_t value; /* 读回的值，小端拼装好；高位按 size 无效 */
-  uint8_t size;   /* 有效字节数 1..4 */
+	uint32_t value; /* 读回的值，小端拼装好；高位按 size 无效 */
+	uint8_t size;   /* 有效字节数 1..4 */
 } co_sdo_value_t;
 
 /* c 与 out 由调用方提供且不得为空（本层不做防御性判空，保持逻辑简单） */
 void co_sdo_init(co_sdo_client_t *c, can_io_t *io, uint32_t timeout_ms);
 
-co_sdo_result_t co_sdo_read(co_sdo_client_t *c, uint8_t node_id, uint16_t index,
-                            uint8_t sub, co_sdo_value_t *out);
+co_sdo_result_t co_sdo_read(co_sdo_client_t *c, uint8_t node_id, uint16_t index, uint8_t sub,
+			    co_sdo_value_t *out);
 
 #ifdef __cplusplus
 } /* extern "C" */
