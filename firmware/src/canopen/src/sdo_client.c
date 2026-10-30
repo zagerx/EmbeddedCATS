@@ -15,18 +15,18 @@
 #define SDO_SCS_ABORT 0x80u  /* 响应字节：abort */
 #define SDO_E_BIT 0x02u /* 加速传输标志：0 表示后面还有分段，本阶段不支持 */
 
-void co_sdo_init(co_sdo_client_t *c, can_io_t *io, uint32_t timeout_ms)
+void co_sdo_init(struct co_sdo_client *c, struct can_io *io, uint32_t timeout_ms)
 {
 	c->io = io;
 	c->timeout_ms = timeout_ms;
 	c->last_abort = 0;
 }
 
-co_sdo_result_t co_sdo_read(co_sdo_client_t *c, uint8_t node_id, uint16_t index, uint8_t sub,
-			    co_sdo_value_t *out)
+enum co_sdo_result co_sdo_read(struct co_sdo_client *c, uint8_t node_id, uint16_t index,
+			       uint8_t sub, struct co_sdo_value *out)
 {
-	can_io_frame_t req;
-	can_io_frame_t rsp;
+	struct can_io_frame req;
+	struct can_io_frame rsp;
 	const uint32_t cob_req = 0x600u + node_id; /* 我们 → 从站 */
 	const uint32_t cob_rsp = 0x580u + node_id; /* 从站 → 我们 */
 	uint32_t start;

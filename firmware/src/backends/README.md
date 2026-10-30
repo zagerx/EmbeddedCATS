@@ -11,8 +11,8 @@
 `socketcan` 的公共头是 `include/socketcan/can_io_socketcan.h`，只暴露一个工厂函数：
 
 ```c
-static socketcan_dev_t dev;                 /* 存储由调用方给，全程不用 malloc */
-can_io_t io;
+static struct socketcan_dev dev;            /* 存储由调用方给，全程不用 malloc */
+struct can_io io;
 socketcan_open(&io, &dev, "can0");          /* 装配：填好 io.ops / io.ctx */
 ```
 

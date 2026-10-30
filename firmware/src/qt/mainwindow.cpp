@@ -2,7 +2,7 @@
  * mainwindow.cpp — 一个「启动 / 停止」按钮 + 一行状态文字
  *
  * 装配顺序（集成层的本职）：
- *   选后端 socketcan → 打开 can0 → 把 can_io_t 交给 app → 起 QTimer 周期推进
+ *   选后端 socketcan → 打开 can0 → 建主站 → 交给 app → 起 QTimer 周期推进
  */
 
 #include "mainwindow.h"
@@ -52,7 +52,7 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_button_clicked()
 {
-	if (cats_app_state() == CATS_APP_RUNNING) {
+	if (cats_app_state() == CATS_RUN_RUNNING) {
 		timer_->stop();
 		cats_app_stop();
 		can_io_close(&bus_);
@@ -70,8 +70,13 @@ void MainWindow::on_button_clicked()
 	}
 	bus_open_ = true;
 
-	/* 2. 交给应用层，由它负责之后的时序 */
-	if (cats_app_start(&bus_) != CATS_APP_OK) {
+	/* 2. 建主站并登记节点（双轴 = 节点 1 与节点 2） */
+	co_master_init(&master_, &bus_);
+	co_master_add_node(&master_, 1);
+	co_master_add_node(&master_, 2);
+
+	/* 3. 交给应用层，由它负责之后的时序 */
+	if (cats_app_start(&master_) != CATS_APP_OK) {
 		can_io_close(&bus_);
 		bus_open_ = false;
 		show_message(QStringLiteral("app 启动失败"));

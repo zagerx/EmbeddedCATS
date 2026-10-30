@@ -19,9 +19,9 @@
 #include <linux/can/raw.h>
 #include <sys/socket.h>
 
-static can_io_status_t sc_send(void *ctx, const can_io_frame_t *frame)
+static enum can_io_status sc_send(void *ctx, const struct can_io_frame *frame)
 {
-	socketcan_dev_t *dev = ctx;
+	struct socketcan_dev *dev = ctx;
 	struct can_frame cf;
 
 	if (frame->id > 0x7FFu || frame->dlc > CAN_IO_MAX_DLC) {
@@ -38,9 +38,9 @@ static can_io_status_t sc_send(void *ctx, const can_io_frame_t *frame)
 	return CAN_IO_OK;
 }
 
-static can_io_status_t sc_recv(void *ctx, can_io_frame_t *frame, uint32_t timeout_ms)
+static enum can_io_status sc_recv(void *ctx, struct can_io_frame *frame, uint32_t timeout_ms)
 {
-	socketcan_dev_t *dev = ctx;
+	struct socketcan_dev *dev = ctx;
 	struct can_frame cf;
 	struct pollfd pfd = {.fd = dev->fd, .events = POLLIN};
 	int rc;
@@ -68,7 +68,7 @@ static can_io_status_t sc_recv(void *ctx, can_io_frame_t *frame, uint32_t timeou
 
 static void sc_close(void *ctx)
 {
-	socketcan_dev_t *dev = ctx;
+	struct socketcan_dev *dev = ctx;
 
 	if (dev->fd >= 0) {
 		close(dev->fd);
@@ -85,14 +85,14 @@ static uint32_t sc_now_ms(void *ctx)
 	return (uint32_t)(ts.tv_sec * 1000u + (uint32_t)ts.tv_nsec / 1000000u);
 }
 
-static const can_io_ops_t SOCKETCAN_OPS = {
+static const struct can_io_ops SOCKETCAN_OPS = {
 	.send = sc_send,
 	.recv = sc_recv,
 	.close = sc_close,
 	.now_ms = sc_now_ms,
 };
 
-can_io_status_t socketcan_open(can_io_t *io, socketcan_dev_t *dev, const char *ifname)
+enum can_io_status socketcan_open(struct can_io *io, struct socketcan_dev *dev, const char *ifname)
 {
 	struct sockaddr_can addr;
 	unsigned ifindex;

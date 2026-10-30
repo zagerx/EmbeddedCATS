@@ -16,8 +16,8 @@ add_compile_options(-Wall -Wextra)
 #   exe(qt) → app → canopen ；backend 只实现 can_io.h，被 exe 注入
 # ---------------------------------------------------------------
 
-# 内核层：平台无关，只认识自己定义的 can_io.h
-add_library(canopen_kernel STATIC src/canopen/src/sdo_client.c)
+# 内核层：平台无关，只认识自己定义的 can_io.h / master.h / sdo_client.h
+add_library(canopen_kernel STATIC src/canopen/src/sdo_client.c src/canopen/src/master.c)
 target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
 
 # 边界层：can_io.h 的本机实现；只拿内核的“头”，不链它的实现
