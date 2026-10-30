@@ -24,4 +24,11 @@ canopen/
 - 本层不 include 任何平台头文件（`linux/can.h`、socket、线程、系统时钟均不得出现）；
 - 本层不认识"轴""机构""轨迹"，只认识节点、对象与过程数据。
 
-> 当前为空目录骨架。
+## 已实现
+
+| 能力 | 位置 |
+|---|---|
+| CAN 收发契约（边界层实现） | `include/canopen/can_io.h` |
+| SDO 加速读 | `include/canopen/sdo_client.h` + `src/sdo_client.c` |
+
+未实现：NMT 状态机与心跳、SDO 写与分段传输、PDO、SYNC、EMCY。
