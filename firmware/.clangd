@@ -1,0 +1,15 @@
+# clangd 项目配置（只对本目录树生效；保存后 clangd 会自动重启）
+#
+# 作用：告诉 clangd 用 CMake 导出的编译库，而不是让它“猜”编译参数。
+# 没有这个文件时，clangd 不知道 -D_POSIX_C_SOURCE、Qt 头路径、各层 include/，
+# 跳转和补全会出错，还会退化成启发式索引整棵树（内存可涨到 GB 级）。
+#
+# 生成方式（改完 CMakeLists 或新增源文件后重跑一次）：
+#   cmake -S firmware -B firmware/build
+CompileFlags:
+  # 编译库目录；相对路径是相对本文件所在目录解析的
+  CompilationDatabase: build/
+
+Index:
+  # 有真实编译库，允许后台索引（范围受编译库限定，不会全树乱扫）
+  Background: Build

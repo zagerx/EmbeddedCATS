@@ -1,0 +1,33 @@
+# CATS 代码格式（与 gateway-ws 的 embedded-output-gateway-chx 保持同一套风格：
+# Zephyr / Linux 内核口味）。
+#
+# 与参考工程唯一的差异：显式写 ReflowComments: false。
+# 原因：该选项默认为 true（即“自动重排注释”），而自动重排会把中文块注释
+# 切成裸代码行、把收尾的 */ 拆成 * /，曾导致编译报 stray '\343' / expected ';'。
+# 关掉它，注释一律原样保留。
+---
+BasedOnStyle: LLVM
+BreakBeforeBraces: Linux
+IndentWidth: 8
+ContinuationIndentWidth: 8
+ConstructorInitializerIndentWidth: 8
+TabWidth: 8
+UseTab: ForContinuationAndIndentation
+ColumnLimit: 100
+
+# 注释不重排（中文注释的保命项，勿删）
+ReflowComments: false
+
+# include 顺序由分层可见性决定，不让工具插手
+SortIncludes: Never
+
+# 短语句/短函数保持展开，便于单步调试与 diff
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+BitFieldColonSpacing: After
+SpaceBeforeParens: ControlStatements
