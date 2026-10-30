@@ -19,6 +19,10 @@
 
 #include <canopen/can_io.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
   CO_SDO_OK = 0,
   CO_SDO_TIMEOUT, /* 期限内没等到应答 */
@@ -43,5 +47,9 @@ void co_sdo_init(co_sdo_client_t *c, can_io_t *io, uint32_t timeout_ms);
 
 co_sdo_result_t co_sdo_read(co_sdo_client_t *c, uint8_t node_id, uint16_t index,
                             uint8_t sub, co_sdo_value_t *out);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* CANOPEN_SDO_CLIENT_H */

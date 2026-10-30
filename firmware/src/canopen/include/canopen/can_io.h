@@ -22,6 +22,10 @@
 
 #define CAN_IO_MAX_DLC 8u
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* 返回码：只有这几种，上层据此决定"重试 / 放弃 / 报错" */
 typedef enum {
   CAN_IO_OK = 0,  /* 成功 */
@@ -77,5 +81,9 @@ static inline uint32_t can_io_now_ms(can_io_t *io) {
 }
 
 static inline void can_io_close(can_io_t *io) { io->ops->close(io->ctx); }
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* CANOPEN_CAN_IO_H */
