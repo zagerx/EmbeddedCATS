@@ -50,6 +50,7 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 # 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
 add_executable(cats_qt
 	src/qt/main.cpp
+	src/qt/bindings/app_binder.cpp
 	src/qt/shell/mainwindow.cpp
 	src/qt/ui/axis_card.cpp
 	src/qt/ui/log_panel.cpp

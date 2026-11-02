@@ -1,8 +1,8 @@
 /*
  * master_probe — 无界面运行器：开通道 → 建主站 → 按 20 ms 推进 app 状态机
  *
- * 为什么需要它：Qt 壳的 bindings/ 还没接线，所以没有东西调用 cats_app_poll()。
- * 这个程序就是最小可跑的"发动机"，用来在没有界面时验证启动流程与心跳监控。
+ * 为什么需要它：不用开界面就能看状态机日志、复现问题、跑长时间回归；
+ * 界面层（src/qt/bindings）虽然也能跑同样的东西，但它给不了可 grep 的终端输出。
  *
  * 用法：
  *     master_probe [CAN 接口] [运行秒数，0 = 一直跑]
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
 	start_ms = can_io_now_ms(&io);
 
 	while (!s_stop) {
-		(void)cats_app_poll(POLL_INTERVAL_MS);
+		(void)cats_app_poll();
 
 		now = can_io_now_ms(&io);
 		if (cats_app_state() != last) {

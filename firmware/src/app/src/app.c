@@ -44,12 +44,10 @@ enum cats_app_result cats_app_start(struct co_master *master)
 	return cats_app_event(CATS_EV_START);
 }
 
-enum cats_app_result cats_app_poll(uint32_t timeout_ms)
+enum cats_app_result cats_app_poll(void)
 {
 	static const struct hsm_event tick = {HSM_SIG_TICK};
 	uint32_t now;
-
-	(void)timeout_ms; /* 节拍由壳决定，这里只用 now_ms 算间隔 */
 
 	if (s_app.master == NULL) {
 		return CATS_APP_ERR_STATE;
@@ -69,11 +67,10 @@ enum cats_app_result cats_app_event(enum cats_event ev)
 		[CATS_EV_START] = HSM_SIG_START,
 		[CATS_EV_STOP] = HSM_SIG_STOP,
 		[CATS_EV_RESET] = HSM_SIG_RESET,
-		[CATS_EV_TICK] = HSM_SIG_TICK,
 	};
 	struct hsm_event e;
 
-	if (s_app.master == NULL || ev < 0 || ev > CATS_EV_TICK) {
+	if (s_app.master == NULL || ev < 0 || ev > CATS_EV_RESET) {
 		return CATS_APP_ERR_STATE;
 	}
 	ensure_init();

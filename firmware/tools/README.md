@@ -7,8 +7,7 @@
 | `master_probe/` | 无界面运行器：20 ms 推进 `cats_app_poll()`，验证启动流程与心跳监控 |
 | `fake_drive/` | CANopen 从站模拟器：无驱动器时在两路 PCAN 上模拟双轴节点（NMT + SDO + 心跳） |
 
-`master_probe` 是界面接好之前的"发动机"：`src/qt/bindings/` 还没接线，
-没有它就没人调用 `cats_app_poll()`，状态机跑不起来。
+`master_probe` 是命令行版的运行器：日志落在终端，方便 grep 和长时间跑。
 
 `fake_drive` 是测试装置：用 PCAN 两个通道对连（`can0` 主站 / `can1` 从站）替代真实驱动器，
 让主站在没有硬件时也能跑真实 CAN 报文；它的对象字典只是标准占位值。

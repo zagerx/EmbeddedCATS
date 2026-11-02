@@ -1,0 +1,165 @@
+/*
+ * app_binder.cpp — 界面与 app 的唯一接缝（实现）
+ *
+ * 这里没有业务逻辑：不判故障、不改状态、不认 COB-ID，
+ * 只是把「按钮点击」变成「API 调用」，把「app 状态」变成「控件刷新」。
+ */
+
+#include "app_binder.h"
+
+#include "ui/log_panel.h"
+#include "ui/state_bar.h"
+
+#include <QPushButton>
+#include <QTimer>
+
+namespace
+{
+constexpr int kPollIntervalMs = 20; /* 节拍：判 750 ms 心跳超时只引入 2.7% 误差 */
+
+/* C 回调没有上下文指针，用一个静态出口转回本对象（一个进程只有一个主站） */
+AppBinder *s_self = nullptr;
+
+/* app 的运行状态 → 顶部状态条。两边枚举刻意一一对应，仍显式写全，免得日后错位 */
+StateBar::State to_bar_state(enum cats_run_state s)
+{
+	switch (s) {
+	case CATS_RUN_STARTING:
+		return StateBar::State::Starting;
+	case CATS_RUN_RUNNING:
+		return StateBar::State::Running;
+	case CATS_RUN_STOPPING:
+		return StateBar::State::Stopping;
+	case CATS_RUN_FAULT:
+		return StateBar::State::Fault;
+	case CATS_RUN_ESTOP:
+		return StateBar::State::EStop;
+	case CATS_RUN_IDLE:
+	case CATS_RUN_STATE_COUNT:
+		break;
+	}
+	return StateBar::State::Idle;
+}
+} // namespace
+
+AppBinder::AppBinder(QObject *parent) : QObject(parent)
+{
+	s_self = this;
+}
+
+AppBinder::~AppBinder()
+{
+	if (channel_open_) {
+		can_io_close(&bus_);
+	}
+	s_self = nullptr;
+}
+
+void AppBinder::attach(QWidget *root, const QString &ifname)
+{
+	/* 先接日志出口，后面任何一步出错才显示得出来 */
+	cats_app_set_log(&AppBinder::logSink);
+
+	findWidgets(root);
+	if (!openChannel(ifname)) {
+		return; /* 没通道就不起节拍：onTick 根本不会被调用 */
+	}
+	startTimer();
+	publish();
+}
+
+void AppBinder::findWidgets(QWidget *root)
+{
+	log_panel_ = root->findChild<LogPanel *>();
+	state_bar_ = root->findChild<StateBar *>();
+	start_button_ = root->findChild<QPushButton *>(QStringLiteral("btn_start"));
+
+	/* 找不到控件不能静默：否则"点了没反应"会被当成业务问题 */
+	if (state_bar_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到状态条，状态不会刷新"));
+	}
+	if (start_button_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到 btn_start，启动按钮无响应"));
+		return;
+	}
+	connect(start_button_, &QPushButton::clicked, this, &AppBinder::onStartClicked);
+}
+
+bool AppBinder::openChannel(const QString &ifname)
+{
+	if (socketcan_open(&bus_, &dev_, ifname.toUtf8().constData()) != CAN_IO_OK) {
+		pushLog(QStringLiteral("打不开通道 %1（接口是否 up？）").arg(ifname));
+		if (start_button_ != nullptr) {
+			start_button_->setEnabled(false);
+		}
+		return false;
+	}
+	channel_open_ = true;
+
+	co_master_init(&master_, &bus_);
+	(void)co_master_add_node(&master_, 1);
+	(void)co_master_add_node(&master_, 2);
+	return true;
+}
+
+void AppBinder::startTimer()
+{
+	timer_ = new QTimer(this);
+	timer_->setTimerType(Qt::PreciseTimer);
+	timer_->setInterval(kPollIntervalMs);
+	connect(timer_, &QTimer::timeout, this, &AppBinder::onTick);
+	timer_->start();
+}
+
+void AppBinder::onStartClicked()
+{
+	/* 只有 IDLE 才算「启动」，其余一律当「停止」；
+	 * FAULT / ESTOP 真正需要的是「复位」，那个按钮界面还没做 */
+	if (cats_app_state() == CATS_RUN_IDLE) {
+		if (cats_app_start(&master_) != CATS_APP_OK) {
+			pushLog(QStringLiteral("启动失败：状态不允许或参数非法"));
+		}
+	} else {
+		cats_app_stop();
+	}
+	publish();
+}
+
+void AppBinder::onTick()
+{
+	/* app 内部先收帧再推进状态机；非阻塞，20 ms 一次不会卡界面 */
+	(void)cats_app_poll();
+	publish();
+}
+
+void AppBinder::pushLog(const QString &line)
+{
+	if (log_panel_ != nullptr) {
+		log_panel_->append(line);
+	}
+}
+
+void AppBinder::logSink(const char *line)
+{
+	if (s_self != nullptr && line != nullptr) {
+		s_self->pushLog(QString::fromUtf8(line));
+	}
+}
+
+void AppBinder::publish()
+{
+	const enum cats_run_state state = cats_app_state();
+
+	if (state == last_state_) {
+		return; /* 状态没变就不碰控件 */
+	}
+	last_state_ = state;
+
+	if (state_bar_ != nullptr) {
+		state_bar_->setState(to_bar_state(state));
+	}
+	if (start_button_ != nullptr) {
+		start_button_->setText(state == CATS_RUN_IDLE ? QStringLiteral("启动")
+							      : QStringLiteral("停止"));
+	}
+}

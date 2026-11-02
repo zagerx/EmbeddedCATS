@@ -63,19 +63,21 @@ enum cats_run_state {
 	CATS_RUN_STATE_COUNT /* 状态个数，states[] 表的大小 */
 };
 
-/* 外部事件：界面/上位机的主动输入。条件类（超时等）不是事件 */
+/* 外部事件：界面/上位机的主动输入。条件类（超时、心跳）不是事件 */
 enum cats_event {
 	CATS_EV_START, /* 点「启动」 */
 	CATS_EV_STOP,  /* 点「停止」 */
 	CATS_EV_RESET, /* 点「复位」 */
-	CATS_EV_TICK   /* 每拍定时到（QTimer 驱动） */
 };
 
 /* 启动：等价于注入 CATS_EV_START。master 的生命周期由调用方（壳）负责 */
 enum cats_app_result cats_app_start(struct co_master *master);
 
-/* 推进一次：等价于注入 CATS_EV_TICK。timeout_ms 建议 10~20（界面节拍） */
-enum cats_app_result cats_app_poll(uint32_t timeout_ms);
+/*
+ * 推进一次：收帧 + 推进状态机。壳按 10~20 ms 周期性调用，节拍由壳掌握，
+ * 所以不需要参数（内核侧全是非阻塞调用，本函数不会阻塞）。
+ */
+enum cats_app_result cats_app_poll(void);
 
 /* 停止：等价于注入 CATS_EV_STOP。不释放主站与通道（那是壳的） */
 void cats_app_stop(void);
@@ -86,7 +88,7 @@ enum cats_run_state cats_app_state(void);
 /* 状态名："IDLE" / "STARTING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
 const char *cats_app_state_name(enum cats_run_state s);
 
-/* 统一事件入口：所有状态变化都从这里进。tick 由 cats_app_poll 代发 */
+/* 统一事件入口：所有外部输入都从这里进。tick 由 cats_app_poll 内部产生，不在这里 */
 enum cats_app_result cats_app_event(enum cats_event ev);
 
 /*
