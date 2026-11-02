@@ -1,5 +1,5 @@
 /*
- * state_bar.cpp — 纯展示：当前状态 + 六态小标签
+ * state_bar.cpp — 纯展示：当前状态圆点 + 状态码 + 中文说明
  */
 
 #include "state_bar.h"
@@ -9,7 +9,6 @@
 
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QStyle>
 #include <QVBoxLayout>
 
 namespace
@@ -30,8 +29,6 @@ const StateInfo kStates[] = {
 	{"FAULT", "故障", "需复位后重新启动", StatusLed::State::Fault, 12},
 	{"ESTOP", "急停", "需复位后重新启动", StatusLed::State::Fault, 12},
 };
-
-constexpr int kStateCount = 5;
 } // namespace
 
 StateBar::StateBar(QWidget *parent) : QWidget(parent)
@@ -58,18 +55,6 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	root->addLayout(current);
 	root->addStretch(1);
 
-	/* 右：五个状态小标签 */
-	auto *chips = new QHBoxLayout();
-	chips->setSpacing(6);
-	for (int i = 0; i < kStateCount; ++i) {
-		auto *label = new QLabel(QString::fromLatin1(kStates[i].code), this);
-		label->setObjectName(QStringLiteral("stateChip"));
-		label->setAlignment(Qt::AlignCenter);
-		chips->addWidget(label);
-		chips_.append(Chip{static_cast<State>(i), label});
-	}
-	root->addLayout(chips);
-
 	setState(State::Preparing);
 }
 
@@ -83,11 +68,4 @@ void StateBar::setState(State state)
 	led_->setText(QString::fromLatin1(info.code));
 	hint_->setText(QStringLiteral("%1 · %2").arg(QString::fromUtf8(info.title),
 						     QString::fromUtf8(info.hint)));
-
-	for (const Chip &chip : chips_) {
-		const bool active = (chip.state == state);
-		chip.label->setProperty("active", active);
-		chip.label->style()->unpolish(chip.label);
-		chip.label->style()->polish(chip.label);
-	}
 }

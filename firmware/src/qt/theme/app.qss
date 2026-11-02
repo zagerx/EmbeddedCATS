@@ -58,22 +58,6 @@ QWidget {
 	font-size: 12px;
 }
 
-#stateChip {
-	background: transparent;
-	border: 1px solid @border;
-	border-radius: 9px;
-	padding: 2px 9px;
-	color: @fgDim;
-	font-family: "DejaVu Sans Mono", monospace;
-	font-size: 11px;
-}
-
-#stateChip[active="true"] {
-	background: @deep;
-	border-color: @primary;
-	color: @primary;
-}
-
 /* ---- 按钮 ---- */
 
 QPushButton {
