@@ -5,7 +5,7 @@
  * TICK ：等所有节点 boot-up（2000 ms 不到齐就报 FAULT）；
  * STOP ：随时可取消。
  *
- * 本状态只看 boot-up，不判心跳：节点没起来和没心跳是同一件事，分开报没意义。
+ * 本状态只判断 boot-up 是否到齐。
  */
 
 #include "states.h"
@@ -19,10 +19,10 @@ int st_starting(struct hsm *me, const struct hsm_event *e)
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:
-		/* 旧记录若不清理，上一轮的“已上线”会让启动一步跨过 */
+		/* 清空上线记录，避免启动判定沿用陈旧数据 */
 		co_master_reset_seen(app->master);
-		/* 0x82 = Reset Communication，站号 0 = 广播。
-		 * 用 0x82 而不是 0x81：只复位通信，不冲掉对象字典里的配置。 */
+		/* 0x82 = Reset Communication，站号 0 = 广播；只复位通信，
+		 * 不改动对象字典里的配置 */
 		(void)co_master_nmt(app->master, 0, 0x82);
 		HSM_HANDLED();
 

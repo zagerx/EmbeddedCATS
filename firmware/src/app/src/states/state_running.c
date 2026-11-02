@@ -11,7 +11,7 @@
 
 #include "states.h"
 
-/* 心跳超时 = 1.5 × 500 ms 生产周期（CiA 301 口径，CANopenNode 同此实现） */
+/* 心跳超时 = 1.5 × 500 ms 生产周期（CiA 301 的超时口径） */
 #define HEARTBEAT_TIMEOUT_MS 750u
 
 int st_running(struct hsm *me, const struct hsm_event *e)

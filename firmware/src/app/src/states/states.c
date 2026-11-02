@@ -58,18 +58,18 @@ const char *fault_name(enum cats_app_fault f)
 	return FAULT_NAMES[f];
 }
 
-void app_log(struct hsm *me, const char *fmt, ...)
+void app_log(struct cats_app *app, const char *fmt, ...)
 {
 	char line[128];
 	va_list ap;
 
-	if (me->log == NULL) {
+	if (app->log == NULL) {
 		return;
 	}
 	va_start(ap, fmt);
 	vsnprintf(line, sizeof(line), fmt, ap);
 	va_end(ap);
-	me->log(line);
+	app->log(line);
 }
 
 uint32_t now_ms(struct cats_app *app)

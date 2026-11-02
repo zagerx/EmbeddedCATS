@@ -12,13 +12,15 @@
 #include "states/states.h"
 
 static struct cats_app s_app;
-static int s_started; /* 标记 hsm 是否已初始化（区分"还没设日志"的首次调用） */
 
-static void ensure_init(void)
+/* 推进一次状态机；发生迁移时记一行日志（迁移日志的唯一出处） */
+static void dispatch(const struct hsm_event *e, uint32_t now)
 {
-	if (!s_started) {
-		hsm_init(&s_app.hsm, st_idle, state_name, s_app.hsm.log, now_ms(&s_app));
-		s_started = 1;
+	hsm_state_fn from = s_app.hsm.state;
+
+	hsm_dispatch(&s_app.hsm, e, now);
+	if (s_app.hsm.state != from) {
+		app_log(&s_app, "%s -> %s", state_name(from), state_name(s_app.hsm.state));
 	}
 }
 
@@ -26,9 +28,8 @@ static void ensure_init(void)
 
 void cats_app_set_log(void (*log_fn)(const char *line))
 {
-	s_app.hsm.log = log_fn;
-	s_app.hsm.state_name = state_name;
-	ensure_init();
+	/* 纯赋值：start 之前/之后调都可以。NULL 表示静默 */
+	s_app.log = log_fn;
 }
 
 enum cats_app_result cats_app_start(struct co_master *master)
@@ -36,11 +37,15 @@ enum cats_app_result cats_app_start(struct co_master *master)
 	if (master == NULL) {
 		return CATS_APP_ERR_PARAM;
 	}
-	if (s_app.master != NULL && s_app.hsm.state != st_idle) {
+
+	if (s_app.master == NULL) {
+		/* 首次启动时建状态机；master 是否已接管即"是否初始化过"的判据 */
+		s_app.master = master;
+		hsm_init(&s_app.hsm, st_idle, now_ms(&s_app));
+	} else if (s_app.hsm.state != st_idle) {
 		return CATS_APP_ERR_STATE; /* 已经在跑，先 stop */
 	}
-	ensure_init();
-	s_app.master = master;
+
 	return cats_app_event(CATS_EV_START);
 }
 
@@ -52,12 +57,11 @@ enum cats_app_result cats_app_poll(void)
 	if (s_app.master == NULL) {
 		return CATS_APP_ERR_STATE;
 	}
-	ensure_init();
 
 	now = now_ms(&s_app);
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_app.master, now);
-	hsm_dispatch(&s_app.hsm, &tick, now);
+	dispatch(&tick, now);
 	return CATS_APP_OK;
 }
 
@@ -73,9 +77,8 @@ enum cats_app_result cats_app_event(enum cats_event ev)
 	if (s_app.master == NULL || ev < 0 || ev > CATS_EV_RESET) {
 		return CATS_APP_ERR_STATE;
 	}
-	ensure_init();
 	e.sig = SIGS[ev];
-	hsm_dispatch(&s_app.hsm, &e, now_ms(&s_app));
+	dispatch(&e, now_ms(&s_app));
 	return CATS_APP_OK;
 }
 
@@ -91,16 +94,20 @@ enum cats_app_result cats_app_reset(void)
 
 void cats_app_estop(void)
 {
+	hsm_state_fn from;
+
 	if (s_app.master == NULL) {
 		return;
 	}
-	ensure_init();
+
+	app_log(&s_app, "ESTOP 触发");
 
 	/* 急停不走事件表：任何状态都强制切过去，ENTRY 里做安全动作 */
-	if (s_app.hsm.log != NULL) {
-		s_app.hsm.log("ESTOP!");
-	}
+	from = s_app.hsm.state;
 	hsm_force(&s_app.hsm, st_estop, now_ms(&s_app));
+	if (s_app.hsm.state != from) {
+		app_log(&s_app, "%s -> %s", state_name(from), state_name(st_estop));
+	}
 }
 
 enum cats_run_state cats_app_state(void)

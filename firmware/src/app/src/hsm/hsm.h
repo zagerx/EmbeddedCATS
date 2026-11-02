@@ -3,11 +3,12 @@
  *
  * 三条规则：
  *   1. 状态 = 函数指针；每个状态一个函数，自己处理事件、自己决定迁移；
- *   2. 迁移不是直接改 state，而是返回 HSM_RET_TRAN 并把目标填进 me->target，
- *      由 hsm_dispatch() 统一完成"旧状态 EXIT → 换指针 → 新状态 ENTRY"；
+ *   2. 迁移用返回 HSM_RET_TRAN 表达，目标写在 me->target；
+ *      由 hsm_dispatch() 完成"旧状态 EXIT → 换指针 → 新状态 ENTRY"；
  *   3. ENTRY / EXIT 也是事件：进入/离开状态时的动作有固定位置可写。
  *
- * 它不认识 CAN、不认识轴、不认识 CATS —— 任何项目都能复用。
+ * 只依赖 <stdint.h>：不含 I/O、日志与业务概念。需要知道迁移结果时，
+ * 调用方比对调用前后 h->state 的值即可（见 app.c 的 dispatch()）。
  */
 
 #ifndef APP_HSM_H
@@ -43,8 +44,6 @@ struct hsm {
 	hsm_state_fn state;  /* 当前状态 */
 	hsm_state_fn target; /* HSM_TRAN() 填的迁移目标 */
 	uint32_t entered_ms; /* 进入本状态的时刻，用于算"等了多久" */
-	void (*log)(const char *line);
-	const char *(*state_name)(hsm_state_fn fn); /* 日志用：函数指针 → 名字 */
 };
 
 #define HSM_HANDLED() return HSM_RET_HANDLED
@@ -56,8 +55,7 @@ struct hsm {
 	} while (0)
 
 /* 初始化：设初态并触发一次 ENTRY。不触发迁移 */
-void hsm_init(struct hsm *h, hsm_state_fn initial, const char *(*name)(hsm_state_fn),
-	      void (*log)(const char *), uint32_t now);
+void hsm_init(struct hsm *h, hsm_state_fn initial, uint32_t now);
 
 /* 注入事件：驱动一次状态处理；若发生迁移，自动完成 EXIT → ENTRY */
 void hsm_dispatch(struct hsm *h, const struct hsm_event *e, uint32_t now);

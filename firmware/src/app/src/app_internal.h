@@ -2,8 +2,8 @@
  * app_internal.h — 应用层内部对象与共享声明（**不对外发布**）
  *
  * 供 app.c 与各 states/state_*.c 共享：
- *   struct cats_app     应用层对象（状态机 + 主站指针 + 轴 + 故障码）
- *   states[]           状态函数表（states/states.c 定义，app.c 用于初始化与日志）
+ *   struct cats_app     应用层对象（状态机 + 主站指针 + 轴 + 故障码 + 日志出口）
+ *   states[]           状态函数表（states/states.c 定义）
  *   state_name()       函数指针 → 状态名
  *   now_ms()           取当前时刻的小工具
  */
@@ -33,10 +33,13 @@ enum cats_app_fault {
 struct cats_app {
 	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
 
+	/* 日志出口：集成层注入（Qt 面板 / 终端）；NULL = 静默 */
+	void (*log)(const char *line);
+
 	struct cats_axis axes[CATS_APP_MAX_AXES];
 	uint8_t axis_count;
 
-	struct hsm hsm; /* 状态机（含当前状态函数指针、entered_ms、日志） */
+	struct hsm hsm; /* 纯状态机机制（当前状态、迁移目标、进入时刻） */
 	enum cats_app_fault fault_code; /* 最后一次出错原因 */
 };
 

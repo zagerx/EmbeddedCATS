@@ -13,7 +13,7 @@ int st_fault(struct hsm *me, const struct hsm_event *e)
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:
-		app_log(me, "FAULT: %s", fault_name(app->fault_code));
+		app_log(app, "FAULT: %s", fault_name(app->fault_code));
 		HSM_HANDLED();
 
 	case HSM_SIG_RESET:

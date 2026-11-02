@@ -18,7 +18,7 @@ int st_stopping(struct hsm *me, const struct hsm_event *e)
 		HSM_HANDLED();
 
 	case HSM_SIG_TICK:
-		HSM_TRAN(st_idle); /* TODO: 改成"清理完成后"再迁移 */
+		HSM_TRAN(st_idle); /* TODO: 清理完成后再迁移到 IDLE */
 
 	default:
 		HSM_IGNORED();
