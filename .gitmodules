@@ -1,0 +1,3 @@
+[submodule "firmware/src/third_party/CANopenNode"]
+	path = firmware/src/third_party/CANopenNode
+	url = https://github.com/CANopenNode/CANopenNode.git
