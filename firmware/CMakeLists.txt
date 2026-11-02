@@ -67,3 +67,21 @@ target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets)
 add_executable(master_probe tools/master_probe/main.c)
 target_link_libraries(master_probe PRIVATE cats_app backend_socketcan)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)
+
+# 工具：状态机骨架（一状态一文件，main.c 暂空）。
+# 只编 hsm.c，不链 cats_app —— 顺带证明内核零依赖。
+set(HSM_DEMO_SRCS
+	tools/hsm_demo/states.c
+	tools/hsm_demo/state_root.c
+	tools/hsm_demo/state_operational.c
+	tools/hsm_demo/state_idle.c
+	tools/hsm_demo/state_running.c
+	tools/hsm_demo/state_stopping.c
+	tools/hsm_demo/state_fault.c
+	tools/hsm_demo/state_estop.c)
+
+add_executable(hsm_demo tools/hsm_demo/main.c ${HSM_DEMO_SRCS} src/app/src/hsm/hsm.c)
+target_include_directories(hsm_demo PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/src/app/src/hsm
+	${CMAKE_CURRENT_SOURCE_DIR}/tools/hsm_demo)
+target_compile_definitions(hsm_demo PRIVATE _POSIX_C_SOURCE=200809L)

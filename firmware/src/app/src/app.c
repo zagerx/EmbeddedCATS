@@ -13,12 +13,14 @@
 
 static struct cats_app s_app;
 
-/* 迁移发生时内核回调到这里：迁移日志的唯一出处 */
-static void on_transition(void *ctx, const struct hsm_state *from, const struct hsm_state *to)
+/* 迁移日志：内核不再提供 trace 回调，这里用迁移前后的状态对比补上 */
+static void log_transition(const struct hsm_state *before)
 {
-	struct cats_app *app = ctx;
+	const struct hsm_state *after = hsm_current(&s_app.hsm);
 
-	app_log(app, "%s -> %s", from != NULL ? from->name : "?", to->name);
+	if (after != before) {
+		app_log(&s_app, "%s -> %s", before->name, after->name);
+	}
 }
 
 /* ---- 对外接口 ---- */
@@ -41,12 +43,12 @@ enum cats_app_result cats_app_init(struct co_master *master)
 	s_app.master = master;
 	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
 	hsm_init(&s_app.hsm, &st_preparing, now_ms(&s_app));
-	hsm_set_trace(&s_app.hsm, on_transition, &s_app);
 	return CATS_APP_OK;
 }
 
 enum cats_app_result cats_app_poll(void)
 {
+	const struct hsm_state *before;
 	uint32_t now;
 
 	if (s_app.master == NULL) {
@@ -57,14 +59,17 @@ enum cats_app_result cats_app_poll(void)
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_app.master, now);
 
-	/* 一拍一个 TICK，再让内核排空队列（到期定时器也在这里入队） */
-	hsm_post(&s_app.hsm, CATS_SIG_TICK, 0);
-	hsm_poll(&s_app.hsm, now);
+	/* 一拍推一次状态机（内部处理一个事件） */
+	before = hsm_current(&s_app.hsm);
+	hsm_dispatch(&s_app.hsm, CATS_SIG_TICK, 0, now);
+	log_transition(before);
 	return CATS_APP_OK;
 }
 
 void cats_app_estop(void)
 {
+	const struct hsm_state *before;
+
 	if (s_app.master == NULL) {
 		return;
 	}
@@ -72,7 +77,9 @@ void cats_app_estop(void)
 	app_log(&s_app, "ESTOP 触发");
 
 	/* 急停不走队列：任何状态下都立即切过去，ENTRY 里做安全动作 */
-	hsm_force(&s_app.hsm, &st_estop, now_ms(&s_app));
+	before = hsm_current(&s_app.hsm);
+	hsm_transition(&s_app.hsm, &st_estop, now_ms(&s_app));
+	log_transition(before);
 }
 
 enum cats_run_state cats_app_state(void)

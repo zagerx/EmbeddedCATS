@@ -20,8 +20,7 @@
 /* 业务事件：内核只认 ENTRY/EXIT，业务信号从 HSM_SIG_USER 起编号 */
 enum cats_app_sig {
 	CATS_SIG_TICK = HSM_SIG_USER, /* 周期节拍，cats_app_poll() 每拍投一个 */
-	CATS_SIG_STOP,                /* 请求停止 */
-	CATS_SIG_BOOT_TIMEOUT         /* 等 boot-up 超时（由 hsm_arm 的定时器投递） */
+	CATS_SIG_STOP                 /* 请求停止 */
 };
 
 /* 业务轴（轴层）。现在只是占位，等 axis/ 有实现再填 */
