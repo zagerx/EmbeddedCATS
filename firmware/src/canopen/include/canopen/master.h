@@ -25,12 +25,17 @@ extern "C" {
 #define CO_MASTER_MAX_NODES 16
 #define CO_MASTER_POOL_SIZE 16 /* 每拍从总线捞到的帧暂存；调满要判满并丢 */
 
-/* DS 301 7.3.2：NMT 状态值与心跳/boot-up 帧的 data[0] 一致，可直接比较 */
+/*
+ * DS 301 7.3.2：NMT 状态值与心跳/boot-up 帧的 data[0] 一致，可直接赋值。
+ * CO_NMT_OFFLINE 是主站自定义：登记了但从没收到过该节点的心跳/boot-up，
+ * 用来区分"节点没上电"和"节点在 Pre-op"。它只在主站内部用，不上总线。
+ */
 enum co_nmt_state {
 	CO_NMT_BOOTUP = 0x00,
 	CO_NMT_STOPPED = 0x04,
 	CO_NMT_OPERATIONAL = 0x05,
-	CO_NMT_PREOPERATIONAL = 0x7F
+	CO_NMT_PREOPERATIONAL = 0x7F,
+	CO_NMT_OFFLINE = 0xFF
 };
 
 struct co_node {

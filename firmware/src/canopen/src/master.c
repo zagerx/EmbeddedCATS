@@ -39,7 +39,7 @@ int co_master_add_node(struct co_master *m, uint8_t node_id)
 
 	n = &m->nodes[m->node_count++];
 	n->node_id = node_id;
-	n->nmt = CO_NMT_PREOPERATIONAL;
+	n->nmt = CO_NMT_OFFLINE; /* 还没收到任何心跳，先当离线 */
 	n->last_heartbeat_ms = 0;
 	return 1;
 }

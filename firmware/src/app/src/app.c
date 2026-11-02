@@ -1,67 +1,112 @@
 /*
- * app.c — 应用层骨架（**还没有真正收发**）
+ * app.c — 应用层装配与对外接口（**不含状态逻辑**）
  *
- * 分工（方案 A，**不用 typedef**）：
- *   struct cats_app    = 应用层对象：主站指针 + 轴集合 + **运行状态**。
- *   struct co_master   = 内核层主站：总线 + 节点 + NMT 状态（协议身份归它）。
- *   enum cats_run_state = IDLE / RUNNING / FAULT，描述“整个程序”的运行状态。
- *
- * 现在只做三件事：记住主站指针、维护运行状态、把非法调用挡回去。
- * 下一步往 cats_app_poll() 里填“每拍发什么、收什么”，其余函数基本不用改。
+ * 职责：把对外 API 翻译成状态机事件，其余一概不管。
+ *   状态逻辑在 states/state_*.c（一状态一文件），状态机机制在 hsm/hsm.c，
+ *   状态注册在 states/states.c，内部对象在 app_internal.h。
  */
 
 #include <app/app.h>
 
-#include <stddef.h>
+#include "app_internal.h"
+#include "states/states.h"
 
-#define CATS_APP_MAX_AXES 2
+static struct cats_app s_app;
+static int s_started; /* 标记 hsm 是否已初始化（区分"还没设日志"的首次调用） */
 
-/* 业务轴（轴层）。现在只是占位，等 axis/ 有实现再填 */
-struct cats_axis {
-	uint8_t node_id; /* 轴 0 = 节点 1，轴 1 = 节点 2 */
-};
+static void ensure_init(void)
+{
+	if (!s_started) {
+		hsm_init(&s_app.hsm, st_idle, state_name, s_app.hsm.log, now_ms(&s_app));
+		s_started = 1;
+	}
+}
 
-struct cats_app {
-	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
+/* ---- 对外接口 ---- */
 
-	struct cats_axis axes[CATS_APP_MAX_AXES];
-	uint8_t axis_count;
-
-	enum cats_run_state state; /* IDLE / RUNNING / FAULT */
-};
-
-static struct cats_app s_app = {NULL, {{0}, {0}}, 0, CATS_RUN_IDLE};
+void cats_app_set_log(void (*log_fn)(const char *line))
+{
+	s_app.hsm.log = log_fn;
+	s_app.hsm.state_name = state_name;
+	ensure_init();
+}
 
 enum cats_app_result cats_app_start(struct co_master *master)
 {
 	if (master == NULL) {
 		return CATS_APP_ERR_PARAM;
 	}
-	if (s_app.state == CATS_RUN_RUNNING) {
-		return CATS_APP_ERR_STATE;
+	if (s_app.master != NULL && s_app.hsm.state != st_idle) {
+		return CATS_APP_ERR_STATE; /* 已经在跑，先 stop */
 	}
+	ensure_init();
 	s_app.master = master;
-	s_app.state = CATS_RUN_RUNNING;
-	return CATS_APP_OK;
+	return cats_app_event(CATS_EV_START);
 }
 
 enum cats_app_result cats_app_poll(uint32_t timeout_ms)
 {
-	if (s_app.state != CATS_RUN_RUNNING) {
+	static const struct hsm_event tick = {HSM_SIG_TICK};
+
+	(void)timeout_ms; /* 节拍由壳的 QTimer 决定，这里只用 now_ms 算间隔 */
+
+	if (s_app.master == NULL) {
 		return CATS_APP_ERR_STATE;
 	}
-	(void)timeout_ms;
-	/* TODO(下一拍)：NMT 启动节点 → SDO 探测 0x1000 → 状态上抛 */
+	ensure_init();
+	hsm_dispatch(&s_app.hsm, &tick, now_ms(&s_app));
+	return CATS_APP_OK;
+}
+
+enum cats_app_result cats_app_event(enum cats_event ev)
+{
+	static const int SIGS[] = {
+		[CATS_EV_START] = HSM_SIG_START,
+		[CATS_EV_STOP] = HSM_SIG_STOP,
+		[CATS_EV_RESET] = HSM_SIG_RESET,
+		[CATS_EV_TICK] = HSM_SIG_TICK,
+	};
+	struct hsm_event e;
+
+	if (s_app.master == NULL || ev < 0 || ev > CATS_EV_TICK) {
+		return CATS_APP_ERR_STATE;
+	}
+	ensure_init();
+	e.sig = SIGS[ev];
+	hsm_dispatch(&s_app.hsm, &e, now_ms(&s_app));
 	return CATS_APP_OK;
 }
 
 void cats_app_stop(void)
 {
-	s_app.master = NULL; /* 主站和总线都由壳持有，本层不释放 */
-	s_app.state = CATS_RUN_IDLE;
+	(void)cats_app_event(CATS_EV_STOP);
+}
+
+enum cats_app_result cats_app_reset(void)
+{
+	return cats_app_event(CATS_EV_RESET);
+}
+
+void cats_app_estop(void)
+{
+	if (s_app.master == NULL) {
+		return;
+	}
+	ensure_init();
+
+	/* 急停不走事件表：任何状态都强制切过去，ENTRY 里做安全动作 */
+	if (s_app.hsm.log != NULL) {
+		s_app.hsm.log("ESTOP!");
+	}
+	hsm_force(&s_app.hsm, st_estop, now_ms(&s_app));
 }
 
 enum cats_run_state cats_app_state(void)
 {
-	return s_app.state;
+	for (int i = 0; i < CATS_RUN_STATE_COUNT; i++) {
+		if (states[i] == s_app.hsm.state) {
+			return (enum cats_run_state)i;
+		}
+	}
+	return CATS_RUN_IDLE;
 }

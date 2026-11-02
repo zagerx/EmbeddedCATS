@@ -9,6 +9,7 @@
 
 #include <app/app.h>
 
+#include <QDebug>
 #include <QLabel>
 #include <QPushButton>
 #include <QTimer>
@@ -19,10 +20,18 @@ namespace
 {
 constexpr int kTickMs = 20; /* 界面节拍；也是 cats_app_poll 的单次等待上限 */
 const char kCanIfName[] = "can0";
+
+/* 应用层日志钩子：状态迁移时 app 会调它，转成 Qt 的调试输出 */
+void app_log(const char *line)
+{
+	qInfo("[app] %s", line);
+}
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
+	cats_app_set_log(app_log); /* 装配：把日志出口接到 Qt */
+
 	auto *central = new QWidget(this);
 	auto *layout = new QVBoxLayout(central);
 
@@ -52,9 +61,10 @@ MainWindow::~MainWindow()
 
 void MainWindow::on_button_clicked()
 {
-	if (cats_app_state() == CATS_RUN_RUNNING) {
-		timer_->stop();
+	/* 运行中/启动中点「停止」：注入 STOP 事件，状态机会走 STOPPING → IDLE */
+	if (cats_app_state() == CATS_RUN_RUNNING || cats_app_state() == CATS_RUN_STARTING) {
 		cats_app_stop();
+		timer_->stop();
 		can_io_close(&bus_);
 		bus_open_ = false;
 		set_ui_running(false);
@@ -75,7 +85,7 @@ void MainWindow::on_button_clicked()
 	co_master_add_node(&master_, 1);
 	co_master_add_node(&master_, 2);
 
-	/* 3. 交给应用层，由它负责之后的时序 */
+	/* 3. 交给应用层，由它负责之后的时序（进入 STARTING） */
 	if (cats_app_start(&master_) != CATS_APP_OK) {
 		can_io_close(&bus_);
 		bus_open_ = false;
@@ -83,10 +93,10 @@ void MainWindow::on_button_clicked()
 		return;
 	}
 
-	/* 3. 起节拍 */
+	/* 4. 起节拍 */
 	timer_->start();
 	set_ui_running(true);
-	show_message(QStringLiteral("已启动"));
+	show_message(QStringLiteral("启动中…"));
 }
 
 void MainWindow::on_tick()

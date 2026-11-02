@@ -39,24 +39,65 @@ enum cats_app_result {
 	CATS_APP_ERR_PARAM  /* 参数不合法：通道名为空 */
 };
 
+/*
+ * 状态机模型：**QP 风格——状态即函数指针**。
+ *   每个状态一个函数（states_*.c，一状态一文件），自己处理事件、自己决定迁移；
+ *   迁移由 hsm_dispatch() 统一完成"旧状态 EXIT → 换指针 → 新状态 ENTRY"；
+ *   ENTRY/EXIT 也是事件，进入/离开状态的动作有固定位置。
+ *
+ * 运行状态（应用层，与 NMT 状态、402 状态三者不混）：
+ *   IDLE      空闲，通道未动
+ *   STARTING  启动中：等 boot-up → NMT → 配 PDO（界面可取消）
+ *   RUNNING   运行中：周期推进，可发运动指令
+ *   STOPPING  停止中：下使能 → NMT pre-op → 回 IDLE
+ *   FAULT     故障：通信/协议类错误，可复位
+ *   ESTOP     急停：安全态，只能人工解除，绝不自动重试
+ */
 enum cats_run_state {
-	CATS_RUN_IDLE = 0, /* 未启动 */
-	CATS_RUN_RUNNING,  /* 周期推进中 */
-	CATS_RUN_FAULT     /* 出过错，需 stop 后重新 start */
+	CATS_RUN_IDLE = 0,
+	CATS_RUN_STARTING,
+	CATS_RUN_RUNNING,
+	CATS_RUN_STOPPING,
+	CATS_RUN_FAULT,
+	CATS_RUN_ESTOP,
+	CATS_RUN_STATE_COUNT /* 状态个数，states[] 表的大小 */
 };
 
-/* 启动：接管调用方给的主站，进入 RUNNING。已在运行则返回 ERR_STATE。
- * master 的生命周期由调用方（壳）负责 */
+/* 外部事件：界面/上位机的主动输入。条件类（超时等）不是事件 */
+enum cats_event {
+	CATS_EV_START, /* 点「启动」 */
+	CATS_EV_STOP,  /* 点「停止」 */
+	CATS_EV_RESET, /* 点「复位」 */
+	CATS_EV_TICK   /* 每拍定时到（QTimer 驱动） */
+};
+
+/* 启动：等价于注入 CATS_EV_START。master 的生命周期由调用方（壳）负责 */
 enum cats_app_result cats_app_start(struct co_master *master);
 
-/* 推进一次：收发一帧、处理超时、更新状态。timeout_ms 建议 10~20（界面节拍） */
+/* 推进一次：等价于注入 CATS_EV_TICK。timeout_ms 建议 10~20（界面节拍） */
 enum cats_app_result cats_app_poll(uint32_t timeout_ms);
 
-/* 停止：不再推进，回到 IDLE。不释放主站与通道（那是壳的）。未启动时调用无副作用 */
+/* 停止：等价于注入 CATS_EV_STOP。不释放主站与通道（那是壳的） */
 void cats_app_stop(void);
 
 /* 供界面刷新按钮文字与状态显示 */
 enum cats_run_state cats_app_state(void);
+
+/* 统一事件入口：所有状态变化都从这里进。tick 由 cats_app_poll 代发 */
+enum cats_app_result cats_app_event(enum cats_event ev);
+
+/*
+ * 急停：**不走事件队列**，任何状态下都立即生效（安全要求）。
+ * 只做接口预留，由调用方（未来 lyos 的 cmd topic、或外部 STO 检测）触发。
+ * 行为：停 SYNC + 各轴 quick stop，然后切到 ESTOP；只能 cats_app_reset 人工解除。
+ */
+void cats_app_estop(void);
+
+/* 复位：FAULT → STOPPING，ESTOP → IDLE（其余状态忽略） */
+enum cats_app_result cats_app_reset(void);
+
+/* 状态切换日志：迁移时打印 "IDLE -> STARTING"。由集成层注入，NULL 表示静默 */
+void cats_app_set_log(void (*log_fn)(const char *line));
 
 #ifdef __cplusplus
 } /* extern "C" */

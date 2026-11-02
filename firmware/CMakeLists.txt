@@ -26,8 +26,20 @@ target_include_directories(backend_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/
 target_include_directories(backend_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
 target_compile_definitions(backend_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
 
-# 应用层：装配与时序
-add_library(cats_app STATIC src/app/src/app.c)
+# 应用层：QP 风格状态机
+#   hsm/          机制层：状态即函数指针，dispatch 统一做 EXIT→ENTRY
+#   states/       业务状态：一状态一文件，states.c 是唯一注册点
+#   app.c         装配与对外接口：API → 事件
+add_library(cats_app STATIC
+	src/app/src/app.c
+	src/app/src/hsm/hsm.c
+	src/app/src/states/states.c
+	src/app/src/states/state_idle.c
+	src/app/src/states/state_starting.c
+	src/app/src/states/state_running.c
+	src/app/src/states/state_stopping.c
+	src/app/src/states/state_fault.c
+	src/app/src/states/state_estop.c)
 target_include_directories(cats_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/app/include)
 target_link_libraries(cats_app PUBLIC canopen_kernel)
 
