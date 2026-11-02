@@ -1,17 +1,18 @@
 /*
  * main.cpp — 集成层（Qt 壳）的进程入口
  *
- * 这里只做三件事：建 QApplication、建窗口、进事件循环。
- * 不放任何业务：装配在 MainWindow 里，时序在 app 里。
+ * 只做三件事：建 QApplication、套主题、建窗口进事件循环。
  */
 
-#include "mainwindow.h"
+#include "shell/mainwindow.h"
+#include "theme/theme.h"
 
 #include <QApplication>
 
 int main(int argc, char *argv[])
 {
 	QApplication app(argc, argv);
+	theme::apply(app);
 
 	MainWindow window;
 	window.show();

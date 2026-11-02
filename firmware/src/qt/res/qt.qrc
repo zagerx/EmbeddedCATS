@@ -1,0 +1,6 @@
+<!-- qt.qrc — 只打包样式资源；图标以后加在这里 -->
+<RCC>
+	<qresource prefix="/">
+		<file alias="theme/app.qss">../theme/app.qss</file>
+	</qresource>
+</RCC>

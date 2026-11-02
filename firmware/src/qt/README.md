@@ -1,40 +1,72 @@
 # qt/ — 集成层（本机形态：Qt6 桌面界面）
 
-开发机上的**图形壳**：把 `app` 的能力接到界面上，方便没有 orin-agx、没有上位机系统时手动操作与观察。
+开发机上的**图形壳**。当前阶段**只有界面、没有逻辑**：能编译、能跑、能看到样子，
+按钮点了没反应是预期。
 
-- 语言：**C++ / Qt6 Widgets**（本机 Qt 6.4）
-- 与 `lyos_node/` **同级、二选一**：两个壳都只依赖 `app/include/app/app.h`
-- 是唯一在装配时选择具体 backend 的地方（当前 socketcan）
-- **不含业务逻辑**：不 include `canopen` / `cia402` / `axis` / `backends` 的任何头
+- 语言：**C++ / Qt6 Widgets**
+- 与 `lyos_node/` **同级、二选一**：两个壳最终都只依赖 `app/include/app/app.h`
+- 本版**不 include** `canopen` / `cia402` / `axis` / `backends` / `app` 的任何头
 
-## 与 app 的分工
+## 目录
 
-界面只做三件事：改按钮文字、画出 `app` 的状态、按 10–20 ms 定时调 `cats_app_poll()`。
-"发什么帧、超时多少、状态机怎么走"全在 `app` 及以下，界面不知道，也不许知道。
-
-## 第一版范围
-
-一个窗口 + 一个「启动」按钮：
-
-- 点「启动」→ `cats_app_start("can0")` → 按钮变「停止」，`QTimer` 开始周期性调 `cats_app_poll()`
-- 点「停止」→ 停定时器 + `cats_app_stop()`
-- 界面只显示启动结果（成功 / 失败原因）
-
-## 文件
-
-| 文件 | 内容 |
+| 路径 | 内容 |
 |---|---|
-| `main.cpp` | 进程入口：`QApplication` + 窗口 + 事件循环 |
-| `mainwindow.h/.cpp` | 一个「启动 / 停止」按钮 + 一行状态；`QTimer` 20 ms 调 `cats_app_poll()` |
+| `main.cpp` | 入口：`QApplication` + `theme::apply()` + 窗口 |
+| `shell/` | 壳层：`MainWindow` 只做区域拼接 |
+| `ui/` | 区块控件：`state_bar`、`axis_card`、`log_panel`、`status_led` |
+| `theme/` | 调色板 `theme.h` + 样式表 `app.qss`（`@token` 由 `theme.cpp` 替换） |
+| `res/qt.qrc` | 资源打包（当前只有 `app.qss`） |
+| `bindings/` | **预留·暂空**：将来接 `cats_app_*` 的唯一落点，约定见其 README |
+
+依赖方向：`main → shell → ui → theme`，**单向**；`ui/` 不知道壳的存在。
+
+## 区域布局
+
+1. **1 号区域**：左右均分。`1.1` = `state_bar`（状态机状态），`1.2` = 一个「启动」按钮；最小高度 240 px（约占 1/3）
+2. **2 号区域**：`2.1` = 空白预留（64 px），`2.2` / `2.3` = `axis_card` ×2 左右等分
+3. **3 号区域**：`log_panel`，日志面板
+
+**视觉层级：大区域靠空间分，内部子区域靠线分。**
+
+- 大区域之间：`root` 布局 10 px 留白，露出最深底色 `@deep`；状态区/日志区用表面色
+  `@surface`，中部工作区用 `@bg`，靠色差再区分。
+- 区域内部：`1.1 / 1.2`、`2.2 / 2.3` 各一条纵向 1 px 分隔条，`2.1 / 双轴` 一条横向 1 px 分隔条。
+  分隔条是固定尺寸的 `QFrame`（`objectName = divider`），颜色 `@divider`，
+  **不使用 QSplitter**（其手柄尺寸受 QSS 影响不稳定，曾导致线条画不出来）。
+
+要核对效果可直接截图自查：
+
+```bash
+QT_QPA_PLATFORM=offscreen ./firmware/build/cats_qt   # 仅冒烟
+```
+
+## 状态机状态
+
+`StateBar` 的枚举与 `app` 的 `cats_run_state` **一一对应**，但界面侧不 include `app.h`：
+
+| StateBar::State | 状态码 | 中文 | 圆点颜色 |
+|---|---|---|---|
+| `Idle` | IDLE | 空闲 | 灰 |
+| `Starting` | STARTING | 启动中 | 蓝 |
+| `Running` | RUNNING | 运行中 | 绿 |
+| `Stopping` | STOPPING | 停止中 | 蓝 |
+| `Fault` | FAULT | 故障 | 红 |
+| `EStop` | ESTOP | 急停 | 红 |
+
+本版固定显示 `Idle`（`StateBar` 构造末尾调用一次 `setState(State::Idle)`），
+接逻辑时由 `bindings/` 把 `cats_app_state()` 映射过来。
+
+## 命名规范
+
+- 文件 / 目录 `snake_case`；类 `CamelCase` 且与文件名一致。
+- 每个控件都有 `objectName`（`btn_estop`、`btn_start`、`targetPosition`、`value`…），
+  QSS 只按 objectName / 自定义属性 `role` / `active` 命中，不依赖控件层级。
+- 颜色只在 `theme/theme.h` 定义；QSS 用 `@bg`、`@ok`、`@fault` 这类占位符，不写死色值。
 
 ## 构建与运行
 
 ```bash
-bash ~/.yakut/setup_dual.sh                      # can0 / can1 都 up，标准 CAN 1M
 cmake -S firmware -B firmware/build
 cmake --build firmware/build -j
 ./firmware/build/cats_qt
 ```
-
-> `app` 目前是骨架：`poll` 还空转，「启动」按钮只验证
-> “选后端 → 打开 can0 → 交给 app → 能干净地停下来”这条路径。

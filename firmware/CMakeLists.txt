@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON) # Q_OBJECT 需要 moc
+set(CMAKE_AUTORCC ON) # qt.qrc 需要 rcc
 add_compile_options(-Wall -Wextra)
 
 # ---------------------------------------------------------------
@@ -46,6 +47,16 @@ target_link_libraries(cats_app PUBLIC canopen_kernel)
 # 集成层：本机 Qt 壳
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-add_executable(cats_qt src/qt/main.cpp src/qt/mainwindow.cpp)
+# 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
+add_executable(cats_qt
+	src/qt/main.cpp
+	src/qt/shell/mainwindow.cpp
+	src/qt/ui/axis_card.cpp
+	src/qt/ui/log_panel.cpp
+	src/qt/ui/status_led.cpp
+	src/qt/ui/state_bar.cpp
+	src/qt/theme/theme.cpp
+	src/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qt)
+# cats_app / backend_socketcan 保留在链接里，逻辑接回时直接可用
 target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets)

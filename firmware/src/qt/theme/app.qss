@@ -1,0 +1,165 @@
+/* app.qss — 全局样式表（占位符 @xxx 由 theme.cpp 替换成实际色值）
+ *
+ * 视觉层级：
+ *   大区域（1 / 2 / 3）之间 —— 靠留白 + 背景色差
+ *   区域内部（2.1 / 2.2 / 2.3）—— 靠 1 px 实心分隔条
+ */
+
+/* 全局只定字色与字号；背景一律由下面各区域显式指定，
+ * 否则 QLabel 会被刷成实心色块，出现“灰条” */
+QWidget {
+	background: transparent;
+	color: @fg;
+	font-size: 13px;
+}
+
+/* 最底层：区域之间的留白露出这个颜色 */
+#central {
+	background: @deep;
+}
+
+/* ---- 1 号区域（状态）与 3 号区域（日志）：表面色 ---- */
+
+#topArea,
+#topReserved,
+#logPanel {
+	background: @surface;
+	border: none;
+}
+
+/* ---- 2 号区域（工作区）：主背景色 ---- */
+
+#workArea,
+#reservedArea,
+#axisRow,
+#axisCard {
+	background: @bg;
+	border: none;
+}
+
+/* ---- 区域内部的 1 px 分隔条 ---- */
+
+#divider {
+	background: @divider;
+	border: none;
+}
+
+/* ---- 当前状态：大号等宽字 ---- */
+
+#stateLed QLabel {
+	font-size: 22px;
+	font-weight: bold;
+	font-family: "DejaVu Sans Mono", monospace;
+	color: @fg;
+}
+
+#stateHint {
+	color: @fgDim;
+	font-size: 12px;
+}
+
+#stateChip {
+	background: transparent;
+	border: 1px solid @border;
+	border-radius: 9px;
+	padding: 2px 9px;
+	color: @fgDim;
+	font-family: "DejaVu Sans Mono", monospace;
+	font-size: 11px;
+}
+
+#stateChip[active="true"] {
+	background: @deep;
+	border-color: @primary;
+	color: @primary;
+}
+
+/* ---- 按钮 ---- */
+
+QPushButton {
+	background: @surface;
+	border: 1px solid @border;
+	border-radius: 4px;
+	padding: 6px 14px;
+}
+
+QPushButton:hover {
+	border-color: @primary;
+}
+
+QPushButton:pressed {
+	background: @deep;
+}
+
+QPushButton:disabled {
+	color: @fgDim;
+	border-color: @border;
+}
+
+/* ---- 分组框 ---- */
+
+QGroupBox {
+	background: @surface;
+	border: 1px solid @border;
+	border-radius: 6px;
+	margin-top: 8px;
+	padding: 8px 8px 8px 8px;
+}
+
+QGroupBox::title {
+	subcontrol-origin: margin;
+	subcontrol-position: top left;
+	left: 10px;
+	padding: 0 4px;
+	color: @fgDim;
+}
+
+/* ---- 输入 / 数值 ---- */
+
+QDoubleSpinBox {
+	background: @deep;
+	border: 1px solid @border;
+	border-radius: 4px;
+	padding: 4px 6px;
+	min-width: 120px;
+}
+
+QDoubleSpinBox:focus {
+	border-color: @primary;
+}
+
+#value {
+	color: @fg;
+	font-family: "DejaVu Sans Mono", monospace;
+}
+
+#axisTitle,
+#panelTitle {
+	font-size: 15px;
+	font-weight: bold;
+	color: @fg;
+}
+
+/* ---- 日志 ---- */
+
+#logView {
+	background: @deep;
+	border: 1px solid @border;
+	border-radius: 4px;
+	color: @fgDim;
+	font-family: "DejaVu Sans Mono", monospace;
+	padding: 6px;
+}
+
+/* ---- 状态栏 ---- */
+
+QStatusBar {
+	background: @surface;
+	color: @fgDim;
+	border-top: 1px solid @border;
+}
+
+QStatusBar QLabel {
+	color: @fgDim;
+	padding: 0 8px;
+}
