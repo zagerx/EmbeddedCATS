@@ -10,12 +10,12 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-/* ---- 状态表：下标 = enum cats_run_state，值 = 状态函数 ---- */
+/* ---- 状态表：下标 = enum cats_run_state，值 = 状态描述符 ---- */
 
-const hsm_state_fn states[CATS_RUN_STATE_COUNT] = {
-	[CATS_RUN_PREPARING] = st_preparing, [CATS_RUN_RUNNING] = st_running,
-	[CATS_RUN_STOPPING] = st_stopping,   [CATS_RUN_FAULT] = st_fault,
-	[CATS_RUN_ESTOP] = st_estop,
+const struct hsm_state *const states[CATS_RUN_STATE_COUNT] = {
+	[CATS_RUN_PREPARING] = &st_preparing, [CATS_RUN_RUNNING] = &st_running,
+	[CATS_RUN_STOPPING] = &st_stopping,   [CATS_RUN_FAULT] = &st_fault,
+	[CATS_RUN_ESTOP] = &st_estop,
 };
 
 static const char *const NAMES[CATS_RUN_STATE_COUNT] = {
@@ -37,16 +37,6 @@ const char *cats_app_state_name(enum cats_run_state s)
 		return "?";
 	}
 	return NAMES[s];
-}
-
-const char *state_name(hsm_state_fn fn)
-{
-	for (int i = 0; i < CATS_RUN_STATE_COUNT; i++) {
-		if (states[i] == fn) {
-			return cats_app_state_name((enum cats_run_state)i);
-		}
-	}
-	return "?";
 }
 
 const char *fault_name(enum cats_app_fault f)

@@ -7,7 +7,10 @@
 
 #include "states.h"
 
-int st_estop(struct hsm *me, const struct hsm_event *e)
+static int st_estop_h(struct hsm *me, const struct hsm_event *e);
+HSM_STATE_DEF(st_estop, &st_root, "ESTOP");
+
+static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 {
 	struct cats_app *app = container_of(me, struct cats_app, hsm);
 
@@ -18,6 +21,6 @@ int st_estop(struct hsm *me, const struct hsm_event *e)
 		HSM_HANDLED();
 
 	default:
-		HSM_IGNORED();
+		HSM_SUPER();
 	}
 }

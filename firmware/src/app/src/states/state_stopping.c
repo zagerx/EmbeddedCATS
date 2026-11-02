@@ -6,9 +6,12 @@
 
 #include "states.h"
 
-int st_stopping(struct hsm *me, const struct hsm_event *e)
+static int st_stopping_h(struct hsm *me, const struct hsm_event *e);
+HSM_STATE_DEF(st_stopping, &st_operational, "STOPPING");
+
+static int st_stopping_h(struct hsm *me, const struct hsm_event *e)
 {
 	(void)me;
 	(void)e;
-	HSM_IGNORED();
+	HSM_SUPER();
 }

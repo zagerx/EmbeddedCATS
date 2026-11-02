@@ -13,7 +13,10 @@
 /* 心跳超时 = 1.5 × 500 ms 生产周期（CiA 301 的超时口径） */
 #define HEARTBEAT_TIMEOUT_MS 750u
 
-int st_running(struct hsm *me, const struct hsm_event *e)
+static int st_running_h(struct hsm *me, const struct hsm_event *e);
+HSM_STATE_DEF(st_running, &st_operational, "RUNNING");
+
+static int st_running_h(struct hsm *me, const struct hsm_event *e)
 {
 	struct cats_app *app = container_of(me, struct cats_app, hsm);
 	uint32_t now;
@@ -24,17 +27,17 @@ int st_running(struct hsm *me, const struct hsm_event *e)
 		app->fault_code = CATS_FAULT_NONE;
 		HSM_HANDLED();
 
-	case HSM_SIG_TICK:
+	case CATS_SIG_TICK:
 		now = now_ms(app);
 		/* 运行中收到 boot-up = 驱动器掉电重启，状态已与我们的假设不一致 */
 		if (co_master_any_rebooted(app->master)) {
 			app->fault_code = CATS_FAULT_NODE_REBOOTED;
-			HSM_TRAN(st_fault);
+			HSM_TRAN(&st_fault);
 		}
 		/* 任一个节点掉线就整体 FAULT：安全优先 */
 		if (!co_master_all_alive(app->master, now, HEARTBEAT_TIMEOUT_MS)) {
 			app->fault_code = CATS_FAULT_HEARTBEAT_LOST;
-			HSM_TRAN(st_fault);
+			HSM_TRAN(&st_fault);
 		}
 		/* TODO(下一拍)：发 SYNC、检查 402 状态字 */
 		HSM_HANDLED();
@@ -44,6 +47,6 @@ int st_running(struct hsm *me, const struct hsm_event *e)
 		HSM_HANDLED();
 
 	default:
-		HSM_IGNORED();
+		HSM_SUPER();
 	}
 }

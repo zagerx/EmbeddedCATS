@@ -3,11 +3,16 @@
  *
  * ENTRY：把故障原因写进日志，便于定位是“没起来”还是“掉线”还是“被重启”；
  * 之后停住不动：没有出口事件，只能重启程序。
+ *
+ * 父状态是 st_root 而不是 st_operational：故障态不继承运行期语义。
  */
 
 #include "states.h"
 
-int st_fault(struct hsm *me, const struct hsm_event *e)
+static int st_fault_h(struct hsm *me, const struct hsm_event *e);
+HSM_STATE_DEF(st_fault, &st_root, "FAULT");
+
+static int st_fault_h(struct hsm *me, const struct hsm_event *e)
 {
 	struct cats_app *app = container_of(me, struct cats_app, hsm);
 
@@ -17,6 +22,6 @@ int st_fault(struct hsm *me, const struct hsm_event *e)
 		HSM_HANDLED();
 
 	default:
-		HSM_IGNORED();
+		HSM_SUPER();
 	}
 }
