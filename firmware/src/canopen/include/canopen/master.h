@@ -9,8 +9,9 @@
  * 这里**没有** CiA 402 的东西：驱动器的 402 状态（Ready / Operation enabled / Fault）
  * 属于设备层，节点“掉线”和“驱动器报警”必须分开存，否则报错定位不了。
  *
- * 帧池（pool）：收发共用一条总线，周期帧只可能是“上一个周期没取走的应答”或
- * “心跳/TPDO”。pool 数组在本结构内静态分配，固定上限，不动态分配内存。
+ * 接收模型（单一接收点）：**只有 co_master_poll() 从总线取帧**，取到后按 COB-ID
+ * 路由到对应节点；其他模块（如未来的 SDO 客户端）不许自己 recv，否则两边会互相偷帧。
+ * poll 每拍无条件调用，与运行状态无关 —— 这就是“心跳一直检测”的结构性保证。
  */
 
 #ifndef CANOPEN_MASTER_H
@@ -23,7 +24,7 @@ extern "C" {
 #endif
 
 #define CO_MASTER_MAX_NODES 16
-#define CO_MASTER_POOL_SIZE 16 /* 每拍从总线捞到的帧暂存；调满要判满并丢 */
+#define CO_MASTER_RX_MAX_PER_POLL 32u /* 单拍最多处理多少帧：总线被灌爆时不卡住调用方 */
 
 /*
  * DS 301 7.3.2：NMT 状态值与心跳/boot-up 帧的 data[0] 一致，可直接赋值。
@@ -42,6 +43,8 @@ struct co_node {
 	uint8_t node_id;
 	enum co_nmt_state nmt;
 	uint32_t last_heartbeat_ms; /* 最近一次收到 0x700+id 的时刻 */
+	uint8_t boot_seen; /* 收到过 boot-up：区分“没上电”与“上线后掉线” */
+	uint8_t rebooted;  /* 上线后又 boot 一次 ⇒ 节点被重启过（掉电/复位） */
 };
 
 struct co_master {
@@ -49,10 +52,6 @@ struct co_master {
 
 	struct co_node nodes[CO_MASTER_MAX_NODES];
 	uint8_t node_count;
-
-	/* 本拍收到的帧：心跳等被动消息由 SDO 客户端从池里消费 */
-	struct can_io_frame pool[CO_MASTER_POOL_SIZE];
-	uint8_t pool_count;
 };
 
 /* 只做初始化；不发任何帧，也不改节点状态 */
@@ -66,6 +65,28 @@ int co_master_nmt(struct co_master *m, uint8_t node_id, uint8_t command);
 
 /* 按站号查节点；找不到返回 NULL（内核内部用） */
 struct co_node *co_master_find_node(struct co_master *m, uint8_t node_id);
+
+/*
+ * 收帧：抽干总线 → 按 COB-ID 路由 → 更新节点事实（时间戳 / NMT 状态 / boot-up）。
+ * **每拍无条件调用，与运行状态无关**；不做任何“该不该报错”的判断（那是应用层的事）。
+ * 返回本拍处理了多少帧。
+ */
+uint32_t co_master_poll(struct co_master *m, uint32_t now_ms);
+
+/* 清空所有节点的上线/心跳记录。启动流程进入时调用，防止旧数据让启动一步跳过 */
+void co_master_reset_seen(struct co_master *m);
+
+/* ---- 事实查询：内核只回答“是不是这样”，阈值由调用方给 ---- */
+
+/* 所有登记节点都收到过 boot-up（没登记节点时返回 1） */
+int co_master_all_boot_seen(const struct co_master *m);
+
+/* 所有节点都在 timeout_ms 内发过心跳 */
+int co_master_all_alive(const struct co_master *m, uint32_t now_ms, uint32_t timeout_ms);
+
+/* 有没有节点在上线之后又重启过 */
+int co_master_any_rebooted(const struct co_master *m);
+void co_master_clear_rebooted(struct co_master *m);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -60,3 +60,8 @@ add_executable(cats_qt
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qt)
 # cats_app / backend_socketcan 保留在链接里，逻辑接回时直接可用
 target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets)
+
+# 工具：无界面运行器。20 ms 推进 cats_app_poll()，用来在没有界面时验证逻辑
+add_executable(master_probe tools/master_probe/main.c)
+target_link_libraries(master_probe PRIVATE cats_app backend_socketcan)
+target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)

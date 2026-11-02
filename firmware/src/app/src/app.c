@@ -47,14 +47,19 @@ enum cats_app_result cats_app_start(struct co_master *master)
 enum cats_app_result cats_app_poll(uint32_t timeout_ms)
 {
 	static const struct hsm_event tick = {HSM_SIG_TICK};
+	uint32_t now;
 
-	(void)timeout_ms; /* 节拍由壳的 QTimer 决定，这里只用 now_ms 算间隔 */
+	(void)timeout_ms; /* 节拍由壳决定，这里只用 now_ms 算间隔 */
 
 	if (s_app.master == NULL) {
 		return CATS_APP_ERR_STATE;
 	}
 	ensure_init();
-	hsm_dispatch(&s_app.hsm, &tick, now_ms(&s_app));
+
+	now = now_ms(&s_app);
+	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
+	(void)co_master_poll(s_app.master, now);
+	hsm_dispatch(&s_app.hsm, &tick, now);
 	return CATS_APP_OK;
 }
 

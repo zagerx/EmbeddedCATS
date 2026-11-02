@@ -83,6 +83,9 @@ void cats_app_stop(void);
 /* 供界面刷新按钮文字与状态显示 */
 enum cats_run_state cats_app_state(void);
 
+/* 状态名："IDLE" / "STARTING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
+const char *cats_app_state_name(enum cats_run_state s);
+
 /* 统一事件入口：所有状态变化都从这里进。tick 由 cats_app_poll 代发 */
 enum cats_app_result cats_app_event(enum cats_event ev);
 

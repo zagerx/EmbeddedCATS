@@ -22,4 +22,7 @@ int st_stopping(struct hsm *me, const struct hsm_event *e);
 int st_fault(struct hsm *me, const struct hsm_event *e);
 int st_estop(struct hsm *me, const struct hsm_event *e);
 
+/* 格式化后走 me->log 输出（未注入日志时静默）。格式化只有这一处 */
+void app_log(struct hsm *me, const char *fmt, ...);
+
 #endif /* APP_STATES_H */

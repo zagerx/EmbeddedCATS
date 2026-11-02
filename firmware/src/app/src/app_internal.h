@@ -22,14 +22,22 @@ struct cats_axis {
 	uint8_t node_id; /* 轴 0 = 节点 1，轴 1 = 节点 2 */
 };
 
+/* 故障码：进 FAULT 时由出事的那个状态填写，state_fault 用它写日志、界面用它显示 */
+enum cats_app_fault {
+	CATS_FAULT_NONE = 0,
+	CATS_FAULT_BOOTUP_TIMEOUT, /* STARTING 里等不到 boot-up */
+	CATS_FAULT_HEARTBEAT_LOST, /* RUNNING 里节点心跳超时（掉线） */
+	CATS_FAULT_NODE_REBOOTED,  /* RUNNING 里收到 boot-up：节点被重启过 */
+};
+
 struct cats_app {
 	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
 
 	struct cats_axis axes[CATS_APP_MAX_AXES];
 	uint8_t axis_count;
 
-	struct hsm hsm;      /* 状态机（含当前状态函数指针、entered_ms、日志） */
-	uint32_t fault_code; /* 最后一次出错原因，供界面显示 */
+	struct hsm hsm; /* 状态机（含当前状态函数指针、entered_ms、日志） */
+	enum cats_app_fault fault_code; /* 最后一次出错原因 */
 };
 
 /* states.c 定义的状态表：下标 = enum cats_run_state，值 = 状态函数 */
@@ -37,6 +45,9 @@ extern const hsm_state_fn states[CATS_RUN_STATE_COUNT];
 
 /* 日志用：把状态函数指针翻成名字 */
 const char *state_name(hsm_state_fn fn);
+
+/* 日志用：把故障码翻成名字 */
+const char *fault_name(enum cats_app_fault f);
 
 /* 取当前时刻；未接管主站时返回 0 */
 uint32_t now_ms(struct cats_app *app);
