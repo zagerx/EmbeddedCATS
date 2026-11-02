@@ -80,8 +80,8 @@ int main(int argc, char **argv)
 	fflush(stdout);
 
 	cats_app_set_log(log_line);
-	if (cats_app_start(&master) != CATS_APP_OK) {
-		fprintf(stderr, "cats_app_start 失败\n");
+	if (cats_app_init(&master) != CATS_APP_OK) {
+		fprintf(stderr, "cats_app_init 失败\n");
 		can_io_close(&io);
 		return 1;
 	}
@@ -105,7 +105,6 @@ int main(int argc, char **argv)
 		sleep_ms(POLL_INTERVAL_MS);
 	}
 
-	cats_app_stop();
 	can_io_close(&io);
 	printf("退出\n");
 	return 0;

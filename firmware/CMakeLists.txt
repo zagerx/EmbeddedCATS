@@ -35,8 +35,7 @@ add_library(cats_app STATIC
 	src/app/src/app.c
 	src/app/src/hsm/hsm.c
 	src/app/src/states/states.c
-	src/app/src/states/state_idle.c
-	src/app/src/states/state_starting.c
+	src/app/src/states/state_preparing.c
 	src/app/src/states/state_running.c
 	src/app/src/states/state_stopping.c
 	src/app/src/states/state_fault.c

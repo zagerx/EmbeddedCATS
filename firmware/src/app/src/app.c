@@ -28,25 +28,23 @@ static void dispatch(const struct hsm_event *e, uint32_t now)
 
 void cats_app_set_log(void (*log_fn)(const char *line))
 {
-	/* 纯赋值：start 之前/之后调都可以。NULL 表示静默 */
+	/* 纯赋值：init 之前/之后调都可以。NULL 表示静默 */
 	s_app.log = log_fn;
 }
 
-enum cats_app_result cats_app_start(struct co_master *master)
+enum cats_app_result cats_app_init(struct co_master *master)
 {
 	if (master == NULL) {
 		return CATS_APP_ERR_PARAM;
 	}
-
-	if (s_app.master == NULL) {
-		/* 首次启动时建状态机；master 是否已接管即"是否初始化过"的判据 */
-		s_app.master = master;
-		hsm_init(&s_app.hsm, st_idle, now_ms(&s_app));
-	} else if (s_app.hsm.state != st_idle) {
-		return CATS_APP_ERR_STATE; /* 已经在跑，先 stop */
+	if (s_app.master != NULL) {
+		return CATS_APP_ERR_STATE; /* 只初始化一次 */
 	}
 
-	return cats_app_event(CATS_EV_START);
+	s_app.master = master;
+	/* 初态即准备态：hsm_init 会触发 PREPARING 的 ENTRY，广播复位从这里发出 */
+	hsm_init(&s_app.hsm, st_preparing, now_ms(&s_app));
+	return CATS_APP_OK;
 }
 
 enum cats_app_result cats_app_poll(void)
@@ -63,33 +61,6 @@ enum cats_app_result cats_app_poll(void)
 	(void)co_master_poll(s_app.master, now);
 	dispatch(&tick, now);
 	return CATS_APP_OK;
-}
-
-enum cats_app_result cats_app_event(enum cats_event ev)
-{
-	static const int SIGS[] = {
-		[CATS_EV_START] = HSM_SIG_START,
-		[CATS_EV_STOP] = HSM_SIG_STOP,
-		[CATS_EV_RESET] = HSM_SIG_RESET,
-	};
-	struct hsm_event e;
-
-	if (s_app.master == NULL || ev < 0 || ev > CATS_EV_RESET) {
-		return CATS_APP_ERR_STATE;
-	}
-	e.sig = SIGS[ev];
-	dispatch(&e, now_ms(&s_app));
-	return CATS_APP_OK;
-}
-
-void cats_app_stop(void)
-{
-	(void)cats_app_event(CATS_EV_STOP);
-}
-
-enum cats_app_result cats_app_reset(void)
-{
-	return cats_app_event(CATS_EV_RESET);
 }
 
 void cats_app_estop(void)
@@ -117,5 +88,5 @@ enum cats_run_state cats_app_state(void)
 			return (enum cats_run_state)i;
 		}
 	}
-	return CATS_RUN_IDLE;
+	return CATS_RUN_PREPARING;
 }

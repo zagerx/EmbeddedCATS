@@ -26,10 +26,12 @@ app/
 
 ## 对外契约（`include/app/app.h`）
 
-集成层只 include 这一个头，只有四个函数：`cats_app_start` / `cats_app_poll` /
-`cats_app_stop` / `cats_app_state`。
+集成层只 include 这一个头，接口为：
+`cats_app_init` / `cats_app_poll` / `cats_app_state` / `cats_app_state_name` /
+`cats_app_estop` / `cats_app_set_log`。
 
 - **单线程轮询**：由壳按 10~20 ms 调 `cats_app_poll()`，本层内部不用线程、不用回调；
+- **启动不靠外部事件**：`cats_app_init()` 建好状态机即为 PREPARING，之后由 `poll` 自行推进；
 - **单例**：一个进程一条总线，静态实例，不动态分配内存；
 - 时序、超时、状态全在本层及以下，壳只负责“什么时候调”。
 

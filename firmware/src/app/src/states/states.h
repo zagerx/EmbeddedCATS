@@ -15,8 +15,7 @@
 /* 从 hsm 成员指针反推 cats_app：各状态函数用它拿到应用上下文 */
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
-int st_idle(struct hsm *me, const struct hsm_event *e);
-int st_starting(struct hsm *me, const struct hsm_event *e);
+int st_preparing(struct hsm *me, const struct hsm_event *e);
 int st_running(struct hsm *me, const struct hsm_event *e);
 int st_stopping(struct hsm *me, const struct hsm_event *e);
 int st_fault(struct hsm *me, const struct hsm_event *e);

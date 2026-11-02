@@ -13,15 +13,15 @@
 /* ---- 状态表：下标 = enum cats_run_state，值 = 状态函数 ---- */
 
 const hsm_state_fn states[CATS_RUN_STATE_COUNT] = {
-	[CATS_RUN_IDLE] = st_idle,       [CATS_RUN_STARTING] = st_starting,
-	[CATS_RUN_RUNNING] = st_running, [CATS_RUN_STOPPING] = st_stopping,
-	[CATS_RUN_FAULT] = st_fault,     [CATS_RUN_ESTOP] = st_estop,
+	[CATS_RUN_PREPARING] = st_preparing, [CATS_RUN_RUNNING] = st_running,
+	[CATS_RUN_STOPPING] = st_stopping,   [CATS_RUN_FAULT] = st_fault,
+	[CATS_RUN_ESTOP] = st_estop,
 };
 
 static const char *const NAMES[CATS_RUN_STATE_COUNT] = {
-	[CATS_RUN_IDLE] = "IDLE",       [CATS_RUN_STARTING] = "STARTING",
-	[CATS_RUN_RUNNING] = "RUNNING", [CATS_RUN_STOPPING] = "STOPPING",
-	[CATS_RUN_FAULT] = "FAULT",     [CATS_RUN_ESTOP] = "ESTOP",
+	[CATS_RUN_PREPARING] = "PREPARING", [CATS_RUN_RUNNING] = "RUNNING",
+	[CATS_RUN_STOPPING] = "STOPPING",   [CATS_RUN_FAULT] = "FAULT",
+	[CATS_RUN_ESTOP] = "ESTOP",
 };
 
 static const char *const FAULT_NAMES[] = {

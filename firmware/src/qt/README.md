@@ -47,7 +47,7 @@ QT_QPA_PLATFORM=offscreen ./firmware/build/cats_qt   # 仅冒烟
 | StateBar::State | 状态码 | 中文 | 圆点颜色 |
 |---|---|---|---|
 | `Idle` | IDLE | 空闲 | 灰 |
-| `Starting` | STARTING | 启动中 | 蓝 |
+| `Preparing` | PREPARING | 准备中 | 蓝 |
 | `Running` | RUNNING | 运行中 | 绿 |
 | `Stopping` | STOPPING | 停止中 | 蓝 |
 | `Fault` | FAULT | 故障 | 红 |

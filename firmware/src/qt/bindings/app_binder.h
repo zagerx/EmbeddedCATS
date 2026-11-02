@@ -2,10 +2,12 @@
  * app_binder.h — 界面与 app 的唯一接缝
  *
  * 职责（只做"搬运"，不含任何业务判断）：
+ *   cats_app_init()     → 绑定主站并进入准备态
  *   QTimer 20 ms        → cats_app_poll()
- *   「启动」按钮        → cats_app_start() / cats_app_stop()
  *   app 状态            → StateBar::setState()
  *   cats_app_set_log()  → LogPanel::append()
+ *
+ * 不绑定任何按钮：启动流程由状态机自己推进。
  *
  * 所有权：CAN 通道与主站由本层（集成层）持有并创建，app 只借用指针。
  * 界面控件用 objectName 取（findChild），不向 shell/ui 暴露任何业务头。
@@ -25,7 +27,6 @@
 #include <QObject>
 #include <QString>
 
-class QPushButton;
 class QTimer;
 class QWidget;
 
@@ -44,11 +45,10 @@ class AppBinder : public QObject
 	void attach(QWidget *root, const QString &ifname = QStringLiteral("can0"));
 
       private slots:
-	void onStartClicked();
 	void onTick();
 
       private:
-	void findWidgets(QWidget *root);         /* 按 objectName 取控件并把按钮接上 */
+	void findWidgets(QWidget *root);         /* 按 objectName 取状态条与日志面板 */
 	bool openChannel(const QString &ifname); /* 开通道 + 建主站（节点 1/2） */
 	void startTimer();                       /* 20 ms 节拍 → cats_app_poll */
 	void publish();                          /* app 状态 → 界面 */
@@ -62,7 +62,6 @@ class AppBinder : public QObject
 	bool channel_open_ = false; /* 只为析构时决定要不要 close */
 
 	QTimer *timer_ = nullptr;
-	QPushButton *start_button_ = nullptr;
 	StateBar *state_bar_ = nullptr;
 	LogPanel *log_panel_ = nullptr;
 

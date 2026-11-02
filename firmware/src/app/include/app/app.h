@@ -46,16 +46,14 @@ enum cats_app_result {
  *   ENTRY/EXIT 也是事件，进入/离开状态的动作有固定位置。
  *
  * 运行状态（应用层，与 NMT 状态、402 状态三者不混）：
- *   IDLE      空闲，通道未动
- *   STARTING  启动中：等 boot-up → NMT → 配 PDO（界面可取消）
+ *   PREPARING 准备中：复位节点并等 boot-up
  *   RUNNING   运行中：周期推进，可发运动指令
- *   STOPPING  停止中：下使能 → NMT pre-op → 回 IDLE
- *   FAULT     故障：通信/协议类错误，可复位
- *   ESTOP     急停：安全态，只能人工解除，绝不自动重试
+ *   STOPPING  停止中：下使能 → NMT pre-op（出口逻辑待补）
+ *   FAULT     故障：通信/协议类错误，停住
+ *   ESTOP     急停：安全态，只能由 cats_app_estop() 强制进入，停住
  */
 enum cats_run_state {
-	CATS_RUN_IDLE = 0,
-	CATS_RUN_STARTING,
+	CATS_RUN_PREPARING = 0,
 	CATS_RUN_RUNNING,
 	CATS_RUN_STOPPING,
 	CATS_RUN_FAULT,
@@ -63,15 +61,8 @@ enum cats_run_state {
 	CATS_RUN_STATE_COUNT /* 状态个数，states[] 表的大小 */
 };
 
-/* 外部事件：界面/上位机的主动输入。条件类（超时、心跳）不是事件 */
-enum cats_event {
-	CATS_EV_START, /* 点「启动」 */
-	CATS_EV_STOP,  /* 点「停止」 */
-	CATS_EV_RESET, /* 点「复位」 */
-};
-
-/* 启动：等价于注入 CATS_EV_START。master 的生命周期由调用方（壳）负责 */
-enum cats_app_result cats_app_start(struct co_master *master);
+/* 初始化：绑定主站并建状态机。建完即处于 PREPARING，之后由 poll 自行推进 */
+enum cats_app_result cats_app_init(struct co_master *master);
 
 /*
  * 推进一次：收帧 + 推进状态机。壳按 10~20 ms 周期性调用，节拍由壳掌握，
@@ -79,29 +70,20 @@ enum cats_app_result cats_app_start(struct co_master *master);
  */
 enum cats_app_result cats_app_poll(void);
 
-/* 停止：等价于注入 CATS_EV_STOP。不释放主站与通道（那是壳的） */
-void cats_app_stop(void);
-
 /* 供界面刷新按钮文字与状态显示 */
 enum cats_run_state cats_app_state(void);
 
-/* 状态名："IDLE" / "STARTING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
+/* 状态名："PREPARING" / "RUNNING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
 const char *cats_app_state_name(enum cats_run_state s);
 
-/* 统一事件入口：所有外部输入都从这里进。tick 由 cats_app_poll 内部产生，不在这里 */
-enum cats_app_result cats_app_event(enum cats_event ev);
-
 /*
- * 急停：**不走事件队列**，任何状态下都立即生效（安全要求）。
- * 只做接口预留，由调用方（未来 lyos 的 cmd topic、或外部 STO 检测）触发。
- * 行为：停 SYNC + 各轴 quick stop，然后切到 ESTOP；只能 cats_app_reset 人工解除。
+ * 急停：任何状态下都立即生效（安全要求），进入后停住，不自动退出。
+ * 由调用方（未来 lyos 的 cmd topic、或外部 STO 检测）触发。
+ * 行为：停 SYNC + 各轴 quick stop，然后切到 ESTOP。
  */
 void cats_app_estop(void);
 
-/* 复位：FAULT → STOPPING，ESTOP → IDLE（其余状态忽略） */
-enum cats_app_result cats_app_reset(void);
-
-/* 状态切换日志：迁移时打印 "IDLE -> STARTING"。由集成层注入，NULL 表示静默 */
+/* 状态切换日志：迁移时打印 "IDLE -> PREPARING"。由集成层注入，NULL 表示静默 */
 void cats_app_set_log(void (*log_fn)(const char *line));
 
 #ifdef __cplusplus

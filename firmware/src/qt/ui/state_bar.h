@@ -1,9 +1,9 @@
 /*
  * state_bar.h — 顶部状态区：显示应用层状态机的当前状态
  *
- * 左侧：圆点 + 大号状态码（IDLE / STARTING / RUNNING / STOPPING / FAULT / ESTOP）
+ * 左侧：圆点 + 大号状态码（PREPARING / RUNNING / STOPPING / FAULT / ESTOP）
  *       下面一行中文说明；
- * 右侧：六个状态小标签，当前那个高亮。
+ * 右侧：五个状态小标签，当前那个高亮。
  *
  * 枚举与 app 的 `cats_run_state` 一一对应，但这里**不 include app.h**：
  * 只是长得像，接逻辑时由 bindings/ 做一次映射。
@@ -24,8 +24,7 @@ class StateBar : public QWidget
 
       public:
 	enum class State {
-		Idle = 0,
-		Starting,
+		Preparing = 0,
 		Running,
 		Stopping,
 		Fault,

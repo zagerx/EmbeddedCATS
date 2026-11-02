@@ -1,7 +1,8 @@
-# bindings/ — 【预留·暂空】界面与 app 的唯一接缝
+# bindings/ — 界面与 app 的唯一接缝
 
-这一层现在**没有任何代码**。它是将来把「按钮点击」变成「`cats_app_*` 调用」、
-把「app 状态 / 轴反馈」变成「界面显示」的唯一地方。
+这一层把「app 状态」变成「界面显示」、把「app 日志」送到日志面板。
+
+**当前不绑定任何按钮**：启动由 `cats_app_init()` 完成，之后状态机自行推进。
 
 ## 约定
 
@@ -13,13 +14,10 @@
 
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
-| `btn_connect` / `btn_disconnect` | 打开 / 关闭通道（选后端只在集成层） |
-| `btn_start` / `btn_stop` | `cats_app_start()` / `cats_app_stop()` |
-| `btn_enable` / `btn_disable` | CiA 402 使能 / 去使能 |
-| `btn_reset` | 故障复位 |
-| `btn_estop` | 急停（最高优先级） |
 | `QTimer` 节拍 | `cats_app_poll()` |
-| 轴卡片「反馈」四项 | app / axis 的状态读取接口 |
+| 顶部状态条 | `cats_app_state()` / `cats_app_state_name()` |
 | 日志面板 | `cats_app_set_log()` 的出口 |
+| 通道开/关 | `socketcan_open()` / `can_io_close()`（选后端只在集成层） |
 
-4. 本版（纯界面）不实现任何一条，按钮点了就是没反应。
+已实现的：节拍、状态条、日志面板、通道开与 app 初始化。
+尚未实现的：轴卡片反馈、各按钮（当前一律不绑定）。

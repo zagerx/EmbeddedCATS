@@ -25,7 +25,7 @@ struct cats_axis {
 /* 故障码：进 FAULT 时由出事的那个状态填写，state_fault 用它写日志、界面用它显示 */
 enum cats_app_fault {
 	CATS_FAULT_NONE = 0,
-	CATS_FAULT_BOOTUP_TIMEOUT, /* STARTING 里等不到 boot-up */
+	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里等不到 boot-up */
 	CATS_FAULT_HEARTBEAT_LOST, /* RUNNING 里节点心跳超时（掉线） */
 	CATS_FAULT_NODE_REBOOTED,  /* RUNNING 里收到 boot-up：节点被重启过 */
 };

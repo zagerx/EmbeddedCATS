@@ -3,8 +3,7 @@
  *
  * ENTRY：清掉启动期间的重启标记，之后的 boot-up 才算异常；
  * TICK ：节点重启 → FAULT；节点掉线 → FAULT；
- * EXIT：不管因何离开运行态，都停 SYNC（出口动作的天然位置）；
- * STOP：进 STOPPING。
+ * EXIT：不管因何离开运行态，都停 SYNC（出口动作的天然位置）。
  *
  * 判定阈值放在应用层，内核对“多久算掉线”一无所知。
  */
@@ -43,9 +42,6 @@ int st_running(struct hsm *me, const struct hsm_event *e)
 	case HSM_SIG_EXIT:
 		/* TODO(下一拍)：停 SYNC */
 		HSM_HANDLED();
-
-	case HSM_SIG_STOP:
-		HSM_TRAN(st_stopping);
 
 	default:
 		HSM_IGNORED();

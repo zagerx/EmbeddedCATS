@@ -24,15 +24,14 @@ struct StateInfo {
 
 /* 顺序必须与 app 的 cats_run_state 一致 */
 const StateInfo kStates[] = {
-	{"IDLE", "空闲", "等待启动", StatusLed::State::Off, 12},
-	{"STARTING", "启动中", "正在连接节点并进入运行", StatusLed::State::Busy, 12},
+	{"PREPARING", "准备中", "正在复位节点并等待 boot-up", StatusLed::State::Busy, 12},
 	{"RUNNING", "运行中", "节点已使能", StatusLed::State::Ok, 12},
 	{"STOPPING", "停止中", "正在退出运行", StatusLed::State::Busy, 12},
 	{"FAULT", "故障", "需复位后重新启动", StatusLed::State::Fault, 12},
 	{"ESTOP", "急停", "需复位后重新启动", StatusLed::State::Fault, 12},
 };
 
-constexpr int kStateCount = 6;
+constexpr int kStateCount = 5;
 } // namespace
 
 StateBar::StateBar(QWidget *parent) : QWidget(parent)
@@ -47,7 +46,7 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	auto *current = new QVBoxLayout();
 	current->setSpacing(2);
 
-	led_ = new StatusLed(QStringLiteral("IDLE"), this);
+	led_ = new StatusLed(QStringLiteral("PREPARING"), this);
 	led_->setObjectName(QStringLiteral("stateLed"));
 	led_->setDotSize(kStates[0].dot_size);
 
@@ -59,7 +58,7 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	root->addLayout(current);
 	root->addStretch(1);
 
-	/* 右：六个状态小标签 */
+	/* 右：五个状态小标签 */
 	auto *chips = new QHBoxLayout();
 	chips->setSpacing(6);
 	for (int i = 0; i < kStateCount; ++i) {
@@ -71,7 +70,7 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	}
 	root->addLayout(chips);
 
-	setState(State::Idle);
+	setState(State::Preparing);
 }
 
 void StateBar::setState(State state)
