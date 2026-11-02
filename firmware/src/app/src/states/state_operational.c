@@ -16,6 +16,20 @@ HSM_STATE_DEF(st_operational, &st_root, "OPERATIONAL");
 static int st_operational_h(struct hsm *me, const struct hsm_event *e)
 {
 	(void)me;
-	(void)e;
-	HSM_SUPER();
+
+	switch (e->sig) {
+	case HSM_SIG_ENTRY:
+		/* 公共进入动作（暂无） */
+		break;
+
+	case HSM_SIG_EXIT:
+		/* 公共退出动作（暂无） */
+		break;
+
+	default:
+		/* 其余事件继续上抛给根 */
+		return HSM_RET_SUPER;
+	}
+
+	return HSM_RET_HANDLED;
 }

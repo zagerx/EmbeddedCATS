@@ -1,9 +1,9 @@
 /*
  * state_running.c — 运行中
  *
- * ENTRY：清掉启动期间的重启标记，之后的 boot-up 才算异常；
- * TICK ：节点重启 → FAULT；节点掉线 → FAULT；
- * EXIT：不管因何离开运行态，都停 SYNC（出口动作的天然位置）。
+ * 进入：清掉启动期间的重启标记，之后的 boot-up 才算异常；
+ * 每拍：节点重启 → FAULT；节点掉线 → FAULT；
+ * 退出：停 SYNC（出口动作的天然位置，待补）。
  *
  * 判定阈值放在应用层，内核对“多久算掉线”一无所知。
  */
@@ -25,7 +25,11 @@ static int st_running_h(struct hsm *me, const struct hsm_event *e)
 	case HSM_SIG_ENTRY:
 		co_master_clear_rebooted(app->master);
 		app->fault_code = CATS_FAULT_NONE;
-		HSM_HANDLED();
+		break;
+
+	case HSM_SIG_EXIT:
+		/* TODO(下一拍)：停 SYNC */
+		break;
 
 	case CATS_SIG_TICK:
 		now = now_ms(app);
@@ -40,13 +44,11 @@ static int st_running_h(struct hsm *me, const struct hsm_event *e)
 			HSM_TRAN(&st_fault);
 		}
 		/* TODO(下一拍)：发 SYNC、检查 402 状态字 */
-		HSM_HANDLED();
-
-	case HSM_SIG_EXIT:
-		/* TODO(下一拍)：停 SYNC */
-		HSM_HANDLED();
+		break;
 
 	default:
 		HSM_SUPER();
 	}
+
+	return HSM_RET_HANDLED;
 }

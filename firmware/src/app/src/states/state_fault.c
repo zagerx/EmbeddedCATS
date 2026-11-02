@@ -19,9 +19,15 @@ static int st_fault_h(struct hsm *me, const struct hsm_event *e)
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:
 		app_log(app, "FAULT: %s", fault_name(app->fault_code));
-		HSM_HANDLED();
+		break;
+
+	case HSM_SIG_EXIT:
+		/* 无出口动作 */
+		break;
 
 	default:
 		HSM_SUPER();
 	}
+
+	return HSM_RET_HANDLED;
 }

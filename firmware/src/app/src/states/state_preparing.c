@@ -1,8 +1,9 @@
 /*
  * state_preparing.c — 准备中
  *
- * ENTRY：清掉上一轮的上线记录，广播 Reset Communication 让两个节点一起复位；
- * TICK ：所有节点 boot-up 到齐就进 RUNNING；等超过 2000 ms 仍不齐就报 FAULT。
+ * 进入：清上线记录 + 广播 Reset Communication；
+ * 每拍：所有节点 boot-up 到齐 → RUNNING；超 2000 ms → FAULT；
+ * 退出：无动作。
  *
  * 超时用 me->entered_ms 手算（内核不再提供定时器）。
  */
@@ -26,7 +27,11 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 		/* 0x82 = Reset Communication，站号 0 = 广播；只复位通信，
 		 * 不改动对象字典里的配置 */
 		(void)co_master_nmt(app->master, 0, 0x82);
-		HSM_HANDLED();
+		break;
+
+	case HSM_SIG_EXIT:
+		/* 无出口动作 */
+		break;
 
 	case CATS_SIG_TICK:
 		now = now_ms(app);
@@ -37,9 +42,11 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 			app->fault_code = CATS_FAULT_BOOTUP_TIMEOUT;
 			HSM_TRAN(&st_fault);
 		}
-		HSM_HANDLED();
+		break;
 
 	default:
 		HSM_SUPER();
 	}
+
+	return HSM_RET_HANDLED;
 }

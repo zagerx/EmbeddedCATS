@@ -18,9 +18,15 @@ static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 	case HSM_SIG_ENTRY:
 		/* TODO(下一拍)：停 SYNC + 各轴 cia402_quick_stop() */
 		(void)app;
-		HSM_HANDLED();
+		break;
+
+	case HSM_SIG_EXIT:
+		/* 无出口动作 */
+		break;
 
 	default:
 		HSM_SUPER();
 	}
+
+	return HSM_RET_HANDLED;
 }
