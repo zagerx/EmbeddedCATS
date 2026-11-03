@@ -47,8 +47,9 @@ enum cats_app_result cats_app_init(struct co_master *master)
 	s_app.axis_count =
 		master->node_count < CATS_APP_MAX_AXES ? master->node_count : CATS_APP_MAX_AXES;
 	for (i = 0; i < s_app.axis_count; i++) {
-		s_app.axes[i].node_id = master->node_id[i];
+		axis_init(&s_app.axes[i], master, master->node_id[i]);
 	}
+	axis_group_init(&s_app.group, s_app.axes, s_app.axis_count);
 
 	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
 	hsm_init(&s_app.hsm, &st_preparing, now_ms(&s_app));
@@ -63,7 +64,7 @@ enum cats_app_result cats_app_init(struct co_master *master)
  * 心跳的唯一入口：先把事实算好存进 app->hb_ok（各状态都读同一个值），
  * 再在“受心跳约束的状态”里执行故障迁移。
  *
- * 受约束的只有已接管驱动器的状态（RUNNING / STOPPING）：
+ * 受约束的只有已接管驱动器的状态（RUNNING / STOPPING / ENABLING）：
  *   PREPARING 有自己的静默期与超时（故障码也不同）；
  *   ESTOP 已在最安全处且没有出口，再迁一次只会把原因覆盖掉；
  *   FAULT 本身已经是故障。
@@ -84,7 +85,8 @@ static void handle_heartbeat(struct cats_app *app, uint32_t now)
 	if (app->hb_ok) {
 		return;
 	}
-	if (app->hsm.state != &st_running && app->hsm.state != &st_stopping) {
+	if (app->hsm.state != &st_running && app->hsm.state != &st_stopping &&
+	    app->hsm.state != &st_enabling) {
 		return;
 	}
 
@@ -109,6 +111,9 @@ enum cats_app_result cats_app_poll(void)
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_app.master, now);
 	handle_heartbeat(&s_app, now);
+
+	/* 各层自管推进：轴（含 402/SDO）每拍走一步；状态机只看事实 */
+	axis_group_poll(&s_app.group, now);
 
 	/* 一拍推一次状态机（内部处理一个事件） */
 	hsm_dispatch(&s_app.hsm, CATS_SIG_TICK, 0, now);

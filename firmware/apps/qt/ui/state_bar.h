@@ -1,7 +1,7 @@
 /*
  * state_bar.h — 顶部状态区：显示应用层状态机的当前状态
  *
- * 只有两部分：圆点 + 大号状态码（PREPARING / RUNNING / STOPPING / FAULT / ESTOP），
+ * 只有两部分：圆点 + 大号状态码（PREPARING / ENABLING / RUNNING / …），
  * 下面一行中文说明。
  *
  * 枚举与 app 的 `cats_run_state` 一一对应，但这里**不 include app.h**：
@@ -23,6 +23,7 @@ class StateBar : public QWidget
       public:
 	enum class State {
 		Preparing = 0,
+		Enabling,
 		Running,
 		Stopping,
 		Fault,

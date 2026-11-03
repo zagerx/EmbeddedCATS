@@ -43,6 +43,14 @@ UPLOAD_CS = {1: 0x4F, 2: 0x4B, 4: 0x43}
 # 出厂心跳周期（ms）：0 = 出厂就不发，等主站写 0x1017
 DEFAULT_HEARTBEAT_MS = 500
 
+# ---- CiA 402：状态字取值（手册 5.3 / DS 402）--------------------------
+# 本模拟器只实现“使能”这条路径：0x40 → 0x21 → 0x23 → 0x27，外加故障复位。
+CIA402_SWITCH_ON_DISABLED = 0x0040
+CIA402_READY = 0x0021
+CIA402_SWITCHED_ON = 0x0023
+CIA402_OP_ENABLED = 0x0027
+CIA402_FAULT = 0x0008
+
 
 class Node:
     """一个从站节点：自己的对象字典、自己的 NMT 状态。"""
@@ -54,6 +62,7 @@ class Node:
         trace: bool = False,
         log: Callable[[str], None] | None = None,
         heartbeat_ms: int = DEFAULT_HEARTBEAT_MS,
+        follow_402: bool = True,
     ) -> None:
         self.bus = bus
         self.node_id = node_id
@@ -66,6 +75,12 @@ class Node:
         self.heartbeat_ms = 0
         self._next_heartbeat: float | None = None
         self.od.write(0x1017, 0, heartbeat_ms, 2)
+        # 402 状态机：上电即“禁止启动”，状态字随时同步进 6041
+        # follow_402 = False 时状态字不跟控制字走（复现“只能通信、使不上”的驱动器）
+        self.follow_402 = follow_402
+        self.controlword = 0
+        self.state402 = CIA402_SWITCH_ON_DISABLED
+        self._publish_statusword()
 
     # ---- 基础设施 ---------------------------------------------------
     def log(self, text: str) -> None:
@@ -212,6 +227,42 @@ class Node:
             self.log(
                 "心跳" + (f"周期改为 {entry.value} ms" if entry.value else "已停发")
             )
+        elif index == 0x6060:
+            # 操作模式显示（6061）跟随设定值，跟真驱动器一致
+            self.od.set_internal(0x6061, 0, entry.value)
+        elif index == 0x6040:
+            self.apply_controlword(entry.value)
+
+    # ---- CiA 402（只做使能这条路径）---------------------------------
+    def apply_controlword(self, cw: int) -> None:
+        """控制字 → 402 迁移。命令掩码取 DS 402 的（手册 5.3 的位定义）。"""
+        if not self.follow_402:
+            self.log(f"402：收到控制字 0x{cw:04X}，但状态机未启用（--no-402）")
+            return
+        if self.state402 == CIA402_FAULT:
+            if cw & 0x80:  # bit7 上升沿：故障复位
+                self._set_state402(CIA402_SWITCH_ON_DISABLED, "故障复位")
+            return
+        if (cw & 0x02) == 0:
+            self._set_state402(CIA402_SWITCH_ON_DISABLED, "禁止电压输出")
+        elif (cw & 0x8F) == 0x0F:  # Enable operation（0x1F/0x2F/0x4F/0x5F 同）
+            self._set_state402(CIA402_OP_ENABLED, "Enable operation")
+        elif (cw & 0x87) == 0x07:  # Switch on
+            if self.state402 in (CIA402_READY, CIA402_SWITCHED_ON):
+                self._set_state402(CIA402_SWITCHED_ON, "Switch on")
+        elif (cw & 0x87) == 0x06:  # Shutdown
+            self._set_state402(CIA402_READY, "Shutdown")
+
+    def _set_state402(self, state: int, why: str) -> None:
+        if state == self.state402:
+            return
+        self.state402 = state
+        self._publish_statusword()
+        self.log(f"402：{why} → 状态字 0x{state:04X}")
+
+    def _publish_statusword(self) -> None:
+        """状态字是只读对象，由设备自己更新（不走 SDO 写权限检查）。"""
+        self.od.set_internal(0x6041, 0, self.state402)
 
     def sdo_abort(self, index: int, sub: int, code: int) -> None:
         self.send_cob(

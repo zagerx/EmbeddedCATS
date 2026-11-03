@@ -50,11 +50,19 @@ class Drive:
         trace: bool = False,
         log=None,
         heartbeat_ms: int = DEFAULT_HEARTBEAT_MS,
+        follow_402: bool = True,
     ) -> None:
         self.bus = bus
         self.trace = trace
         self.nodes = [
-            Node(bus, nid, trace=trace, log=log, heartbeat_ms=heartbeat_ms)
+            Node(
+                bus,
+                nid,
+                trace=trace,
+                log=log,
+                heartbeat_ms=heartbeat_ms,
+                follow_402=follow_402,
+            )
             for nid in node_ids
         ]
 
@@ -126,12 +134,23 @@ def main() -> int:
         default=DEFAULT_HEARTBEAT_MS,
         help=f"出厂心跳周期（ms），boot-up 后自动开跑；0 = 不发（默认 {DEFAULT_HEARTBEAT_MS}）",
     )
+    ap.add_argument(
+        "--no-402",
+        action="store_true",
+        help="状态字不跟控制字走（复现“能通信但使不上”的驱动器，用来测使能超时）",
+    )
     args = ap.parse_args()
 
     node_ids = parse_nodes(args.nodes)
     bus = can.Bus(interface="socketcan", channel=args.interface)
 
-    drive = Drive(bus, node_ids, trace=args.trace, heartbeat_ms=args.heartbeat_ms)
+    drive = Drive(
+        bus,
+        node_ids,
+        trace=args.trace,
+        heartbeat_ms=args.heartbeat_ms,
+        follow_402=not args.no_402,
+    )
     print(
         f"fake_drive 已启动：{args.interface}，站号 {node_ids}，"
         f"经典 CAN（≤8 字节），心跳 {args.heartbeat_ms} ms，波特率由接口决定",

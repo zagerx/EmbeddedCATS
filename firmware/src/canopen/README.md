@@ -32,7 +32,8 @@ canopen/
 |---|---|
 | CAN 收发契约（边界层实现） | `include/canopen/can_io.h` |
 | NMT 主站命令、心跳监控（超时由 OD 0x1016 决定） | `include/canopen/master.h` + `src/master.c` |
+| SDO 客户端对象出口（只交出对象，不封装动作） | `include/canopen/sdo_client.h` |
 | 驱动适配（CO_CANmodule） | `src/node/co_driver_cats.c` |
 | 对象字典（照抄上游 example，已配 0x1016） | `config/canopen_node/` |
 
-SDO 客户端、PDO、SYNC、EMCY 由上游提供，应用层尚未接入。
+SDO 的发起/推进/取结果用上游原语，由 `cia402` 驱动；PDO、SYNC、EMCY 尚未接入。

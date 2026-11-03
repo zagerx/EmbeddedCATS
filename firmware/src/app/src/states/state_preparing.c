@@ -2,7 +2,7 @@
  * state_preparing.c — 准备中
  *
  * 进入：广播 Reset Communication；
- * 每拍：静默期后心跳正常 → RUNNING；超时 → FAULT；
+ * 每拍：静默期后心跳正常 → ENABLING；超时 → FAULT；
  * 退出：无动作。
  *
  * 静默期：发完 0x82 后等这么久再判心跳，让驱动器有机会先处理复位并回 boot-up
@@ -51,7 +51,7 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 			break; /* 静默期：此时的心跳状态还是复位前的旧数据 */
 		}
 		if (app->hb_ok) {
-			HSM_TRAN(&st_running);
+			HSM_TRAN(&st_enabling);
 		}
 		if (elapsed > PREPARE_TIMEOUT_MS) {
 			app->fault_code = CATS_FAULT_BOOTUP_TIMEOUT;

@@ -77,6 +77,17 @@ target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
 target_include_directories(canopen_kernel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/src/node)
 target_link_libraries(canopen_kernel PUBLIC canopen_node)
 
+# 设备层：CiA 402（驱动器语义）。控制字/状态字/使能序列只在这一层
+#   用上游的 SDO 客户端原语驱动（canopen/sdo_client.h 只交出对象，不封装动作）
+add_library(cia402 STATIC src/cia402/src/cia402.c src/cia402/src/cia402_state.c)
+target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/cia402/include)
+target_link_libraries(cia402 PUBLIC canopen_kernel)
+
+# 轴层：轴集合 + “谁在用 SDO”的排队（单通道 ⇒ 依次使能）
+add_library(cats_axis STATIC src/axis/src/axis.c)
+target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/axis/include)
+target_link_libraries(cats_axis PUBLIC cia402)
+
 # 应用层：QP 风格状态机
 #   hsm/          机制层：状态即函数指针，dispatch 统一做 EXIT→ENTRY
 #   states/       业务状态：一状态一文件，states.c 是唯一注册点
@@ -88,12 +99,13 @@ add_library(cats_app STATIC
 	src/app/src/states/state_root.c
 	src/app/src/states/state_operational.c
 	src/app/src/states/state_preparing.c
+	src/app/src/states/state_enabling.c
 	src/app/src/states/state_running.c
 	src/app/src/states/state_stopping.c
 	src/app/src/states/state_fault.c
 	src/app/src/states/state_estop.c)
 target_include_directories(cats_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/app/include)
-target_link_libraries(cats_app PUBLIC canopen_kernel)
+target_link_libraries(cats_app PUBLIC cats_axis)
 
 # 集成层：本机 Qt 壳（在 apps/ 下，与 src/ 的库层分开：这一层产出可执行程序）
 find_package(Qt6 REQUIRED COMPONENTS Widgets)

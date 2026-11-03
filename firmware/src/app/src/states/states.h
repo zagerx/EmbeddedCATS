@@ -25,6 +25,7 @@
 extern const struct hsm_state st_root;
 extern const struct hsm_state st_operational;
 extern const struct hsm_state st_preparing;
+extern const struct hsm_state st_enabling;
 extern const struct hsm_state st_running;
 extern const struct hsm_state st_stopping;
 extern const struct hsm_state st_fault;

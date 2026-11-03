@@ -23,4 +23,12 @@ axis/
 - 不做协议细节（不知道 SDO/PDO/控制字）；
 - 不做调度与线程管理。
 
-> 当前为空目录骨架。
+## 已实现
+
+| 能力 | 位置 |
+|---|---|
+| 轴 = 节点 + 402 推进器 | `include/axis/axis.h` |
+| 轴集合：SDO 只有一条通道 ⇒ **依次**使能（一个轴出结论才轮到下一个） | `src/axis.c` |
+| 事实查询：`axis_group_all_enabled()` / `axis_group_any_failed()` | `src/axis.c` |
+
+未实现：单位换算（`6092h` 脉冲当量）、目标位置与到位判定、STOPPING 下的下使能。

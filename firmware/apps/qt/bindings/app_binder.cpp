@@ -25,6 +25,8 @@ StateBar::State to_bar_state(enum cats_run_state s)
 	switch (s) {
 	case CATS_RUN_PREPARING:
 		return StateBar::State::Preparing;
+	case CATS_RUN_ENABLING:
+		return StateBar::State::Enabling;
 	case CATS_RUN_RUNNING:
 		return StateBar::State::Running;
 	case CATS_RUN_STOPPING:

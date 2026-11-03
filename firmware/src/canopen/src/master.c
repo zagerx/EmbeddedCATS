@@ -10,6 +10,7 @@
  */
 
 #include <canopen/master.h>
+#include <canopen/sdo_client.h>
 
 #include "CANopen.h"
 #include "OD.h"
@@ -156,4 +157,12 @@ int co_master_node_alive(const struct co_master *m, uint8_t node_id)
 		return 1; /* 没登记过 = 不可能监控 → 不正常 */
 	}
 	return CO_HBconsumer_getState(s_co->HBcons, idx) == CO_HBconsumer_ACTIVE ? 0 : 1;
+}
+
+CO_SDOclient_t *co_master_sdo_client(struct co_master *m)
+{
+	if (m == NULL || s_co == NULL) {
+		return NULL;
+	}
+	return s_co->SDOclient;
 }

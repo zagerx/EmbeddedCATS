@@ -55,6 +55,7 @@ enum cats_app_result {
  *
  * 运行状态（应用层，与 NMT 状态、402 状态三者不混）：
  *   PREPARING 准备中：复位节点并等 boot-up
+ *   ENABLING  使能中：NMT 启动 + 各轴进 PP 并上使能（一轴一轴来）
  *   RUNNING   运行中：周期推进，可发运动指令
  *   STOPPING  停止中：下使能 → NMT pre-op（出口逻辑待补）
  *   FAULT     故障：通信/协议类错误，停住
@@ -62,6 +63,7 @@ enum cats_app_result {
  */
 enum cats_run_state {
 	CATS_RUN_PREPARING = 0,
+	CATS_RUN_ENABLING,
 	CATS_RUN_RUNNING,
 	CATS_RUN_STOPPING,
 	CATS_RUN_FAULT,
@@ -73,7 +75,9 @@ enum cats_run_state {
 enum cats_app_fault {
 	CATS_FAULT_NONE = 0,
 	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里静默期过后仍等不到心跳 */
-	CATS_FAULT_HEARTBEAT_LOST, /* RUNNING / STOPPING 里节点心跳超时 */
+	CATS_FAULT_HEARTBEAT_LOST, /* 运行期节点心跳超时 */
+	CATS_FAULT_ENABLE_TIMEOUT, /* ENABLING 里超过 ENABLE_TIMEOUT_MS 还没使能上 */
+	CATS_FAULT_ENABLE_FAILED   /* ENABLING 里驱动器回了 abort 或 402 进故障 */
 };
 
 /* 初始化：绑定主站并建状态机。建完即处于 PREPARING，之后由 poll 自行推进 */

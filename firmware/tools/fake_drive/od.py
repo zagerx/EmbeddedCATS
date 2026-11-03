@@ -88,6 +88,12 @@ class Od:
         entry.value = value & entry.mask
         return entry
 
+    def set_internal(self, index: int, sub: int, value: int) -> Entry:
+        """设备自己更新只读条目（如 6041 状态字）。不检查访问权限，不走 SDO。"""
+        entry = self.entry(index, sub)
+        entry.value = value & entry.mask
+        return entry
+
 
 DATA_FILE = Path(__file__).with_name("od_data.json")
 

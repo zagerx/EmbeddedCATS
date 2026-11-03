@@ -13,6 +13,8 @@
 
 #include <app/app.h>
 
+#include <axis/axis.h>
+
 #include "hsm/hsm.h"
 
 #define CATS_APP_MAX_AXES 2
@@ -23,15 +25,12 @@ enum cats_app_sig {
 	CATS_SIG_STOP                 /* 请求停止 */
 };
 
-/* 业务轴（轴层）。现在只是占位，等 axis/ 有实现再填 */
-struct cats_axis {
-	uint8_t node_id; /* 轴 0 = 节点 1，轴 1 = 节点 2 */
-};
-
+/* 业务轴（轴层）：一个轴 = 一个节点 + 该节点的 402 推进器，见 axis/axis.h */
 struct cats_app {
 	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
 
 	struct cats_axis axes[CATS_APP_MAX_AXES];
+	struct axis_group group; /* 轴集合：谁在用 SDO 由它排（依次使能） */
 	uint8_t axis_count;
 	/* 本拍所有轴心跳都正常；每拍由 cats_app_poll() 刷新，状态只读不算 */
 	uint8_t hb_ok;
