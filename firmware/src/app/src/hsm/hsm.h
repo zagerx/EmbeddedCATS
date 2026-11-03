@@ -2,7 +2,7 @@
  * hsm.h — 层次状态机内核（QP 风格，**机制层，与业务无关**）
  *
  * 借 QP/QEP 的四样东西，不借它的活动对象内核：
- *   1. 层次：每个状态带 super 链接，不认识的���件自动上抛（HSM_SUPER）；
+ *   1. 层次：每个状态带 super 链接，不认识的事件自动上抛（返回 HSM_RET_SUPER）；
  *   2. LCA 迁移：EXIT 只到最近公共祖先，父状态只进出一次；
  *   3. RTC：hsm_dispatch() 一次处理一个事件，handler 之间不嵌套。
  *
@@ -43,11 +43,14 @@ struct hsm_state {
 };
 
 /*
- * 状态定义：handler 约定名为 <desc>_h，需在宏之前 static 前向声明。
+ * 状态描述符在各 state_*.c 里用指定初始化器直接定义，handler 需先 static 前向声明：
  *   static int st_running_h(struct hsm *me, const struct hsm_event *e);
- *   HSM_STATE_DEF(st_running, &st_operational, "RUNNING");
+ *   const struct hsm_state st_running = {
+ *       .handler = st_running_h,
+ *       .super = &st_operational,
+ *       .name = "RUNNING",
+ *   };
  */
-#define HSM_STATE_DEF(desc, sup, nm) const struct hsm_state desc = {desc##_h, sup, nm}
 
 enum hsm_ret {
 	HSM_RET_HANDLED = 0, /* 已处理，留在本状态 */
@@ -68,8 +71,6 @@ struct hsm {
 	unsigned anomalies; /* handler 在 ENTRY/EXIT 里返回 TRAN 的非法动作次数 */
 };
 
-#define HSM_HANDLED() return HSM_RET_HANDLED
-#define HSM_SUPER() return HSM_RET_SUPER
 #define HSM_TRAN(t)                                                                                \
 	do {                                                                                       \
 		me->target = (t);                                                                  \

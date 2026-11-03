@@ -9,7 +9,11 @@
 #include "states.h"
 
 static int st_stopping_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_stopping, &st_operational, "STOPPING");
+const struct hsm_state st_stopping = {
+	.handler = st_stopping_h,
+	.super = &st_operational,
+	.name = "STOPPING",
+};
 
 static int st_stopping_h(struct hsm *me, const struct hsm_event *e)
 {
@@ -25,7 +29,7 @@ static int st_stopping_h(struct hsm *me, const struct hsm_event *e)
 		break;
 
 	default:
-		HSM_SUPER();
+		return HSM_RET_SUPER;
 	}
 
 	return HSM_RET_HANDLED;

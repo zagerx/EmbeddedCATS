@@ -10,7 +10,11 @@
 #include "states.h"
 
 static int st_fault_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_fault, &st_root, "FAULT");
+const struct hsm_state st_fault = {
+	.handler = st_fault_h,
+	.super = &st_root,
+	.name = "FAULT",
+};
 
 static int st_fault_h(struct hsm *me, const struct hsm_event *e)
 {
@@ -26,7 +30,7 @@ static int st_fault_h(struct hsm *me, const struct hsm_event *e)
 		break;
 
 	default:
-		HSM_SUPER();
+		return HSM_RET_SUPER;
 	}
 
 	return HSM_RET_HANDLED;

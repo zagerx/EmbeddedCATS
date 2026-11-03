@@ -8,7 +8,11 @@
 #include "states.h"
 
 static int st_estop_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_estop, &st_root, "ESTOP");
+const struct hsm_state st_estop = {
+	.handler = st_estop_h,
+	.super = &st_root,
+	.name = "ESTOP",
+};
 
 static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 {
@@ -25,7 +29,7 @@ static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 		break;
 
 	default:
-		HSM_SUPER();
+		return HSM_RET_SUPER;
 	}
 
 	return HSM_RET_HANDLED;

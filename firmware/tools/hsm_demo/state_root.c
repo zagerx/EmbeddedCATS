@@ -14,7 +14,6 @@
 static int st_root_h(struct hsm *me, const struct hsm_event *e);
 /*
  * 状态对象：handler = 本状态的函数，super = 父状态（NULL 表示根），name = 日志用。
- * （以前写作 HSM_STATE_DEF(st_root, NULL, "ROOT")，宏展开后就是下面这四行）
  */
 const struct hsm_state st_root = {
 	.handler = st_root_h,

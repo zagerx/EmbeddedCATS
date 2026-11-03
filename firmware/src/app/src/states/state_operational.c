@@ -11,7 +11,11 @@
 #include "states.h"
 
 static int st_operational_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_operational, &st_root, "OPERATIONAL");
+const struct hsm_state st_operational = {
+	.handler = st_operational_h,
+	.super = &st_root,
+	.name = "OPERATIONAL",
+};
 
 static int st_operational_h(struct hsm *me, const struct hsm_event *e)
 {

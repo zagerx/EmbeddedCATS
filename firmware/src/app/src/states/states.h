@@ -4,7 +4,7 @@
  * 每个状态一个 .c 文件（state_*.c），这里只放它们的描述符声明，
  * 以及"从 hsm 指针找回 cats_app"的 container_of 小工具。
  *
- * 层次（见各文件里 HSM_STATE_DEF 的第二个参数）：
+ * 层次（见各文件里状态对象的 .super 字段）：
  *   st_root
  *   ├── st_operational   运行期父状态（本轮不处理事件，留给公共逻辑）
  *   │   ├── st_preparing / st_running / st_stopping

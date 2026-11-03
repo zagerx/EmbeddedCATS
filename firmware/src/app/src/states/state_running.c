@@ -12,7 +12,11 @@
 #include "states.h"
 
 static int st_running_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_running, &st_operational, "RUNNING");
+const struct hsm_state st_running = {
+	.handler = st_running_h,
+	.super = &st_operational,
+	.name = "RUNNING",
+};
 
 static int st_running_h(struct hsm *me, const struct hsm_event *e)
 {
@@ -32,7 +36,7 @@ static int st_running_h(struct hsm *me, const struct hsm_event *e)
 		break;
 
 	default:
-		HSM_SUPER();
+		return HSM_RET_SUPER;
 	}
 
 	return HSM_RET_HANDLED;

@@ -3,7 +3,7 @@
  *
  * 新增一个状态：写 state_xxx.c → 在本文件加 extern → 在 states.c 的表里加一行。
  *
- * 层次（各文件的 HSM_STATE_DEF 第二个参数就是 super）：
+ * 层次（各文件里状态对象的 .super 字段就是父状态）：
  *
  *   ROOT
  *   ├── OPERATIONAL      运行期父状态：IDLE / RUNNING / STOPPING 的共同祖先
@@ -41,8 +41,8 @@ enum demo_sig {
  *   }
  *   return ret;                     // 整个函数只有一个出口
  *
- * 内核自带的 HSM_HANDLED() / HSM_SUPER() / HSM_TRAN() 宏是同一套含义，
- * 只是它们直接在宏里 return（省掉 break）。两种都能用，本骨架统一用上面这种。
+ * 内核自带的 HSM_TRAN() 宏是同一套含义（它在宏里直接 return），与上面的写法等价。
+ * 本骨架统一用“给 ret 赋值、单一出口”这种写法。
  */
 
 extern const struct hsm_state st_root;

@@ -11,11 +11,15 @@
 #include "states.h"
 
 static int st_root_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_root, NULL, "ROOT");
+const struct hsm_state st_root = {
+	.handler = st_root_h,
+	.super = NULL,
+	.name = "ROOT",
+};
 
 static int st_root_h(struct hsm *me, const struct hsm_event *e)
 {
 	(void)me;
 	(void)e;
-	HSM_SUPER();
+	return HSM_RET_SUPER;
 }

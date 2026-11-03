@@ -16,7 +16,6 @@
 static int st_running_h(struct hsm *me, const struct hsm_event *e);
 /*
  * 状态对象：handler = 本状态的函数，super = 父状态（NULL 表示根），name = 日志用。
- * （以前写作 HSM_STATE_DEF(st_running, &st_operational, "RUNNING")）
  */
 const struct hsm_state st_running = {
 	.handler = st_running_h,

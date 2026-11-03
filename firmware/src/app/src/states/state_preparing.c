@@ -5,9 +5,13 @@
  * 每拍：静默期后心跳正常 → RUNNING；超时 → FAULT；
  * 退出：无动作。
  *
- * 静默期的原因：0x82 之前刚收到的那一帧心跳会让消费者的槽位还停留在 ACTIVE，
- * 那一刻去查“都活着吗”会立刻成立，等于没等。该帧的尾巴要 750 ms（OD 0x1016
- * 配的超时值）后才过期，所以静默期必须大于 750 ms，这里取 1000 ms 留余量。
+ * 静默期：发完 0x82 后等这么久再判心跳，让驱动器有机会先处理复位并回 boot-up
+ * （boot-up 会把消费者槽位置回 UNKNOWN，之后必须收到新心跳才算 ACTIVE）。
+ *
+ * 注意：本值（100 ms）小于 OD 0x1016 的超时值（750 ms），所以它并不保证
+ * "复位前那一帧残留的 ACTIVE 已经过期"。若驱动器回 boot-up 晚于本值，
+ * 判定会用上残留的 ACTIVE 而提前进 RUNNING，随后槽位变 UNKNOWN，
+ * 可能在 750 ms 内被判成心跳丢失。驱动器响应足够快时不会走到这条路。
  *
  * 心跳的采集不在这里：cats_app_poll() 每拍算好 app->hb_ok，本状态只读。
  * 时间用 me->entered_ms 手算（内核不提供定时器）。
@@ -15,11 +19,15 @@
 
 #include "states.h"
 
-#define PREPARE_SETTLE_MS 1000u /* 发完 0x82 先静默这么久再判心跳 */
+#define PREPARE_SETTLE_MS 100u /* 发完 0x82 先静默这么久再判心跳 */
 #define PREPARE_TIMEOUT_MS 3000u /* 从进入本状态算起，这么久还等不到心跳就判失败 */
 
 static int st_preparing_h(struct hsm *me, const struct hsm_event *e);
-HSM_STATE_DEF(st_preparing, &st_operational, "PREPARING");
+const struct hsm_state st_preparing = {
+	.handler = st_preparing_h,
+	.super = &st_operational,
+	.name = "PREPARING",
+};
 
 static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 {
@@ -53,7 +61,7 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 	}
 
 	default:
-		HSM_SUPER();
+		return HSM_RET_SUPER;
 	}
 
 	return HSM_RET_HANDLED;
