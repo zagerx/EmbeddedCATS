@@ -38,6 +38,14 @@ struct cats_app {
 
 	struct hsm hsm; /* 纯状态机机制（当前状态、迁移目标、进入时刻） */
 	enum cats_app_fault fault_code; /* 最后一次出错原因 */
+
+	/* ---- 跨线程只读的发布值（见 app.h「线程约定」）----
+	 * 只有控制线程写，其他线程只用 __atomic_* 读。
+	 * 刻意不用 mutex：写者不能被界面阻塞，否则节拍会掉。 */
+	int published_state; /* enum cats_run_state，每拍发布一次 */
+	int published_fault; /* enum cats_app_fault，与状态同拍发布 */
+	int estop_req;       /* 非 0 = 有线程请求急停，控制线程下一拍执行 */
+	uint32_t tick_count; /* 已推进的拍数（诊断用） */
 };
 
 /* states.c 定义的状态表：下标 = enum cats_run_state，值 = 状态描述符 */

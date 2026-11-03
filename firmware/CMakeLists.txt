@@ -97,11 +97,13 @@ target_link_libraries(cats_app PUBLIC canopen_kernel)
 
 # 集成层：本机 Qt 壳（在 apps/ 下，与 src/ 的库层分开：这一层产出可执行程序）
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Threads REQUIRED) # 控制线程：std::thread
 
 # 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
 add_executable(cats_qt
 	apps/qt/main.cpp
 	apps/qt/bindings/app_binder.cpp
+	apps/qt/bindings/can_thread.cpp
 	apps/qt/shell/mainwindow.cpp
 	apps/qt/ui/axis_card.cpp
 	apps/qt/ui/log_panel.cpp
@@ -111,7 +113,7 @@ add_executable(cats_qt
 	apps/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
 # cats_app / backend_socketcan 保留在链接里，逻辑接回时直接可用
-target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets)
+target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets Threads::Threads)
 
 # 工具：无界面运行器。20 ms 推进 cats_app_poll()，用来在没有界面时验证逻辑
 add_executable(master_probe tools/master_probe/main.c)

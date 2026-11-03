@@ -13,6 +13,22 @@
 
 static struct cats_app s_app;
 
+/* 把"其他线程可以看"的值发布出去。**只在控制线程里调用** */
+static void publish_readonly(struct cats_app *app)
+{
+	int state = CATS_RUN_PREPARING;
+	int i;
+
+	for (i = 0; i < CATS_RUN_STATE_COUNT; i++) {
+		if (states[i] == app->hsm.state) {
+			state = i;
+			break;
+		}
+	}
+	__atomic_store_n(&app->published_state, state, __ATOMIC_RELEASE);
+	__atomic_store_n(&app->published_fault, (int)app->fault_code, __ATOMIC_RELEASE);
+}
+
 /* ---- 对外接口 ---- */
 
 enum cats_app_result cats_app_init(struct co_master *master)
@@ -36,6 +52,10 @@ enum cats_app_result cats_app_init(struct co_master *master)
 
 	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
 	hsm_init(&s_app.hsm, &st_preparing, now_ms(&s_app));
+
+	__atomic_store_n(&s_app.estop_req, 0, __ATOMIC_RELEASE);
+	s_app.tick_count = 0;
+	publish_readonly(&s_app);
 	return CATS_APP_OK;
 }
 
@@ -80,6 +100,11 @@ enum cats_app_result cats_app_poll(void)
 		return CATS_APP_ERR_STATE;
 	}
 
+	/* 急停优先于一切：别的线程只能置请求标志，真正的迁移在这里做 */
+	if (__atomic_exchange_n(&s_app.estop_req, 0, __ATOMIC_ACQ_REL) != 0) {
+		hsm_transition(&s_app.hsm, &st_estop, now_ms(&s_app));
+	}
+
 	now = now_ms(&s_app);
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_app.master, now);
@@ -87,6 +112,9 @@ enum cats_app_result cats_app_poll(void)
 
 	/* 一拍推一次状态机（内部处理一个事件） */
 	hsm_dispatch(&s_app.hsm, CATS_SIG_TICK, 0, now);
+
+	s_app.tick_count++;
+	publish_readonly(&s_app);
 	return CATS_APP_OK;
 }
 
@@ -96,21 +124,17 @@ void cats_app_estop(void)
 		return;
 	}
 
-	/* 急停不走队列：任何状态下都立即切过去，ENTRY 里做安全动作 */
-	hsm_transition(&s_app.hsm, &st_estop, now_ms(&s_app));
+	/* 只置请求，不在这里改状态机：任何线程都可安全调用，
+	 * 真正的迁移由控制线程在下一拍（≤ 1 个节拍）执行 */
+	__atomic_store_n(&s_app.estop_req, 1, __ATOMIC_RELEASE);
 }
 
 enum cats_app_fault cats_app_fault_code(void)
 {
-	return s_app.fault_code;
+	return (enum cats_app_fault)__atomic_load_n(&s_app.published_fault, __ATOMIC_ACQUIRE);
 }
 
 enum cats_run_state cats_app_state(void)
 {
-	for (int i = 0; i < CATS_RUN_STATE_COUNT; i++) {
-		if (states[i] == s_app.hsm.state) {
-			return (enum cats_run_state)i;
-		}
-	}
-	return CATS_RUN_PREPARING;
+	return (enum cats_run_state)__atomic_load_n(&s_app.published_state, __ATOMIC_ACQUIRE);
 }

@@ -14,7 +14,10 @@
 
 namespace
 {
-constexpr int kPollIntervalMs = 20; /* 节拍：判 750 ms 心跳超时只引入 2.7% 误差 */
+/* 界面刷新：50 ms 对人眼足够。控制节拍是 1 ms，那个在 CanThread 里，别混 */
+constexpr int kRefreshIntervalMs = 50;
+/* 节拍统计：每 5 s 往日志写一行，用来判断节拍稳不稳 */
+constexpr int kStatsIntervalMs = 5000;
 
 /* app 的运行状态 → 顶部状态条。两边枚举刻意一一对应，仍显式写全，免得日后错位 */
 StateBar::State to_bar_state(enum cats_run_state s)
@@ -43,6 +46,7 @@ AppBinder::AppBinder(QObject *parent) : QObject(parent)
 
 AppBinder::~AppBinder()
 {
+	worker_.stop(); /* 先停控制线程：之后没人再碰总线 */
 	if (channel_open_) {
 		can_io_close(&bus_);
 	}
@@ -52,9 +56,17 @@ void AppBinder::attach(QWidget *root, const QString &ifname)
 {
 	findWidgets(root);
 	if (!openChannel(ifname)) {
-		return; /* 没通道就不起节拍：onTick 根本不会被调用 */
+		return; /* 没通道就不起节拍 */
 	}
-	startTimer();
+
+	QString err;
+	if (!worker_.start(&bus_, &err)) {
+		pushLog(QStringLiteral("控制线程启动失败：%1").arg(err));
+		return;
+	}
+
+	startTimers();
+	pushLog(QStringLiteral("控制线程已启动：1 ms 节拍"));
 	publish();
 }
 
@@ -75,32 +87,37 @@ bool AppBinder::openChannel(const QString &ifname)
 		return false;
 	}
 	channel_open_ = true;
-
-	co_master_init(&master_, &bus_);
-	(void)co_master_add_node(&master_, 1);
-	(void)co_master_add_node(&master_, 2);
-
-	if (cats_app_init(&master_) != CATS_APP_OK) {
-		pushLog(QStringLiteral("app 初始化失败"));
-		return false;
-	}
+	/* 建主站与 cats_app_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
+	 * 而且之后所有状态都在那个线程里改 */
 	return true;
 }
 
-void AppBinder::startTimer()
+void AppBinder::startTimers()
 {
-	timer_ = new QTimer(this);
-	timer_->setTimerType(Qt::PreciseTimer);
-	timer_->setInterval(kPollIntervalMs);
-	connect(timer_, &QTimer::timeout, this, &AppBinder::onTick);
-	timer_->start();
+	refresh_ = new QTimer(this);
+	refresh_->setInterval(kRefreshIntervalMs);
+	connect(refresh_, &QTimer::timeout, this, &AppBinder::onRefresh);
+	refresh_->start();
+
+	stats_ = new QTimer(this);
+	stats_->setInterval(kStatsIntervalMs);
+	connect(stats_, &QTimer::timeout, this, &AppBinder::onStats);
+	stats_->start();
 }
 
-void AppBinder::onTick()
+void AppBinder::onRefresh()
 {
-	/* app 内部先收帧再推进状态机；非阻塞，20 ms 一次不会卡界面 */
-	(void)cats_app_poll();
 	publish();
+}
+
+void AppBinder::onStats()
+{
+	const CanThread::Stats s = worker_.stats();
+
+	pushLog(QStringLiteral("节拍 %1 拍，最大间隔 %2 µs，掉拍 %3 次")
+			.arg(s.ticks)
+			.arg(s.max_gap_us)
+			.arg(s.late_ticks));
 }
 
 void AppBinder::pushLog(const QString &line)
@@ -122,4 +139,5 @@ void AppBinder::publish()
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(state));
 	}
+	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_app_state_name(state))));
 }

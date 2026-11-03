@@ -1,13 +1,21 @@
 /*
  * app.h — 应用层对外契约（框架级：只有声明，实现随功能逐步补齐）
  *
- * 集成层（apps/qt、apps/lyos_node）**只允许** include 这一个头，
- * 不许 include canopen / cia402 / axis / backends 里的任何头。
+ * 集成层（apps/qt、apps/lyos_node）在**业务上只依赖这一个头**：
+ * 不许 include cia402 / axis 的头；通道与主站由壳按平台创建，
+ * 所以 backends / canopen 的平台头只允许出现在壳的装配处，不得下传。
  *
- * 时序模型：**单线程轮询**。
- *   GUI 用 QTimer、lyos 用主循环，按 10~20 ms 周期性调 cats_app_poll()，
- *   由它去驱动一次总线收发与状态推进。
- *   好处：CAN 的等待不会卡住界面，而内核层依然不碰线程（纲领"内核平台无关"）。
+ * 时序模型：**控制线程轮询（1 ms）+ 界面线程只读**。
+ *   集成层起一个控制线程，按 1 ms 绝对节拍调 cats_app_poll()，由它驱动一次
+ *   总线收发与状态推进；Qt 主线程只跑界面，不碰总线。
+ *   好处：节拍不受重绘/对话框影响，而内核层依然不碰线程（纲领"内核平台无关"）。
+ *
+ * 线程约定（**必须遵守**）：
+ *   写者：只有控制线程可以调 cats_app_init() / cats_app_poll()。
+ *   读者：任意线程可调 cats_app_state() / cats_app_fault_code()，读到的是
+ *         控制线程每拍发布的原子值——不加锁、也不会阻塞写者。
+ *   急停：cats_app_estop() 任意线程可调，只置请求，
+ *         由控制线程在下一拍（≤ 1 ms）执行迁移。
  *
  * 为什么是单例：一个进程只管一条 CAN 总线、一组轴。用静态实例既不动态分配内存，
  * 也不把内部结构（sdo 客户端、节点表…）暴露到墙外。
@@ -72,8 +80,9 @@ enum cats_app_fault {
 enum cats_app_result cats_app_init(struct co_master *master);
 
 /*
- * 推进一次：收帧 + 推进状态机。壳按 10~20 ms 周期性调用，节拍由壳掌握，
+ * 推进一次：收帧 + 推进状态机。控制线程按 1 ms 调用，节拍由壳掌握，
  * 所以不需要参数（内核侧全是非阻塞调用，本函数不会阻塞）。
+ * **只能在一个线程里调用**（见文件头的线程约定）。
  */
 enum cats_app_result cats_app_poll(void);
 
@@ -84,7 +93,8 @@ enum cats_run_state cats_app_state(void);
 const char *cats_app_state_name(enum cats_run_state s);
 
 /*
- * 急停：任何状态下都立即生效（安全要求），进入后停住，不自动退出。
+ * 急停：任意线程可调，只置请求，控制线程在下一拍（≤ 1 ms）执行迁移。
+ * 进入后停住，不自动退出。
  * 由调用方（未来 lyos 的 cmd topic、或外部 STO 检测）触发。
  * 行为：停 SYNC + 各轴 quick stop，然后切到 ESTOP。
  */
