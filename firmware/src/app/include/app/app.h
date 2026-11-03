@@ -1,7 +1,7 @@
 /*
  * app.h — 应用层对外契约（框架级：只有声明，实现随功能逐步补齐）
  *
- * 集成层（src/qt、src/lyos_node）**只允许** include 这一个头，
+ * 集成层（apps/qt、apps/lyos_node）**只允许** include 这一个头，
  * 不许 include canopen / cia402 / axis / backends 里的任何头。
  *
  * 时序模型：**单线程轮询**。

@@ -95,21 +95,21 @@ add_library(cats_app STATIC
 target_include_directories(cats_app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/app/include)
 target_link_libraries(cats_app PUBLIC canopen_kernel)
 
-# 集成层：本机 Qt 壳
+# 集成层：本机 Qt 壳（在 apps/ 下，与 src/ 的库层分开：这一层产出可执行程序）
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 # 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
 add_executable(cats_qt
-	src/qt/main.cpp
-	src/qt/bindings/app_binder.cpp
-	src/qt/shell/mainwindow.cpp
-	src/qt/ui/axis_card.cpp
-	src/qt/ui/log_panel.cpp
-	src/qt/ui/status_led.cpp
-	src/qt/ui/state_bar.cpp
-	src/qt/theme/theme.cpp
-	src/qt/res/qt.qrc)
-target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/qt)
+	apps/qt/main.cpp
+	apps/qt/bindings/app_binder.cpp
+	apps/qt/shell/mainwindow.cpp
+	apps/qt/ui/axis_card.cpp
+	apps/qt/ui/log_panel.cpp
+	apps/qt/ui/status_led.cpp
+	apps/qt/ui/state_bar.cpp
+	apps/qt/theme/theme.cpp
+	apps/qt/res/qt.qrc)
+target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
 # cats_app / backend_socketcan 保留在链接里，逻辑接回时直接可用
 target_link_libraries(cats_qt PRIVATE cats_app backend_socketcan Qt6::Widgets)
 
