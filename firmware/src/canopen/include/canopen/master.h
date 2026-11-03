@@ -51,7 +51,7 @@ void co_master_poll(struct co_master *m, uint32_t now_ms);
 /*
  * 查一个节点的心跳是否正常。
  * 返回 0 = 正常；返回非 0 = 不正常。
- * 判据是该节点的心跳消费者槽位处于 ACTIVE（最近 1.5 × 周期内收到过心跳）；
+ * 判据是该节点的心跳消费者槽位处于 ACTIVE（在 OD 0x1016 配的超时窗口内收到过心跳）；
  * 未登记、OD 0x1016 里没配这个站号、已掉线，一律算不正常。
  */
 int co_master_node_alive(const struct co_master *m, uint8_t node_id);

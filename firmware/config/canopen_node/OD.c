@@ -29,10 +29,11 @@ OD_ATTR_PERSIST_COMM OD_PERSIST_COMM_t OD_PERSIST_COMM = {
 	.x1014_COB_ID_EMCY = 0x00000080,
 	.x1015_inhibitTimeEMCY = 0x0000,
 	.x1016_consumerHeartbeatTime_sub0 = 0x08,
-	/* 消费者心跳时间：高 16 位 = 被监控的站号，低 16 位 = 超时基数（1 ms）。
-	 * 0xF4 × 0x01 = 500 ms；栈按 1.5 倍判掉线，即 750 ms。
+	/* 消费者心跳时间：高 16 位 = 被监控的站号，低 16 位 = 超时时间（ms）。
+	 * 上游 SW 直接把这个值当超时阈值（不再乘任何系数）。
+	 * 750 ms = 1.5 × 驱动器 500 ms 的心跳周期，留出一次拖帧的余量。
 	 * :1 和 :2 依序对应主站第 1、2 次 add_node（站号 1、2）。 */
-	.x1016_consumerHeartbeatTime = {0x000101F4, 0x000201F4, 0x00000000, 0x00000000, 0x00000000,
+	.x1016_consumerHeartbeatTime = {0x000102EE, 0x000202EE, 0x00000000, 0x00000000, 0x00000000,
 					0x00000000, 0x00000000, 0x00000000},
 	.x1017_producerHeartbeatTime = 0x0000,
 	.x1018_identity = {.highestSub_indexSupported = 0x04,
