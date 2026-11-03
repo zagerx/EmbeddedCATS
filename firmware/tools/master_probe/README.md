@@ -14,19 +14,18 @@
 
 ```text
 接口 can0，节点 1/2，节拍 20 ms
-[  1234] IDLE -> PREPARING
+[  1234] PREPARING
 [  1234] state = PREPARING
-[  1300] PREPARING -> RUNNING
-[  1300] state = RUNNING
+[  2300] PREPARING -> RUNNING
+[  2300] state = RUNNING
 ```
 
 ## 它能验证什么
 
 | 场景 | 期望 |
 |---|---|
-| 从站复位后发 boot-up | `PREPARING → RUNNING` |
-| 从站一直不发 boot-up | 2000 ms 后 `FAULT: BOOTUP_TIMEOUT` |
-| `RUNNING` 中停掉从站心跳 | 约 750 ms 后 `FAULT: HEARTBEAT_LOST` |
-| `RUNNING` 中从站又发 boot-up | `FAULT: NODE_REBOOTED` |
+| 驱动器响应 0x82 并正常发心跳 | 静默 1000 ms 后 `PREPARING → RUNNING` |
+| 驱动器始终不发心跳 | 3000 ms 后 `FAULT: BOOTUP_TIMEOUT` |
+| `RUNNING` 中停掉驱动器心跳 | 约 750 ms 后 `FAULT: HEARTBEAT_LOST` |
 
 节拍 20 ms 对 750 ms 判定只引入 2.7% 误差；将来做运动（PP 模式 2~10 ms）再升级节拍。

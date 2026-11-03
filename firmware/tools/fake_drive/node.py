@@ -71,8 +71,9 @@ class Node:
     def log(self, text: str) -> None:
         self._log(f"节点 {self.node_id}: {text}")
 
-    def send_cob(self, cob_id: int, data: bytes) -> None:
-        payload = bytes(data).ljust(8, b"\x00")
+    def send_cob(self, cob_id: int, data: bytes, pad: bool = True) -> None:
+        """发一帧。SDO 响应按惯例补零到 8 字节；心跳/boot-up 是 1 字节（CiA 301）。"""
+        payload = bytes(data).ljust(8, b"\x00") if pad else bytes(data)
         self.bus.send(
             can.Message(arbitration_id=cob_id, data=payload, is_extended_id=False)
         )
@@ -82,7 +83,7 @@ class Node:
     def boot_up(self) -> None:
         """初始化完成后的 boot-up 帧：0x700+id，数据 0x00。"""
         self.nmt = NMT_PREOP
-        self.send_cob(0x700 + self.node_id, bytes([NMT_BOOTUP]))
+        self.send_cob(0x700 + self.node_id, bytes([NMT_BOOTUP]), pad=False)
 
     # ---- 心跳（生产者，0x1017）--------------------------------------
     def set_heartbeat_period(self, period_ms: int) -> None:
@@ -100,7 +101,7 @@ class Node:
         """事件循环每次醒来调一次（不管有没有收到帧）。"""
         if self._next_heartbeat is None or now < self._next_heartbeat:
             return
-        self.send_cob(0x700 + self.node_id, bytes([self.nmt]))
+        self.send_cob(0x700 + self.node_id, bytes([self.nmt]), pad=False)
         # 不追赶欠下的拍数：迟了就迟了，如实反映 USB-CAN 的抖动
         self._next_heartbeat = now + self.heartbeat_ms / 1000.0
 

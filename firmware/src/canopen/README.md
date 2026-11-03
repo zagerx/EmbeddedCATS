@@ -2,21 +2,23 @@
 
 平台无关的 CANopen 协议核心（DS 301）。**这是要长期保留并移植的资产。**
 
+协议栈本身用 CANopenNode v4.1（子模块 `src/third_party/CANopenNode`，只读不改）；
+本层只做平台适配与封装。
+
 ## 结构
 
 ```text
 canopen/
 ├── include/canopen/   公共头（上层只能 include 这里）
-└── src/               实现（nmt / sdo / pdo / sync / emcy）
+├── src/master.c       主站对外接口（CANopenNode 的薄封装）
+└── src/node/          驱动适配：用 can_io 实现 CO_CANmodule
 ```
 
 ## 职责
 
-- NMT 状态管理与心跳监控
-- SDO 客户端（读写对象字典、超时、abort 码上抛）
-- PDO 配置与过程数据域
-- SYNC 发生器
-- EMCY 上报
+- 按上游要求初始化协议栈，并把心跳回调翻译成"见过 boot-up / 被重启过"两个事实
+- 每拍把总线帧分派给协议对象，推进协议栈
+- 回答应用层查询：boot-up 是否到齐、是否都活着、有无重启
 
 ## 边界
 
@@ -29,6 +31,8 @@ canopen/
 | 能力 | 位置 |
 |---|---|
 | CAN 收发契约（边界层实现） | `include/canopen/can_io.h` |
-| SDO 加速读 | `include/canopen/sdo_client.h` + `src/sdo_client.c` |
+| NMT 主站命令、心跳监控（超时由 OD 0x1016 决定） | `include/canopen/master.h` + `src/master.c` |
+| 驱动适配（CO_CANmodule） | `src/node/co_driver_cats.c` |
+| 对象字典（照抄上游 example，已配 0x1016） | `config/canopen_node/` |
 
-未实现：NMT 状态机与心跳、SDO 写与分段传输、PDO、SYNC、EMCY。
+SDO 客户端、PDO、SYNC、EMCY 由上游提供，应用层尚未接入。

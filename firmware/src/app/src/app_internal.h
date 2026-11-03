@@ -31,9 +31,8 @@ struct cats_axis {
 /* 故障码：进 FAULT 时由出事的那个状态填写，state_fault 用它写日志、界面用它显示 */
 enum cats_app_fault {
 	CATS_FAULT_NONE = 0,
-	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里等不到 boot-up */
+	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里静默期过后仍等不到心跳 */
 	CATS_FAULT_HEARTBEAT_LOST, /* RUNNING 里节点心跳超时（掉线） */
-	CATS_FAULT_NODE_REBOOTED,  /* RUNNING 里收到 boot-up：节点被重启过 */
 };
 
 struct cats_app {
@@ -57,5 +56,8 @@ const char *fault_name(enum cats_app_fault f);
 
 /* 取当前时刻；未接管主站时返回 0 */
 uint32_t now_ms(struct cats_app *app);
+
+/* 所有轴对应的节点心跳都正常（没登记轴时返回 1） */
+int all_axes_alive(const struct cats_app *app);
 
 #endif /* APP_APP_INTERNAL_H */

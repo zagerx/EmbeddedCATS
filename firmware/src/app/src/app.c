@@ -33,6 +33,8 @@ void cats_app_set_log(void (*log_fn)(const char *line))
 
 enum cats_app_result cats_app_init(struct co_master *master)
 {
+	uint8_t i;
+
 	if (master == NULL) {
 		return CATS_APP_ERR_PARAM;
 	}
@@ -41,9 +43,31 @@ enum cats_app_result cats_app_init(struct co_master *master)
 	}
 
 	s_app.master = master;
+	/* 轴 = 主站上已登记的节点，站点号只在装配层声明一次，这里读回来 */
+	s_app.axis_count =
+		master->node_count < CATS_APP_MAX_AXES ? master->node_count : CATS_APP_MAX_AXES;
+	for (i = 0; i < s_app.axis_count; i++) {
+		s_app.axes[i].node_id = master->node_id[i];
+	}
+
 	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
 	hsm_init(&s_app.hsm, &st_preparing, now_ms(&s_app));
 	return CATS_APP_OK;
+}
+
+int all_axes_alive(const struct cats_app *app)
+{
+	uint8_t i;
+
+	if (app == NULL || app->master == NULL) {
+		return 0;
+	}
+	for (i = 0; i < app->axis_count; i++) {
+		if (co_master_node_alive(app->master, app->axes[i].node_id) != 0) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 enum cats_app_result cats_app_poll(void)

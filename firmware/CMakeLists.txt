@@ -17,15 +17,65 @@ add_compile_options(-Wall -Wextra)
 #   exe(qt) → app → canopen ；backend 只实现 can_io.h，被 exe 注入
 # ---------------------------------------------------------------
 
-# 内核层：平台无关，只认识自己定义的 can_io.h / master.h / sdo_client.h
-add_library(canopen_kernel STATIC src/canopen/src/sdo_client.c src/canopen/src/master.c)
-target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
+# 内核层：平台无关，只认识自己定义的 can_io.h / master.h
+# （具体定义见下方 canopen_node / canopen_kernel）
 
 # 边界层：can_io.h 的本机实现；只拿内核的“头”，不链它的实现
 add_library(backend_socketcan STATIC src/backends/socketcan/src/can_io_socketcan.c)
 target_include_directories(backend_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/socketcan/include)
 target_include_directories(backend_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
 target_compile_definitions(backend_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
+
+# 第三方：CANopenNode 301 协议栈（子模块，只读）
+#   - 头文件用 "301/CO_xxx.h" 风格，所以把仓库根放进 include 路径
+#   - CO_driver_target.h 由本工程提供：config/canopen_node/
+add_library(canopen_node STATIC
+	src/third_party/CANopenNode/CANopen.c
+	src/third_party/CANopenNode/301/CO_Emergency.c
+	src/third_party/CANopenNode/301/CO_HBconsumer.c
+	src/third_party/CANopenNode/301/CO_NMT_Heartbeat.c
+	src/third_party/CANopenNode/301/CO_ODinterface.c
+	src/third_party/CANopenNode/301/CO_PDO.c
+	src/third_party/CANopenNode/301/CO_SDOclient.c
+	src/third_party/CANopenNode/301/CO_SDOserver.c
+	src/third_party/CANopenNode/301/CO_SYNC.c
+	src/third_party/CANopenNode/301/CO_TIME.c
+	src/third_party/CANopenNode/301/CO_fifo.c
+	src/third_party/CANopenNode/301/crc16-ccitt.c
+	# 照抄自上游 example/ 的对象字典（生成于 DS301_profile.xpd）
+	${CMAKE_CURRENT_SOURCE_DIR}/config/canopen_node/OD.c)
+target_include_directories(canopen_node PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/CANopenNode
+	${CMAKE_CURRENT_SOURCE_DIR}/config/canopen_node)
+# 这些 CO_CONFIG_* 在 301/CO_config.h 里只有文档、真实值由编译参数给；
+# 用 PUBLIC：链接本库的源文件也必须看到，否则对应头文件整段被预处理掉。
+# 注意：CMake 不接受 "(MACRO)" 这种函数式写法，必须给字面量。
+target_compile_definitions(canopen_node PUBLIC
+	CO_CONFIG_SDO_CLI=1
+	CO_CONFIG_FIFO=1  # SDO client 依赖 FIFO 缓冲
+	# NMT：CO_CONFIG_NMT_MASTER(0x02) —— 主站要能发 NMT 命令
+	CO_CONFIG_NMT=2
+	# 心跳消费：ENABLE(0x01) | QUERY_FUNCT(0x08) —— QUERY_FUNCT 才有
+	#   getState()，本层只靠它回答"某个节点还活着吗"，不需要按节点的回调
+	CO_CONFIG_HB_CONS=9
+	# 静态分配：CO_new() 返回指向 static 对象的指针，全程不用 malloc
+	CO_USE_GLOBALS
+	# 用不到的功能关掉，省代码也省链接（站号是写死的，不做 LSS；没有 LED）
+	CO_CONFIG_LSS=0
+	CO_CONFIG_LEDS=0)
+# 上游在"未启用的可选功能"下会报 unused parameter，属上游代码，不修；
+# 只在本目标内静音，避免刷我们自己的构建日志。
+target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
+
+# 内核层：主站对外接口（master.h）+ 用 can_io 实现的 CO_CANmodule
+#   master.c        CANopenNode 的薄封装（主站语义）
+#   node/           驱动适配层：收帧分派、发送、rx/tx 槽管理
+add_library(canopen_kernel STATIC
+	src/canopen/src/master.c
+	src/canopen/src/node/co_driver_cats.c)
+target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
+target_include_directories(canopen_kernel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/src/node)
+target_link_libraries(canopen_kernel PUBLIC canopen_node)
 
 # 应用层：QP 风格状态机
 #   hsm/          机制层：状态即函数指针，dispatch 统一做 EXIT→ENTRY

@@ -28,7 +28,6 @@ static const char *const FAULT_NAMES[] = {
 	[CATS_FAULT_NONE] = "NONE",
 	[CATS_FAULT_BOOTUP_TIMEOUT] = "BOOTUP_TIMEOUT",
 	[CATS_FAULT_HEARTBEAT_LOST] = "HEARTBEAT_LOST",
-	[CATS_FAULT_NODE_REBOOTED] = "NODE_REBOOTED",
 };
 
 const char *cats_app_state_name(enum cats_run_state s)
