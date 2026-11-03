@@ -13,23 +13,7 @@
 
 static struct cats_app s_app;
 
-/* 迁移日志：内核不再提供 trace 回调，这里用迁移前后的状态对比补上 */
-static void log_transition(const struct hsm_state *before)
-{
-	const struct hsm_state *after = hsm_current(&s_app.hsm);
-
-	if (after != before) {
-		app_log(&s_app, "%s -> %s", before->name, after->name);
-	}
-}
-
 /* ---- 对外接口 ---- */
-
-void cats_app_set_log(void (*log_fn)(const char *line))
-{
-	/* 纯赋值：init 之前/之后调都可以。NULL 表示静默 */
-	s_app.log = log_fn;
-}
 
 enum cats_app_result cats_app_init(struct co_master *master)
 {
@@ -55,24 +39,41 @@ enum cats_app_result cats_app_init(struct co_master *master)
 	return CATS_APP_OK;
 }
 
-int all_axes_alive(const struct cats_app *app)
+/*
+ * 心跳的唯一入口：先把事实算好存进 app->hb_ok（各状态都读同一个值），
+ * 再在“受心跳约束的状态”里执行故障迁移。
+ *
+ * 受约束的只有已接管驱动器的状态（RUNNING / STOPPING）：
+ *   PREPARING 有自己的静默期与超时（故障码也不同）；
+ *   ESTOP 已在最安全处且没有出口，再迁一次只会把原因覆盖掉；
+ *   FAULT 本身已经是故障。
+ */
+static void handle_heartbeat(struct cats_app *app, uint32_t now)
 {
 	uint8_t i;
 
-	if (app == NULL || app->master == NULL) {
-		return 0;
-	}
+	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
+	app->hb_ok = app->axis_count > 0 ? 1 : 0;
 	for (i = 0; i < app->axis_count; i++) {
 		if (co_master_node_alive(app->master, app->axes[i].node_id) != 0) {
-			return 0;
+			app->hb_ok = 0;
+			break;
 		}
 	}
-	return 1;
+
+	if (app->hb_ok) {
+		return;
+	}
+	if (app->hsm.state != &st_running && app->hsm.state != &st_stopping) {
+		return;
+	}
+
+	app->fault_code = CATS_FAULT_HEARTBEAT_LOST;
+	hsm_transition(&app->hsm, &st_fault, now);
 }
 
 enum cats_app_result cats_app_poll(void)
 {
-	const struct hsm_state *before;
 	uint32_t now;
 
 	if (s_app.master == NULL) {
@@ -82,28 +83,26 @@ enum cats_app_result cats_app_poll(void)
 	now = now_ms(&s_app);
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_app.master, now);
+	handle_heartbeat(&s_app, now);
 
 	/* 一拍推一次状态机（内部处理一个事件） */
-	before = hsm_current(&s_app.hsm);
 	hsm_dispatch(&s_app.hsm, CATS_SIG_TICK, 0, now);
-	log_transition(before);
 	return CATS_APP_OK;
 }
 
 void cats_app_estop(void)
 {
-	const struct hsm_state *before;
-
 	if (s_app.master == NULL) {
 		return;
 	}
 
-	app_log(&s_app, "ESTOP 触发");
-
 	/* 急停不走队列：任何状态下都立即切过去，ENTRY 里做安全动作 */
-	before = hsm_current(&s_app.hsm);
 	hsm_transition(&s_app.hsm, &st_estop, now_ms(&s_app));
-	log_transition(before);
+}
+
+enum cats_app_fault cats_app_fault_code(void)
+{
+	return s_app.fault_code;
 }
 
 enum cats_run_state cats_app_state(void)

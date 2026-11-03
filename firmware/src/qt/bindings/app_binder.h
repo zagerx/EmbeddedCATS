@@ -5,7 +5,6 @@
  *   cats_app_init()     → 绑定主站并进入准备态
  *   QTimer 20 ms        → cats_app_poll()
  *   app 状态            → StateBar::setState()
- *   cats_app_set_log()  → LogPanel::append()
  *
  * 不绑定任何按钮：启动流程由状态机自己推进。
  *
@@ -53,8 +52,6 @@ class AppBinder : public QObject
 	void startTimer();                       /* 20 ms 节拍 → cats_app_poll */
 	void publish();                          /* app 状态 → 界面 */
 	void pushLog(const QString &line);       /* 往日志面板追加一行 */
-
-	static void logSink(const char *line); /* C 回调 → 本对象 */
 
 	struct can_io bus_;
 	struct socketcan_dev dev_;

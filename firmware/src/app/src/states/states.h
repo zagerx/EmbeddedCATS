@@ -30,7 +30,4 @@ extern const struct hsm_state st_stopping;
 extern const struct hsm_state st_fault;
 extern const struct hsm_state st_estop;
 
-/* 格式化后走 app->log 输出（未注入日志时静默）。格式化只有这一处 */
-void app_log(struct cats_app *app, const char *fmt, ...);
-
 #endif /* APP_STATES_H */

@@ -7,9 +7,6 @@
 
 #include "states.h"
 
-#include <stdarg.h>
-#include <stdio.h>
-
 /* ---- 状态表：下标 = enum cats_run_state，值 = 状态描述符 ---- */
 
 const struct hsm_state *const states[CATS_RUN_STATE_COUNT] = {
@@ -38,27 +35,13 @@ const char *cats_app_state_name(enum cats_run_state s)
 	return NAMES[s];
 }
 
-const char *fault_name(enum cats_app_fault f)
+const char *cats_app_fault_name(enum cats_app_fault f)
 {
 	if ((int)f < 0 ||
 	    f >= (enum cats_app_fault)(sizeof(FAULT_NAMES) / sizeof(FAULT_NAMES[0]))) {
 		return "?";
 	}
 	return FAULT_NAMES[f];
-}
-
-void app_log(struct cats_app *app, const char *fmt, ...)
-{
-	char line[128];
-	va_list ap;
-
-	if (app->log == NULL) {
-		return;
-	}
-	va_start(ap, fmt);
-	vsnprintf(line, sizeof(line), fmt, ap);
-	va_end(ap);
-	app->log(line);
 }
 
 uint32_t now_ms(struct cats_app *app)

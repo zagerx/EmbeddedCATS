@@ -2,13 +2,14 @@
  * state_preparing.c — 准备中
  *
  * 进入：广播 Reset Communication；
- * 每拍：静默期后所有节点心跳正常 → RUNNING；超时 → FAULT；
+ * 每拍：静默期后心跳正常 → RUNNING；超时 → FAULT；
  * 退出：无动作。
  *
  * 静默期的原因：0x82 之前刚收到的那一帧心跳会让消费者的槽位还停留在 ACTIVE，
  * 那一刻去查“都活着吗”会立刻成立，等于没等。该帧的尾巴在 1.5 × 500 ms 后
  * 才过期，所以静默期必须大于 750 ms，这里取 1000 ms 留余量。
  *
+ * 心跳的采集不在这里：cats_app_poll() 每拍算好 app->hb_ok，本状态只读。
  * 时间用 me->entered_ms 手算（内核不提供定时器）。
  */
 
@@ -41,7 +42,7 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 		if (elapsed < PREPARE_SETTLE_MS) {
 			break; /* 静默期：此时的心跳状态还是复位前的旧数据 */
 		}
-		if (all_axes_alive(app)) {
+		if (app->hb_ok) {
 			HSM_TRAN(&st_running);
 		}
 		if (elapsed > PREPARE_TIMEOUT_MS) {

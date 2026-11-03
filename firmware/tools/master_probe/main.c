@@ -22,24 +22,13 @@
 #define POLL_INTERVAL_MS 20u /* 节拍：够判 750 ms 心跳超时（误差 2.7%） */
 
 static volatile sig_atomic_t s_stop = 0;
-static struct can_io *s_io; /* 只给日志打时间戳用 */
-static uint32_t s_base_ms;  /* 日志时间零点：第一条日志的时刻 */
+static struct can_io *s_io; /* 只给时间戳用 */
+static uint32_t s_base_ms;  /* 时间零点：开跑时刻 */
 
 static void on_sigint(int sig)
 {
 	(void)sig;
 	s_stop = 1;
-}
-
-static void log_line(const char *line)
-{
-	uint32_t now = can_io_now_ms(s_io);
-
-	if (s_base_ms == 0) {
-		s_base_ms = now;
-	}
-	printf("[%6u] %s\n", (unsigned)(now - s_base_ms), line);
-	fflush(stdout);
 }
 
 static void sleep_ms(uint32_t ms)
@@ -79,7 +68,6 @@ int main(int argc, char **argv)
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	cats_app_set_log(log_line);
 	if (cats_app_init(&master) != CATS_APP_OK) {
 		fprintf(stderr, "cats_app_init 失败\n");
 		can_io_close(&io);
@@ -87,6 +75,7 @@ int main(int argc, char **argv)
 	}
 
 	start_ms = can_io_now_ms(&io);
+	s_base_ms = start_ms;
 
 	while (!s_stop) {
 		(void)cats_app_poll();
@@ -94,8 +83,12 @@ int main(int argc, char **argv)
 		now = can_io_now_ms(&io);
 		if (cats_app_state() != last) {
 			last = cats_app_state();
-			printf("[%6u] state = %s\n", (unsigned)(now - s_base_ms),
+			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
 			       cats_app_state_name(last));
+			if (last == CATS_RUN_FAULT) {
+				printf(" (%s)", cats_app_fault_name(cats_app_fault_code()));
+			}
+			printf("\n");
 			fflush(stdout);
 		}
 

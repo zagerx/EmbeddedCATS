@@ -16,8 +16,8 @@
 |---|---|
 | `QTimer` 节拍 | `cats_app_poll()` |
 | 顶部状态条 | `cats_app_state()` / `cats_app_state_name()` |
-| 日志面板 | `cats_app_set_log()` 的出口 |
+| 故障原因 | `cats_app_fault_code()` / `cats_app_fault_name()` |
 | 通道开/关 | `socketcan_open()` / `can_io_close()`（选后端只在集成层） |
 
-已实现的：节拍、状态条、日志面板、通道开与 app 初始化。
-尚未实现的：轴卡片反馈、各按钮（当前一律不绑定）。
+已实现的：节拍、状态条、通道开与 app 初始化。
+尚未实现的：轴卡片反馈、各按钮（当前一律不绑定）、日志面板内容（等 app 重新提供日志）。

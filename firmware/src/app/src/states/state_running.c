@@ -2,11 +2,11 @@
  * state_running.c — 运行中
  *
  * 进入：清掉故障码；
- * 每拍：任一轴对应节点心跳不正常 → FAULT；
+ * 每拍：发 SYNC、查 402 状态字（待补）；
  * 退出：停 SYNC（出口动作的天然位置，待补）。
  *
- * 超时门槛不在本文件：OD 0x1016 配了心跳周期，内核按 1.5 倍判掉线，
- * 应用层只问“是不是都还活着”。
+ * 心跳不在这里判：cats_app_poll() 每拍算好 app->hb_ok，并由同一个入口
+ * 在"该管心跳的状态"里统一迁到 FAULT（见 app.c 的 handle_heartbeat）。
  */
 
 #include "states.h"
@@ -28,11 +28,6 @@ static int st_running_h(struct hsm *me, const struct hsm_event *e)
 		break;
 
 	case CATS_SIG_TICK:
-		/* 任一个节点掉线就整体 FAULT：安全优先 */
-		if (!all_axes_alive(app)) {
-			app->fault_code = CATS_FAULT_HEARTBEAT_LOST;
-			HSM_TRAN(&st_fault);
-		}
 		/* TODO(下一拍)：发 SYNC、检查 402 状态字 */
 		break;
 

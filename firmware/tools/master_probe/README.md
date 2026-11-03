@@ -14,18 +14,16 @@
 
 ```text
 接口 can0，节点 1/2，节拍 20 ms
-[  1234] PREPARING
-[  1234] state = PREPARING
-[  2300] PREPARING -> RUNNING
-[  2300] state = RUNNING
+[     0] state = PREPARING
+[  1012] state = RUNNING
 ```
 
 ## 它能验证什么
 
 | 场景 | 期望 |
 |---|---|
-| 驱动器响应 0x82 并正常发心跳 | 静默 1000 ms 后 `PREPARING → RUNNING` |
-| 驱动器始终不发心跳 | 3000 ms 后 `FAULT: BOOTUP_TIMEOUT` |
-| `RUNNING` 中停掉驱动器心跳 | 约 750 ms 后 `FAULT: HEARTBEAT_LOST` |
+| 驱动器响应 0x82 并正常发心跳 | 静默 1000 ms 后 `state = RUNNING` |
+| 驱动器始终不发心跳 | 3000 ms 后 `state = FAULT (BOOTUP_TIMEOUT)` |
+| `RUNNING` 中停掉驱动器心跳 | 约 750 ms 后 `state = FAULT (HEARTBEAT_LOST)` |
 
 节拍 20 ms 对 750 ms 判定只引入 2.7% 误差；将来做运动（PP 模式 2~10 ms）再升级节拍。

@@ -28,7 +28,7 @@ app/
 
 集成层只 include 这一个头，接口为：
 `cats_app_init` / `cats_app_poll` / `cats_app_state` / `cats_app_state_name` /
-`cats_app_estop` / `cats_app_set_log`。
+`cats_app_estop` / `cats_app_fault_code` / `cats_app_fault_name`。
 
 - **单线程轮询**：由壳按 10~20 ms 调 `cats_app_poll()`，本层内部不用线程、不用回调；
 - **启动不靠外部事件**：`cats_app_init()` 建好状态机即为 PREPARING，之后由 `poll` 自行推进；

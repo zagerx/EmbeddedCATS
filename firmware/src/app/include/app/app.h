@@ -61,6 +61,13 @@ enum cats_run_state {
 	CATS_RUN_STATE_COUNT /* 状态个数，states[] 表的大小 */
 };
 
+/* 故障码：进 FAULT 时确定，之后不再变；界面与现场排查用它分辨原因 */
+enum cats_app_fault {
+	CATS_FAULT_NONE = 0,
+	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里静默期过后仍等不到心跳 */
+	CATS_FAULT_HEARTBEAT_LOST, /* RUNNING / STOPPING 里节点心跳超时 */
+};
+
 /* 初始化：绑定主站并建状态机。建完即处于 PREPARING，之后由 poll 自行推进 */
 enum cats_app_result cats_app_init(struct co_master *master);
 
@@ -70,7 +77,7 @@ enum cats_app_result cats_app_init(struct co_master *master);
  */
 enum cats_app_result cats_app_poll(void);
 
-/* 供界面刷新按钮文字与状态显示 */
+/* 供界面刷新状态显示 */
 enum cats_run_state cats_app_state(void);
 
 /* 状态名："PREPARING" / "RUNNING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
@@ -83,8 +90,11 @@ const char *cats_app_state_name(enum cats_run_state s);
  */
 void cats_app_estop(void);
 
-/* 状态切换日志：迁移时打印 "IDLE -> PREPARING"。由集成层注入，NULL 表示静默 */
-void cats_app_set_log(void (*log_fn)(const char *line));
+/* 最近一次故障的原因；不在 FAULT 时为 CATS_FAULT_NONE */
+enum cats_app_fault cats_app_fault_code(void);
+
+/* 故障名："BOOTUP_TIMEOUT" / "HEARTBEAT_LOST"…；越界返回 "?" */
+const char *cats_app_fault_name(enum cats_app_fault f);
 
 #ifdef __cplusplus
 } /* extern "C" */

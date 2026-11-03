@@ -16,9 +16,6 @@ namespace
 {
 constexpr int kPollIntervalMs = 20; /* 节拍：判 750 ms 心跳超时只引入 2.7% 误差 */
 
-/* C 回调没有上下文指针，用一个静态出口转回本对象（一个进程只有一个主站） */
-AppBinder *s_self = nullptr;
-
 /* app 的运行状态 → 顶部状态条。两边枚举刻意一一对应，仍显式写全，免得日后错位 */
 StateBar::State to_bar_state(enum cats_run_state s)
 {
@@ -42,7 +39,6 @@ StateBar::State to_bar_state(enum cats_run_state s)
 
 AppBinder::AppBinder(QObject *parent) : QObject(parent)
 {
-	s_self = this;
 }
 
 AppBinder::~AppBinder()
@@ -50,14 +46,10 @@ AppBinder::~AppBinder()
 	if (channel_open_) {
 		can_io_close(&bus_);
 	}
-	s_self = nullptr;
 }
 
 void AppBinder::attach(QWidget *root, const QString &ifname)
 {
-	/* 先接日志出口，后面任何一步出错才显示得出来 */
-	cats_app_set_log(&AppBinder::logSink);
-
 	findWidgets(root);
 	if (!openChannel(ifname)) {
 		return; /* 没通道就不起节拍：onTick 根本不会被调用 */
@@ -115,13 +107,6 @@ void AppBinder::pushLog(const QString &line)
 {
 	if (log_panel_ != nullptr) {
 		log_panel_->append(line);
-	}
-}
-
-void AppBinder::logSink(const char *line)
-{
-	if (s_self != nullptr && line != nullptr) {
-		s_self->pushLog(QString::fromUtf8(line));
 	}
 }
 
