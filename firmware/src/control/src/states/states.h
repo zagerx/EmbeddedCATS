@@ -5,9 +5,10 @@
  * 以及"从 hsm 指针找回 cats_control"的 container_of 小工具。
  *
  * 层次（见各文件里状态对象的 .super 字段）：
- *   st_root
- *   ├── st_online      运行期父状态：故障出口 + 心跳 + 上抛其余事件
- *   │   ├── st_preparing / st_enabling / st_holding / st_moving / st_halting
+ *   st_root            公共规则：有故障码 → FAULT
+ *   ├── st_preparing   等心跳（此时心跳还没有是正常的，所以不挂 ONLINE）
+ *   ├── st_online      运行期父状态：心跳丢失 → FAULT，其余事件上抛
+ *   │   ├── st_configuring / st_enabling / st_holding / st_moving / st_halting
  *   ├── st_fault       （直接挂 root：安全态不继承运行期动作）
  *   └── st_estop
  *
@@ -28,6 +29,7 @@
 extern const struct hsm_state st_root;
 extern const struct hsm_state st_online;
 extern const struct hsm_state st_preparing;
+extern const struct hsm_state st_configuring;
 extern const struct hsm_state st_enabling;
 extern const struct hsm_state st_holding;
 extern const struct hsm_state st_moving;

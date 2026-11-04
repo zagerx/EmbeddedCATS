@@ -51,6 +51,7 @@ class Drive:
         log=None,
         heartbeat_ms: int = DEFAULT_HEARTBEAT_MS,
         follow_402: bool = True,
+        echo_mode: bool = True,
     ) -> None:
         self.bus = bus
         self.trace = trace
@@ -62,6 +63,7 @@ class Drive:
                 log=log,
                 heartbeat_ms=heartbeat_ms,
                 follow_402=follow_402,
+                echo_mode=echo_mode,
             )
             for nid in node_ids
         ]
@@ -139,6 +141,11 @@ def main() -> int:
         action="store_true",
         help="状态字不跟控制字走（复现“能通信但使不上”的驱动器，用来测使能超时）",
     )
+    ap.add_argument(
+        "--no-mode-echo",
+        action="store_true",
+        help="写 0x6060 不影响 0x6061（复现“模式设不进去”的驱动器，用来测配置失败）",
+    )
     args = ap.parse_args()
 
     node_ids = parse_nodes(args.nodes)
@@ -150,6 +157,7 @@ def main() -> int:
         trace=args.trace,
         heartbeat_ms=args.heartbeat_ms,
         follow_402=not args.no_402,
+        echo_mode=not args.no_mode_echo,
     )
     print(
         f"fake_drive 已启动：{args.interface}，站号 {node_ids}，"

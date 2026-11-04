@@ -1,10 +1,11 @@
 /*
  * cia402_enable.c — 使能序列：把"写什么 + 等哪个状态"写成一张表
  *
- *   6060 = 1（PP，先定模式；写完不确认）
  *   6040 = 06 → 等 0x21（READY）
  *   6040 = 07 → 等 0x23（SWITCHED_ON）
  *   6040 = 0F → 等 0x27（OP_ENABLED）
+ *
+ * 模式（6060 = PP）不在这里：那是参数配置，归 cia402_config.c。
  *
  * 每条命令走四个相位（CIA402_PHASE_*），一条命令一次只看一个相位：
  *   写帧 → 等写结果 → 发读 → 等读结果并判状态字
@@ -19,11 +20,8 @@
 
 #include <stddef.h>
 
-#define MODE_PP 1u /* 6060 = 1 = 协议位置模式（手册 5.1.3） */
-
 /*
  * 一条使能命令：写哪个对象、写什么、写几个字节、写完要确认到哪个状态。
- * expect == CIA402_STATE_UNKNOWN 表示"写完就算过，不用读状态字确认"。
  */
 struct enable_cmd {
 	uint16_t index;           /* 写哪个对象 */
@@ -33,7 +31,6 @@ struct enable_cmd {
 };
 
 static const struct enable_cmd ENABLE_SEQ[] = {
-	{CIA402_IDX_MODE, MODE_PP, 1, CIA402_STATE_UNKNOWN},
 	{CIA402_IDX_CONTROLWORD, CIA402_CW_SHUTDOWN, 2, CIA402_READY},
 	{CIA402_IDX_CONTROLWORD, CIA402_CW_SWITCH_ON, 2, CIA402_SWITCHED_ON},
 	{CIA402_IDX_CONTROLWORD, CIA402_CW_ENABLE_OP, 2, CIA402_OP_ENABLED},
@@ -101,10 +98,6 @@ void cia402_enable_step(struct cia402_node *n)
 		}
 		if (r < 0) {
 			fail(n);
-			return;
-		}
-		if (cmd->expect == CIA402_STATE_UNKNOWN) {
-			advance(n); /* 这一步不需要确认 */
 			return;
 		}
 		n->en.phase = CIA402_PHASE_READ;

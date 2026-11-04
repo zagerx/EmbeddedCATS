@@ -30,11 +30,12 @@ cia402/
 | 能力 | 位置 |
 |---|---|
 | 状态字解析（纯函数）与状态名 | `src/cia402_state.c` |
-| 使能序列：`6060=1`(PP) → `6040=06` → `07` → `0F`；表驱动，一条命令走"发写→等写→发读→判状态" | `src/cia402_enable.c` |
+| 参数配置：`6060=1`(PP) → 读 `6061` 校验；表驱动，写完必读回，值不对就判失败 | `src/cia402_config.c` |
+| 使能序列：`6040=06` → `07` → `0F`；表驱动，一条命令走"发写→等写→发读→判状态" | `src/cia402_enable.c` |
 | PP 绝对位置运动：`6081/6083/6084/607A` → `6040` bit4 上升沿 → 等 `6041` bit10；目标等于当前位置时用 6064 分辨 | `src/cia402_pp.c` |
 | 减速停（`6040` bit8）与急停（`0x02` → 等 disabled → `0x00`） | `src/cia402_stop.c` |
 | 一次 SDO 事务：发起 / 每拍推进 / 取结果；200 ms 超时由上游报 abort | `src/cia402_sdo.c` |
-| 对外接口与编排：`init` / `request_enable` / `pp_start` / `halt` / `quick_stop` / `poll` | `src/cia402.c` |
+| 对外接口与编排：`init` / `request_config` / `request_enable` / `pp_start` / `halt` / `quick_stop` / `poll` | `src/cia402.c` |
 | 层内接口（子模块之间，不对外） | `src/cia402_internal.h` |
 
 未实现：失能 / 快停 / 故障复位（控制字 bit7）、PP 移动（`607A` + `4F/5F`）、

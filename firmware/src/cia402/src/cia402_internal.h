@@ -3,6 +3,7 @@
  *
  * 和 app 的 hsm 一个路子：**动作各自一个文件，编排单独一个文件**。
  *   cia402.c          编排 + 对外接口
+ *   cia402_config.c   参数配置序列（上电一次：写参数并读回校验）
  *   cia402_enable.c   使能序列（写什么、等哪个状态、下一步）
  *   cia402_sdo.c      一次 SDO 事务（发起 / 每拍推进 / 取结果）
  *   cia402_state.c    状态字解析（纯函数）
@@ -38,7 +39,8 @@ int cia402_sdo_result(struct cia402_node *n);
 /* ---- 402 的对象号与位（只在本层内部出现） ---- */
 #define CIA402_IDX_CONTROLWORD 0x6040u
 #define CIA402_IDX_STATUSWORD 0x6041u
-#define CIA402_IDX_MODE 0x6060u
+#define CIA402_IDX_MODE 0x6060u        /* 操作模式（写） */
+#define CIA402_IDX_MODE_ACTUAL 0x6061u /* 操作模式显示（读回校验用） */
 #define CIA402_IDX_TARGET_POSITION 0x607Au
 #define CIA402_IDX_POSITION_ACTUAL 0x6064u
 #define CIA402_IDX_PROFILE_VELOCITY 0x6081u
@@ -59,6 +61,14 @@ int cia402_sdo_result(struct cia402_node *n);
 
 /* 写控制字（6040）并记住当前值；0 = 已发出 */
 int cia402_write_controlword(struct cia402_node *n, uint16_t value);
+
+/* ---- cia402_config.c：参数配置序列 ---- */
+
+/* 从第一条开始（只改本层游标，不发帧） */
+void cia402_config_start(struct cia402_node *n);
+
+/* 每拍推进一步：按当前相位发写 / 发读 / 比对读回值 */
+void cia402_config_step(struct cia402_node *n);
 
 /* ---- cia402_enable.c：使能序列 ---- */
 

@@ -2,7 +2,7 @@
  * state_preparing.c — 准备中
  *
  * 进入：广播 Reset Communication（0x82，只复位通信，不动配置）。
- * 每拍：静默期过后心跳正常 → ENABLING；超时 → 置 BOOTUP_TIMEOUT（由 ONLINE 迁 FAULT）。
+ * 每拍：静默期过后心跳正常 → CONFIGURING；超时 → 置 BOOTUP_TIMEOUT（由 ROOT 迁 FAULT）。
  * 退出：无动作。
  *
  * 静默期：发完 0x82 后等这么久再判心跳，让驱动器有机会先处理复位并回 boot-up
@@ -50,10 +50,10 @@ static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 			return HSM_RET_SUPER; /* 静默期：心跳还是复位前的旧数据 */
 		}
 		if (ctl->hb_ok) {
-			HSM_TRAN(&st_enabling);
+			HSM_TRAN(&st_configuring); /* 先配参数（模式等），再使能 */
 		}
 		if (elapsed > PREPARE_TIMEOUT_MS) {
-			ctl->fault_code = CATS_FAULT_BOOTUP_TIMEOUT; /* 交 ONLINE 迁 FAULT */
+			ctl->fault_code = CATS_FAULT_BOOTUP_TIMEOUT; /* 由 ROOT 迁 FAULT */
 		}
 		return HSM_RET_SUPER;
 	}

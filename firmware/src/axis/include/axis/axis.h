@@ -60,6 +60,9 @@ uint32_t axis_abort_code(const struct cats_axis *a);
 
 /* ---- 批量动作：对一组轴逐个施加（每轴有自己的 SDO 通道，互不阻塞） ---- */
 
+/* 请求所有轴写参数（上电一次：模式等）：0 = 已受理；-1 = 没有轴或参数不对 */
+int axis_config_all(struct cats_axis *axes, uint8_t count);
+
 /* 请求所有轴使能：0 = 已受理；-1 = 没有轴或参数不对 */
 int axis_enable_all(struct cats_axis *axes, uint8_t count);
 
@@ -69,6 +72,7 @@ void axis_quick_stop_all(struct cats_axis *axes, uint8_t count);
 /* 每拍推进各轴 */
 void axis_poll_all(struct cats_axis *axes, uint8_t count, uint32_t now_ms);
 
+int axis_all_configured(const struct cats_axis *axes, uint8_t count);
 int axis_all_enabled(const struct cats_axis *axes, uint8_t count);
 int axis_any_failed(const struct cats_axis *axes, uint8_t count);
 

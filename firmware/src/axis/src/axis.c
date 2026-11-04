@@ -82,6 +82,20 @@ enum axis_motion axis_take_motion(struct cats_axis *a)
 
 /* ---- 批量动作：一组轴 = 数组 + 条数 ---- */
 
+int axis_config_all(struct cats_axis *axes, uint8_t count)
+{
+	uint8_t i;
+
+	if (axes == NULL || count == 0U) {
+		return -1;
+	}
+	for (i = 0; i < count; i++) {
+		/* 1 = 已经配过（不重复发起），不算错 */
+		(void)cia402_request_config(&axes[i].drv);
+	}
+	return 0;
+}
+
 int axis_enable_all(struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -118,6 +132,21 @@ void axis_quick_stop_all(struct cats_axis *axes, uint8_t count)
 	for (i = 0; i < count; i++) {
 		(void)cia402_quick_stop(&axes[i].drv);
 	}
+}
+
+int axis_all_configured(const struct cats_axis *axes, uint8_t count)
+{
+	uint8_t i;
+
+	if (axes == NULL || count == 0U) {
+		return 0;
+	}
+	for (i = 0; i < count; i++) {
+		if (!cia402_is_configured(&axes[i].drv)) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 int axis_all_enabled(const struct cats_axis *axes, uint8_t count)

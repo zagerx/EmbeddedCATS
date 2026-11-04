@@ -67,6 +67,7 @@ class Node:
         log: Callable[[str], None] | None = None,
         heartbeat_ms: int = DEFAULT_HEARTBEAT_MS,
         follow_402: bool = True,
+        echo_mode: bool = True,
     ) -> None:
         self.bus = bus
         self.node_id = node_id
@@ -82,6 +83,8 @@ class Node:
         # 402 状态机：上电即“禁止启动”，状态字随时同步进 6041
         # follow_402 = False 时状态字不跟控制字走（复现“只能通信、使不上”的驱动器）
         self.follow_402 = follow_402
+        # echo_mode = False 时写 0x6060 不影响 0x6061（复现“模式设不进去”的驱动器）
+        self.echo_mode = echo_mode
         self.controlword = 0
         self.state402 = CIA402_SWITCH_ON_DISABLED
         # PP 最小模型：位置 / 目标 / 速度，以及运动结束时刻
@@ -299,7 +302,10 @@ class Node:
             )
         elif index == 0x6060:
             # 操作模式显示（6061）跟随设定值，跟真驱动器一致
-            self.od.set_internal(0x6061, 0, entry.value)
+            if self.echo_mode:
+                self.od.set_internal(0x6061, 0, entry.value)
+            else:
+                self.log(f"0x6060 写入 {entry.value:#04x} 但 0x6061 不跟随（--no-mode-echo）")
         elif index == 0x6040:
             self.apply_controlword(entry.value)
         elif index == 0x607A:

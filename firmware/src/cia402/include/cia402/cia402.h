@@ -14,11 +14,12 @@
  * 互不打断。本层只做"我这一步要发一个 SDO，等它回来"，不碰 COB-ID。
  *
  * 文件分工（一个文件一件事）：
- *   cia402.c          对外接口与编排：init / request_enable / poll / 事实查询
+ *   cia402.c          对外接口与编排：init / request_* / poll / 事实查询
+ *   cia402_config.c   参数配置序列（上电一次：写参数并读回校验）
  *   cia402_enable.c   使能序列（表驱动：写什么、等哪个状态、下一步是谁）
  *   cia402_sdo.c      一次 SDO 事务（发起 / 每拍推进 / 取结果），用上游原语
  *   cia402_state.c    状态字解析 + 状态名（纯函数，不碰总线）
- *   cia402_internal.h 上面三块的层内接口（不对外发布）
+ *   cia402_internal.h 上面几块的层内接口（不对外发布）
  */
 
 #ifndef CIA402_CIA402_H
@@ -50,6 +51,13 @@ enum cia402_enable_state {
 	CIA402_EN_FAILED           /* 使能中途失败（abort 或 402 进故障） */
 };
 
+/* 参数配置结论：参数写进去且读回对得上才算 CONFIGURED */
+enum cia402_config_state {
+	CIA402_CFG_PENDING = 0, /* 还没配 / 正在配 */
+	CIA402_CFG_CONFIGURED,  /* 全部参数已写入并校验通过 */
+	CIA402_CFG_FAILED       /* 写失败 / 读回值不符 / abort */
+};
+
 /* 一次 SDO 事务的进度（层内细节）。DONE / FAILED 是"结果已出、还没被取走" */
 enum cia402_sdo_state {
 	CIA402_SDO_IDLE = 0, /* 没有在途事务 */
@@ -69,11 +77,12 @@ enum cia402_phase {
 
 /* 本层当前在推哪个协议过程。同一时刻只有一个（每条 SDO 通道单线使用） */
 enum cia402_activity {
-	CIA402_ACT_IDLE = 0,  /* 没有过程在跑 */
-	CIA402_ACT_ENABLING,  /* 使能序列 */
-	CIA402_ACT_MOVING,    /* PP 运动在途 */
-	CIA402_ACT_HALTING,   /* 减速停在途（Halt） */
-	CIA402_ACT_QUICK_STOP /* 急停：0x02 → 等减速 → 0x00，一机到底 */
+	CIA402_ACT_IDLE = 0,    /* 没有过程在跑 */
+	CIA402_ACT_CONFIGURING, /* 参数配置序列（上电一次） */
+	CIA402_ACT_ENABLING,    /* 使能序列 */
+	CIA402_ACT_MOVING,      /* PP 运动在途 */
+	CIA402_ACT_HALTING,     /* 减速停在途（Halt） */
+	CIA402_ACT_QUICK_STOP   /* 急停：0x02 → 等减速 → 0x00，一机到底 */
 };
 
 /* 上一个过程的结论；被 cia402_take_result() 取走后回 NONE */
@@ -117,15 +126,21 @@ struct cia402_node {
 	uint8_t node_id;
 
 	/* ---- 对外事实：上层只该读这几项 ---- */
-	enum cia402_enable_state en_state; /* 使能结论 */
-	enum cia402_state state;           /* 最近一次读到的状态字解析结果 */
-	uint16_t statusword;               /* 最近一次读到的原始状态字 */
+	enum cia402_config_state cfg_state; /* 配置结论 */
+	enum cia402_enable_state en_state;  /* 使能结论 */
+	enum cia402_state state;            /* 最近一次读到的状态字解析结果 */
+	uint16_t statusword;                /* 最近一次读到的原始状态字 */
 	uint32_t abort_code; /* 失败时驱动器回的 abort；0 = 不是 abort 引起的 */
 
 	/* ---- 层内进度：只有 cia402_*.c 读写，上层不要碰 ---- */
 	enum cia402_activity activity; /* 当前在推的协议过程 */
 	enum cia402_result result;     /* 上一个过程的结论，待取 */
 	uint16_t controlword;          /* 当前控制字（402 状态，写 6040 时用） */
+
+	struct {
+		uint8_t seq;             /* 配置表第几条（下标，恒 < 条数） */
+		enum cia402_phase phase; /* 这条走到哪个相位 */
+	} cfg;
 
 	struct {
 		uint8_t seq;             /* 使能序列第几条（下标，恒 < 条数） */
@@ -167,6 +182,9 @@ enum cia402_state cia402_parse(uint16_t statusword);
 
 void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id);
 
+/* 请求配置参数（写模式等，上电一次）：0 = 已受理；1 = 已在配 / 有别的过程在跑 */
+int cia402_request_config(struct cia402_node *n);
+
 /* 请求上使能：0 = 已受理；1 = 已经要求过（不重复发） */
 int cia402_request_enable(struct cia402_node *n);
 
@@ -189,6 +207,7 @@ int cia402_busy(const struct cia402_node *n);
 /* 取走上一个过程的结论：DONE / FAILED / NONE；取走后回 NONE */
 enum cia402_result cia402_take_result(struct cia402_node *n);
 
+int cia402_is_configured(const struct cia402_node *n);
 int cia402_is_enabled(const struct cia402_node *n);
 int cia402_failed(const struct cia402_node *n);
 

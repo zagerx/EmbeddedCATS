@@ -4,6 +4,7 @@
  * 本文件只做两件事：
  *   1. 把"当前在推哪个协议过程"记在一个变量里（n->activity），每拍分派给子模块；
  *   2. 把上层的意图翻译成"能不能受理"，细节一概交给子模块：
+ *        参数配置 → cia402_config.c
  *        使能序列 → cia402_enable.c
  *        PP 运动  → cia402_pp.c
  *        停车/急停 → cia402_stop.c
@@ -23,11 +24,25 @@ void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id)
 	memset(n, 0, sizeof(*n));
 	n->master = m;
 	n->node_id = node_id;
+	n->cfg_state = CIA402_CFG_PENDING;
 	n->en_state = CIA402_EN_NOT_ENABLED;
 	n->state = CIA402_STATE_UNKNOWN;
 	n->sdo = CIA402_SDO_IDLE;
 	n->activity = CIA402_ACT_IDLE;
 	n->controlword = CIA402_CW_DISABLE;
+}
+
+int cia402_request_config(struct cia402_node *n)
+{
+	if (n == NULL || n->master == NULL || n->node_id == 0U) {
+		return -1;
+	}
+	if (n->cfg_state != CIA402_CFG_PENDING || n->activity != CIA402_ACT_IDLE) {
+		return 1; /* 已配过 / 有别的过程在跑：不重复发起 */
+	}
+	n->abort_code = 0;
+	cia402_config_start(n);
+	return 0;
 }
 
 int cia402_request_enable(struct cia402_node *n)
@@ -102,6 +117,9 @@ void cia402_poll(struct cia402_node *n, uint32_t now_ms)
 	cia402_sdo_step(n, diff_us); /* 先把在途 SDO 推一步 */
 
 	switch (n->activity) {
+	case CIA402_ACT_CONFIGURING:
+		cia402_config_step(n);
+		break;
 	case CIA402_ACT_ENABLING:
 		cia402_enable_step(n);
 		break;
@@ -136,6 +154,11 @@ enum cia402_result cia402_take_result(struct cia402_node *n)
 	return r;
 }
 
+int cia402_is_configured(const struct cia402_node *n)
+{
+	return n != NULL && n->cfg_state == CIA402_CFG_CONFIGURED;
+}
+
 int cia402_is_enabled(const struct cia402_node *n)
 {
 	return n != NULL && n->en_state == CIA402_EN_ENABLED && n->state == CIA402_OP_ENABLED;
@@ -143,7 +166,8 @@ int cia402_is_enabled(const struct cia402_node *n)
 
 int cia402_failed(const struct cia402_node *n)
 {
-	return n != NULL && n->en_state == CIA402_EN_FAILED;
+	/* 配置或使能哪一步失败都算"这台轴出错了"；是哪一步由上层故障码区分 */
+	return n != NULL && (n->en_state == CIA402_EN_FAILED || n->cfg_state == CIA402_CFG_FAILED);
 }
 
 uint32_t cia402_abort_code(const struct cia402_node *n)

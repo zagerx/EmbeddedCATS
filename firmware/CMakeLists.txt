@@ -84,6 +84,7 @@ target_link_libraries(canopen_kernel PUBLIC canopen_node)
 #   用上游的 SDO 客户端原语驱动（canopen/sdo_client.h 只交出对象，不封装动作）
 add_library(cia402 STATIC
 	src/cia402/src/cia402.c
+	src/cia402/src/cia402_config.c
 	src/cia402/src/cia402_enable.c
 	src/cia402/src/cia402_pp.c
 	src/cia402/src/cia402_sdo.c
@@ -108,6 +109,7 @@ add_library(cats_control STATIC
 	src/control/src/states/state_root.c
 	src/control/src/states/state_online.c
 	src/control/src/states/state_preparing.c
+	src/control/src/states/state_configuring.c
 	src/control/src/states/state_enabling.c
 	src/control/src/states/state_holding.c
 	src/control/src/states/state_moving.c

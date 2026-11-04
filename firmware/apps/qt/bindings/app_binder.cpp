@@ -25,6 +25,9 @@ StateBar::State to_bar_state(enum cats_state s)
 	switch (s) {
 	case CATS_STATE_PREPARING:
 		return StateBar::State::Preparing;
+	/* CONFIGURING（写参数）与 ENABLING（使能）在界面上合成一档“正在准备驱动器”：
+	 * 状态条只给粗粒度提示，精确状态看 cats_control_state_name() 的文本。 */
+	case CATS_STATE_CONFIGURING:
 	case CATS_STATE_ENABLING:
 		return StateBar::State::Enabling;
 	/* HOLDING 与 MOVING 在界面上合成一档“运行中”：状态条只给粗粒度提示，
