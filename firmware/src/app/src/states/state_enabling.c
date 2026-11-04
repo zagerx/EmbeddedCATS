@@ -5,8 +5,8 @@
  * 每拍：只看两个事实——都使能上了 → RUNNING；有轴失败 / 超时 → FAULT；
  * 退出：无动作（失败时轴自己已经停在失败步骤，不再发帧）。
  *
- * 本状态不推进任何步骤：轴的推进在 axis_group_poll() 里（cats_app_poll 每拍
- * 调一次），这里只读 axis_group_all_enabled() / any_failed() 的结论。
+ * 本状态不推进任何步骤：轴的推进在 axis_poll_all() 里（cats_app_poll 每拍
+ * 调一次），这里只读 axis_all_enabled() / axis_any_failed() 的结论。
  *
  * 心跳也约束本状态：使能到一半掉线，不能继续往下走。这个判断不在本文件，
  * 在 app.c 的 handle_heartbeat()（RUNNING / STOPPING / ENABLING 一视同仁）。
@@ -31,7 +31,7 @@ static int st_enabling_h(struct hsm *me, const struct hsm_event *e)
 	case HSM_SIG_ENTRY:
 		/* 0x01 = Start remote node，站号 0 = 全部。手册例子先 NMT 启动再发 SDO */
 		(void)co_master_nmt(app->master, 0, 0x01);
-		(void)axis_group_enable(&app->group);
+		(void)axis_enable_all(app->axes, app->axis_count);
 		break;
 
 	case HSM_SIG_EXIT:
@@ -41,11 +41,11 @@ static int st_enabling_h(struct hsm *me, const struct hsm_event *e)
 	case CATS_SIG_TICK: {
 		uint32_t elapsed = now_ms(app) - me->entered_ms;
 
-		if (axis_group_any_failed(&app->group)) {
+		if (axis_any_failed(app->axes, app->axis_count)) {
 			app->fault_code = CATS_FAULT_ENABLE_FAILED;
 			HSM_TRAN(&st_fault);
 		}
-		if (axis_group_all_enabled(&app->group)) {
+		if (axis_all_enabled(app->axes, app->axis_count)) {
 			HSM_TRAN(&st_ready);
 		}
 		if (elapsed > ENABLE_TIMEOUT_MS) {

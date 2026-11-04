@@ -21,8 +21,7 @@
 
 /* 业务事件：内核只认 ENTRY/EXIT，业务信号从 HSM_SIG_USER 起编号 */
 enum cats_app_sig {
-	CATS_SIG_TICK = HSM_SIG_USER, /* 周期节拍，cats_app_poll() 每拍投一个 */
-	CATS_SIG_STOP                 /* 请求停止 */
+	CATS_SIG_TICK = HSM_SIG_USER /* 周期节拍，cats_app_poll() 每拍投一个 */
 };
 
 /* 指令槽里的指令种类（单槽，后到覆盖先到） */
@@ -45,8 +44,7 @@ struct cats_app {
 	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
 
 	struct cats_axis axes[CATS_APP_MAX_AXES];
-	struct axis_group group; /* 轴集合：每拍逐轴推进，每轴有自己的 SDO 通道 */
-	uint8_t axis_count;
+	uint8_t axis_count; /* 实际装配了几条轴（= 主站登记数，上限 MAX_AXES） */
 	/* 本拍所有轴心跳都正常；每拍由 cats_app_poll() 刷新，状态只读不算 */
 	uint8_t hb_ok;
 
@@ -69,7 +67,6 @@ struct cats_app {
 	int published_state; /* enum cats_run_state，每拍发布一次 */
 	int published_fault; /* enum cats_app_fault，与状态同拍发布 */
 	int estop_req;       /* 非 0 = 有线程请求急停，控制线程下一拍执行 */
-	uint32_t tick_count; /* 已推进的拍数（诊断用） */
 };
 
 /* states.c 定义的状态表：下标 = enum cats_run_state，值 = 状态描述符 */

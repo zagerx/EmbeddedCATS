@@ -26,7 +26,6 @@
  * expect == CIA402_STATE_UNKNOWN 表示"写完就算过，不用读状态字确认"。
  */
 struct enable_cmd {
-	enum cia402_step step;    /* 对外进度标签 */
 	uint16_t index;           /* 写哪个对象 */
 	uint32_t value;           /* 写什么 */
 	uint8_t size;             /* 字节数 */
@@ -34,17 +33,17 @@ struct enable_cmd {
 };
 
 static const struct enable_cmd ENABLE_SEQ[] = {
-	{CIA402_STEP_SET_MODE, CIA402_IDX_MODE, MODE_PP, 1, CIA402_STATE_UNKNOWN},
-	{CIA402_STEP_SHUTDOWN, CIA402_IDX_CONTROLWORD, CIA402_CW_SHUTDOWN, 2, CIA402_READY},
-	{CIA402_STEP_SWITCH_ON, CIA402_IDX_CONTROLWORD, CIA402_CW_SWITCH_ON, 2, CIA402_SWITCHED_ON},
-	{CIA402_STEP_ENABLE, CIA402_IDX_CONTROLWORD, CIA402_CW_ENABLE_OP, 2, CIA402_OP_ENABLED},
+	{CIA402_IDX_MODE, MODE_PP, 1, CIA402_STATE_UNKNOWN},
+	{CIA402_IDX_CONTROLWORD, CIA402_CW_SHUTDOWN, 2, CIA402_READY},
+	{CIA402_IDX_CONTROLWORD, CIA402_CW_SWITCH_ON, 2, CIA402_SWITCHED_ON},
+	{CIA402_IDX_CONTROLWORD, CIA402_CW_ENABLE_OP, 2, CIA402_OP_ENABLED},
 };
 
 #define ENABLE_SEQ_COUNT (sizeof(ENABLE_SEQ) / sizeof(ENABLE_SEQ[0]))
 
 static void fail(struct cia402_node *n)
 {
-	n->step = CIA402_STEP_FAILED;
+	n->en_state = CIA402_EN_FAILED;
 	n->activity = CIA402_ACT_IDLE;
 	n->result = CIA402_RESULT_FAILED;
 }
@@ -58,25 +57,24 @@ static int write_cmd(struct cia402_node *n, const struct enable_cmd *cmd)
 	return cia402_sdo_write(n, cmd->index, 0, cmd->value, cmd->size);
 }
 
-/* 这条命令过完了：轮到下一条；已是最后一条就把结论置 ENABLED */
+/* 这条命令过完了：轮到下一条；已是最后一条就是使能完成 */
 static void advance(struct cia402_node *n)
 {
 	if (n->en.seq + 1U >= ENABLE_SEQ_COUNT) {
-		n->step = CIA402_STEP_ENABLED; /* 序列走完；游标停在最后一条，不再用 */
+		n->en_state = CIA402_EN_ENABLED; /* 序列走完；游标停在最后一条，不再用 */
 		n->activity = CIA402_ACT_IDLE;
 		n->result = CIA402_RESULT_DONE;
 		return;
 	}
 	n->en.seq++;
 	n->en.phase = CIA402_PHASE_WRITE;
-	n->step = ENABLE_SEQ[n->en.seq].step;
 }
 
 void cia402_enable_start(struct cia402_node *n)
 {
 	n->en.seq = 0;
 	n->en.phase = CIA402_PHASE_WRITE;
-	n->step = ENABLE_SEQ[0].step;
+	n->en_state = CIA402_EN_NOT_ENABLED; /* 使能中：结论还不能算已使能 */
 	n->activity = CIA402_ACT_ENABLING;
 	n->result = CIA402_RESULT_NONE;
 	n->controlword = CIA402_CW_DISABLE; /* 使能前驱动器处于无输出状态 */

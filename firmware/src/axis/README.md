@@ -31,6 +31,6 @@ axis/
 | 轴集合：每轴一条 SDO 通道 ⇒ **并行**使能、互不阻塞 | `src/axis.c` |
 | 单位换算：µm / µm·s⁻¹ / µm·s⁻² → pulse（64 位中间量，防溢出） | `src/axis.c` |
 | 运动/停止/急停转发与结论汇总 `axis_take_motion()` | `src/axis.c` |
-| 事实查询：`axis_group_all_enabled()` / `axis_group_any_failed()` | `src/axis.c` |
+| 事实查询：`axis_all_enabled()` / `axis_any_failed()` | `src/axis.c` |
 
 未实现：单位换算（`6092h` 脉冲当量）、目标位置与到位判定、STOPPING 下的下使能。

@@ -195,7 +195,7 @@ void cia402_quick_stop_step(struct cia402_node *n)
 			n->result = CIA402_RESULT_FAILED;
 		}
 		n->activity = CIA402_ACT_IDLE;
-		n->step = CIA402_STEP_IDLE; /* 已无输出：再动必须先重新使能 */
+		n->en_state = CIA402_EN_NOT_ENABLED; /* 已无输出：再动必须先重新使能 */
 		if (n->result == CIA402_RESULT_NONE) {
 			n->result = CIA402_RESULT_DONE;
 		}

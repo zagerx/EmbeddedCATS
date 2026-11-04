@@ -41,21 +41,10 @@ enum axis_motion {
 	AXIS_MOTION_FAILED    /* 超时 / abort / 驱动器故障 */
 };
 
-/*
- * 轴集合。只是个容器：每轴有自己的 SDO 通道（OD 1280h/1281h 绑不同站号），
- * 所以没有"轮到谁"这种状态，谁失败也就只影响自己。
- */
-struct axis_group {
-	struct cats_axis *axes;
-	uint8_t count;
-};
-
 void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id);
 
 /* 装配层给换算参数；未配置（任一为 0）时运动指令一律拒绝 */
 void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, int32_t um_per_rev);
-
-void axis_group_init(struct axis_group *g, struct cats_axis *axes, uint8_t count);
 
 /* 绝对位置运动（µm / µm·s⁻¹ / µm·s⁻²）。0 = 已受理；1 = 轴上有过程在跑；-1 = 不允许 */
 int axis_move_to(struct cats_axis *a, int32_t um, int32_t um_s, int32_t um_s2);
@@ -66,17 +55,22 @@ int axis_halt(struct cats_axis *a);
 /* 取上一段动作的结论（取走后回 NONE） */
 enum axis_motion axis_take_motion(struct cats_axis *a);
 
+/* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
+uint32_t axis_abort_code(const struct cats_axis *a);
+
+/* ---- 批量动作：对一组轴逐个施加（每轴有自己的 SDO 通道，互不阻塞） ---- */
+
 /* 请求所有轴使能：0 = 已受理；-1 = 没有轴或参数不对 */
-int axis_group_enable(struct axis_group *g);
+int axis_enable_all(struct cats_axis *axes, uint8_t count);
 
 /* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
-void axis_group_quick_stop(struct axis_group *g);
+void axis_quick_stop_all(struct cats_axis *axes, uint8_t count);
 
-/* 每拍推进各轴（各轴互不阻塞） */
-void axis_group_poll(struct axis_group *g, uint32_t now_ms);
+/* 每拍推进各轴 */
+void axis_poll_all(struct cats_axis *axes, uint8_t count, uint32_t now_ms);
 
-int axis_group_all_enabled(const struct axis_group *g);
-int axis_group_any_failed(const struct axis_group *g);
+int axis_all_enabled(const struct cats_axis *axes, uint8_t count);
+int axis_any_failed(const struct cats_axis *axes, uint8_t count);
 
 #ifdef __cplusplus
 } /* extern "C" */

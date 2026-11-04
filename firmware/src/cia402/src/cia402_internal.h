@@ -55,8 +55,7 @@ int cia402_sdo_result(struct cia402_node *n);
 #define CIA402_CW_HALT 0x0100u         /* bit8：暂停（减速停） */
 
 /* 状态字位（DS 402；PP 模式） */
-#define CIA402_SW_TARGET_REACHED 0x0400u /* bit10：已到位 */
-#define CIA402_SW_SETPOINT_ACK 0x1000u   /* bit12：新目标已接收（握手） */
+#define CIA402_SW_TARGET_REACHED 0x0400u /* bit10：已到位（到位判据用这个） */
 
 /* 写控制字（6040）并记住当前值；0 = 已发出 */
 int cia402_write_controlword(struct cia402_node *n, uint16_t value);

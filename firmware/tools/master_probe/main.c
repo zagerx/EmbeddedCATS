@@ -180,7 +180,18 @@ int main(int argc, char **argv)
 			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
 			       cats_app_state_name(last));
 			if (last == CATS_RUN_FAULT) {
-				printf(" (%s)", cats_app_fault_name(cats_app_fault_code()));
+				uint8_t i;
+
+				printf(" (%s", cats_app_fault_name(cats_app_fault_code()));
+				for (i = 0; i < 2; i++) {
+					uint32_t abort_code = cats_app_axis_abort(i);
+
+					if (abort_code != 0U) {
+						printf(", axis%u abort=0x%08X", (unsigned)i,
+						       (unsigned)abort_code);
+					}
+				}
+				printf(")");
 			}
 			printf("\n");
 			fflush(stdout);

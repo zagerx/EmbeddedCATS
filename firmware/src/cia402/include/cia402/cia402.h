@@ -43,15 +43,11 @@ enum cia402_state {
 	CIA402_STATE_UNKNOWN
 };
 
-/* 使能推进到哪一步。上层通常只关心 ENABLED / FAILED */
-enum cia402_step {
-	CIA402_STEP_IDLE = 0,  /* 没被要求使能 */
-	CIA402_STEP_SET_MODE,  /* 6060 = 1（PP），先定模式再使能 */
-	CIA402_STEP_SHUTDOWN,  /* 6040 = 06 → 等 0x21 */
-	CIA402_STEP_SWITCH_ON, /* 6040 = 07 → 等 0x23 */
-	CIA402_STEP_ENABLE,    /* 6040 = 0F → 等 0x27 */
-	CIA402_STEP_ENABLED,   /* 已到 Operation enabled */
-	CIA402_STEP_FAILED     /* 中途出错（驱动器 abort 或状态字进故障） */
+/* 使能结论（本层对外只留三态；中间走到哪一步不记录） */
+enum cia402_enable_state {
+	CIA402_EN_NOT_ENABLED = 0, /* 未使能：没请求过 / 已断使能 */
+	CIA402_EN_ENABLED,         /* 已到 Operation enabled */
+	CIA402_EN_FAILED           /* 使能中途失败（abort 或 402 进故障） */
 };
 
 /* 一次 SDO 事务的进度（层内细节）。DONE / FAILED 是"结果已出、还没被取走" */
@@ -120,10 +116,11 @@ struct cia402_node {
 	struct co_master *master; /* 只借用；SDO 客户端按站号从它取 */
 	uint8_t node_id;
 
-	/* ---- 对外事实：上层只该读这三项 ---- */
-	enum cia402_step step;   /* 走到哪一步 / 最终结论 */
-	enum cia402_state state; /* 最近一次读到的状态字解析结果 */
-	uint16_t statusword;     /* 最近一次读到的原始状态字 */
+	/* ---- 对外事实：上层只该读这几项 ---- */
+	enum cia402_enable_state en_state; /* 使能结论 */
+	enum cia402_state state;           /* 最近一次读到的状态字解析结果 */
+	uint16_t statusword;               /* 最近一次读到的原始状态字 */
+	uint32_t abort_code; /* 失败时驱动器回的 abort；0 = 不是 abort 引起的 */
 
 	/* ---- 层内进度：只有 cia402_*.c 读写，上层不要碰 ---- */
 	enum cia402_activity activity; /* 当前在推的协议过程 */
@@ -157,7 +154,6 @@ struct cia402_node {
 	} estop;
 
 	enum cia402_sdo_state sdo; /* 当前 SDO 事务 */
-	uint32_t abort_code;       /* 失败时驱动器回的 abort；0 = 不是 abort 引起的 */
 	uint8_t data[4];           /* 最近一次 SDO 读到的原始数据（小端） */
 	uint8_t data_len;
 
@@ -168,7 +164,6 @@ struct cia402_node {
 
 /* 纯函数：状态字 → 402 状态。可单独测，不碰总线 */
 enum cia402_state cia402_parse(uint16_t statusword);
-const char *cia402_state_name(enum cia402_state s);
 
 void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id);
 
@@ -196,6 +191,9 @@ enum cia402_result cia402_take_result(struct cia402_node *n);
 
 int cia402_is_enabled(const struct cia402_node *n);
 int cia402_failed(const struct cia402_node *n);
+
+/* 最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的（超时/参数错） */
+uint32_t cia402_abort_code(const struct cia402_node *n);
 
 #ifdef __cplusplus
 } /* extern "C" */

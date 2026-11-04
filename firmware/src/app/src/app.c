@@ -49,13 +49,11 @@ enum cats_app_result cats_app_init(struct co_master *master)
 	for (i = 0; i < s_app.axis_count; i++) {
 		axis_init(&s_app.axes[i], master, master->node_id[i]);
 	}
-	axis_group_init(&s_app.group, s_app.axes, s_app.axis_count);
 
 	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
 	hsm_init(&s_app.hsm, &st_preparing, now_ms(&s_app));
 
 	__atomic_store_n(&s_app.estop_req, 0, __ATOMIC_RELEASE);
-	s_app.tick_count = 0;
 	publish_readonly(&s_app);
 	return CATS_APP_OK;
 }
@@ -113,12 +111,11 @@ enum cats_app_result cats_app_poll(void)
 	handle_heartbeat(&s_app, now);
 
 	/* 各层自管推进：轴（含 402/SDO）每拍走一步；状态机只看事实 */
-	axis_group_poll(&s_app.group, now);
+	axis_poll_all(s_app.axes, s_app.axis_count, now);
 
 	/* 一拍推一次状态机（内部处理一个事件） */
 	hsm_dispatch(&s_app.hsm, CATS_SIG_TICK, 0, now);
 
-	s_app.tick_count++;
 	publish_readonly(&s_app);
 	return CATS_APP_OK;
 }
@@ -177,4 +174,12 @@ enum cats_app_fault cats_app_fault_code(void)
 enum cats_run_state cats_app_state(void)
 {
 	return (enum cats_run_state)__atomic_load_n(&s_app.published_state, __ATOMIC_ACQUIRE);
+}
+
+uint32_t cats_app_axis_abort(uint8_t axis)
+{
+	if (axis >= s_app.axis_count) {
+		return 0U;
+	}
+	return axis_abort_code(&s_app.axes[axis]);
 }

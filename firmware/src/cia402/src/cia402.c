@@ -23,7 +23,7 @@ void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id)
 	memset(n, 0, sizeof(*n));
 	n->master = m;
 	n->node_id = node_id;
-	n->step = CIA402_STEP_IDLE;
+	n->en_state = CIA402_EN_NOT_ENABLED;
 	n->state = CIA402_STATE_UNKNOWN;
 	n->sdo = CIA402_SDO_IDLE;
 	n->activity = CIA402_ACT_IDLE;
@@ -35,7 +35,7 @@ int cia402_request_enable(struct cia402_node *n)
 	if (n == NULL || n->master == NULL || n->node_id == 0U) {
 		return -1;
 	}
-	if (n->step != CIA402_STEP_IDLE || n->activity != CIA402_ACT_IDLE) {
+	if (n->en_state != CIA402_EN_NOT_ENABLED || n->activity != CIA402_ACT_IDLE) {
 		return 1; /* 已经要求过 / 有别的过程在跑：不重复发起 */
 	}
 	n->abort_code = 0;
@@ -138,10 +138,15 @@ enum cia402_result cia402_take_result(struct cia402_node *n)
 
 int cia402_is_enabled(const struct cia402_node *n)
 {
-	return n != NULL && n->step == CIA402_STEP_ENABLED && n->state == CIA402_OP_ENABLED;
+	return n != NULL && n->en_state == CIA402_EN_ENABLED && n->state == CIA402_OP_ENABLED;
 }
 
 int cia402_failed(const struct cia402_node *n)
 {
-	return n != NULL && n->step == CIA402_STEP_FAILED;
+	return n != NULL && n->en_state == CIA402_EN_FAILED;
+}
+
+uint32_t cia402_abort_code(const struct cia402_node *n)
+{
+	return n != NULL ? n->abort_code : 0U;
 }

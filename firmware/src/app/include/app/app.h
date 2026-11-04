@@ -42,7 +42,6 @@ extern "C" {
 
 enum cats_app_result {
 	CATS_APP_OK = 0,
-	CATS_APP_ERR_BUS,   /* CAN 通道打不开，或收发过程中总线出错 */
 	CATS_APP_ERR_STATE, /* 状态不允许：重复 start / 没 start 就 poll */
 	CATS_APP_ERR_PARAM  /* 参数不合法：通道名为空 */
 };
@@ -133,6 +132,10 @@ enum cats_app_fault cats_app_fault_code(void);
 
 /* 故障名："BOOTUP_TIMEOUT" / "HEARTBEAT_LOST"…；越界返回 "?" */
 const char *cats_app_fault_name(enum cats_app_fault f);
+
+/* 该轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的（超时/参数错）。
+ * 进 FAULT 后保留，方便现场排查；轴号越界返回 0。 */
+uint32_t cats_app_axis_abort(uint8_t axis);
 
 #ifdef __cplusplus
 } /* extern "C" */

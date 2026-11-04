@@ -52,19 +52,15 @@ static const struct hsm_state *lca_of(const struct hsm_state *a, const struct hs
 	return x;
 }
 
-/* 伪事件：内核负责逐级调用，handler 只应 HANDLED；返回 TRAN 属非法动作 */
+/* 伪事件：内核负责逐级调用，handler 只应 HANDLED；返回 TRAN 属非法动作，忽略 */
 static void exit_one(struct hsm *h, const struct hsm_state *s)
 {
-	if (s->handler(h, &EXIT_EVT) == HSM_RET_TRAN) {
-		h->anomalies++;
-	}
+	(void)s->handler(h, &EXIT_EVT);
 }
 
 static void enter_one(struct hsm *h, const struct hsm_state *s)
 {
-	if (s->handler(h, &ENTRY_EVT) == HSM_RET_TRAN) {
-		h->anomalies++;
-	}
+	(void)s->handler(h, &ENTRY_EVT);
 }
 
 /* 从 LCA 的子级逐级向下 ENTRY 到 target */
@@ -80,8 +76,7 @@ static void enter_chain(struct hsm *h, const struct hsm_state *target, const str
 		n++;
 	}
 	if (s != lca) {
-		h->anomalies++; /* 父链超深或成环：不 ENTRY，保持可诊断 */
-		return;
+		return; /* 父链超深或成环：不 ENTRY */
 	}
 	for (i = n; i > 0u; i--) {
 		enter_one(h, chain[i - 1u]);
@@ -97,7 +92,6 @@ static int transition(struct hsm *h, const struct hsm_state *target, uint32_t no
 	unsigned n = 0u;
 
 	if (target == NULL || from == NULL) {
-		h->anomalies++;
 		return 0;
 	}
 	if (target == from) {
@@ -106,7 +100,6 @@ static int transition(struct hsm *h, const struct hsm_state *target, uint32_t no
 
 	lca = lca_of(from, target);
 	if (lca == NULL) {
-		h->anomalies++;
 		return 0;
 	}
 
@@ -114,7 +107,6 @@ static int transition(struct hsm *h, const struct hsm_state *target, uint32_t no
 	for (s = from; s != NULL && s != lca; s = s->super) {
 		n++;
 		if (n > HSM_MAX_DEPTH) {
-			h->anomalies++;
 			return 0;
 		}
 		exit_one(h, s);
@@ -141,7 +133,6 @@ void hsm_init(struct hsm *h, const struct hsm_state *initial, uint32_t now)
 	h->state = initial;
 	h->target = initial;
 	h->entered_ms = now;
-	h->anomalies = 0u;
 
 	/* 从根一路 ENTRY 到初态：父状态的公共初始化有位置可写 */
 	enter_chain(h, initial, NULL);
@@ -164,7 +155,6 @@ int hsm_dispatch(struct hsm *h, int sig, int32_t arg, uint32_t now)
 	for (s = h->state; s != NULL; s = s->super) {
 		n++;
 		if (n > HSM_MAX_DEPTH) {
-			h->anomalies++;
 			break;
 		}
 		ret = s->handler(h, &evt);
@@ -190,14 +180,4 @@ void hsm_transition(struct hsm *h, const struct hsm_state *target, uint32_t now)
 const struct hsm_state *hsm_current(const struct hsm *h)
 {
 	return h != NULL ? h->state : NULL;
-}
-
-uint32_t hsm_entered_ms(const struct hsm *h)
-{
-	return h != NULL ? h->entered_ms : 0u;
-}
-
-unsigned hsm_anomalies(const struct hsm *h)
-{
-	return h != NULL ? h->anomalies : 0u;
 }

@@ -53,24 +53,3 @@ enum cia402_state cia402_parse(uint16_t statusword)
 	}
 	return CIA402_STATE_UNKNOWN;
 }
-
-const char *cia402_state_name(enum cia402_state s)
-{
-	switch (s) {
-	case CIA402_NOT_READY:
-		return "NOT_READY";
-	case CIA402_SWITCH_ON_DISABLED:
-		return "SWITCH_ON_DISABLED";
-	case CIA402_READY:
-		return "READY";
-	case CIA402_SWITCHED_ON:
-		return "SWITCHED_ON";
-	case CIA402_OP_ENABLED:
-		return "OP_ENABLED";
-	case CIA402_FAULT:
-		return "FAULT";
-	case CIA402_STATE_UNKNOWN:
-		break;
-	}
-	return "?";
-}

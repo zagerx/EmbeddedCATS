@@ -23,7 +23,7 @@ static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:
-		axis_group_quick_stop(&app->group);
+		axis_quick_stop_all(app->axes, app->axis_count);
 		break;
 
 	case HSM_SIG_EXIT:

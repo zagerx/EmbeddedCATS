@@ -11,7 +11,7 @@
  *
  * 不变量（由 hsm.c 保证）：
  *   - h->state 只在 hsm.c 的 transition() 里改写一处；
- *   - ENTRY/EXIT 的逐级调用由内核负责，handler 返回 TRAN 计 anomaly 后忽略；
+ *   - ENTRY/EXIT 的逐级调用由内核负责，handler 返回 TRAN 视为非法并忽略；
  *   - 迁移到自己的祖先时，目标不重新 ENTRY（LCA == 目标）。
  */
 
@@ -68,7 +68,6 @@ struct hsm {
 	const struct hsm_state *state;  /* 当前状态 */
 	const struct hsm_state *target; /* HSM_TRAN() 填的迁移目标 */
 	uint32_t entered_ms;            /* 进入当前状态的时刻 */
-	unsigned anomalies; /* handler 在 ENTRY/EXIT 里返回 TRAN 的非法动作次数 */
 };
 
 #define HSM_TRAN(t)                                                                                \
@@ -95,7 +94,5 @@ void hsm_transition(struct hsm *h, const struct hsm_state *target, uint32_t now)
 
 /* 查询 */
 const struct hsm_state *hsm_current(const struct hsm *h);
-uint32_t hsm_entered_ms(const struct hsm *h);
-unsigned hsm_anomalies(const struct hsm *h);
 
 #endif /* APP_HSM_H */
