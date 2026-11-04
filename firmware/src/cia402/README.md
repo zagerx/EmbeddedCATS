@@ -36,6 +36,8 @@ cia402/
 | 减速停（`6040` bit8）与急停（`0x02` → 等 disabled → `0x00`） | `src/cia402_stop.c` |
 | 一次 SDO 事务：发起 / 每拍推进 / 取结果；200 ms 超时由上游报 abort | `src/cia402_sdo.c` |
 | 对外接口与编排：`init` / `request_config` / `request_enable` / `pp_start` / `halt` / `quick_stop` / `poll` | `src/cia402.c` |
+| 失败事实：任何一步失败都置 `failed`，`cia402_failed()` 统一读它；下一个过程被受理时才清 —— 不依赖"取结果"（取走即清的槽只表示"本次过程结束"） | `src/cia402.c` |
+| 活锁看门狗：同一过程停留超过 10 s 兜底判失败（比各过程自己的超时都长，只挡"相位机卡住"） | `src/cia402.c` |
 | 层内接口（子模块之间，不对外） | `src/cia402_internal.h` |
 
 未实现：失能 / 快停 / 故障复位（控制字 bit7）、PP 移动（`607A` + `4F/5F`）、

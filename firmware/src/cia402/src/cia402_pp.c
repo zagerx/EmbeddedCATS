@@ -72,8 +72,7 @@ static void next_step(struct cia402_node *n)
 
 static void pp_fail(struct cia402_node *n)
 {
-	n->activity = CIA402_ACT_IDLE;
-	n->result = CIA402_RESULT_FAILED;
+	cia402_finish(n, CIA402_RESULT_FAILED);
 }
 
 void cia402_pp_step(struct cia402_node *n)
@@ -157,8 +156,7 @@ void cia402_pp_step(struct cia402_node *n)
 			n->pp.phase = CIA402_PP_CHECK_POS;
 			return;
 		}
-		n->activity = CIA402_ACT_IDLE;
-		n->result = CIA402_RESULT_DONE;
+		cia402_finish(n, CIA402_RESULT_DONE);
 		return;
 	}
 
@@ -186,8 +184,7 @@ void cia402_pp_step(struct cia402_node *n)
 		pos = (int32_t)((uint32_t)n->data[0] | (uint32_t)n->data[1] << 8 |
 				(uint32_t)n->data[2] << 16 | (uint32_t)n->data[3] << 24);
 		if (pos == n->pp.target) {
-			n->activity = CIA402_ACT_IDLE;
-			n->result = CIA402_RESULT_DONE;
+			cia402_finish(n, CIA402_RESULT_DONE);
 			return;
 		}
 		n->pp.phase = CIA402_PP_WAIT_ARRIVE; /* 不在目标上：继续等真正的到位 */

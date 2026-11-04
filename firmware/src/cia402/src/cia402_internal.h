@@ -23,6 +23,12 @@ extern "C" {
 /* 把最近一次 SDO 读到的数据当状态字收下（原始值 + 解析结果） */
 void cia402_take_statusword(struct cia402_node *n);
 
+/* 一个过程结束：回到 IDLE、摆好结论；失败时钉住 failed 事实（不会被取走） */
+void cia402_finish(struct cia402_node *n, enum cia402_result r);
+
+/* 抢占：把在途的 SDO 事务丢掉（安全动作用，不能排在别的过程后面等） */
+void cia402_abort_inflight(struct cia402_node *n);
+
 /* ---- cia402_sdo.c：一次 SDO 事务 ---- */
 
 /* 发起一次读/写：0 = 已发出（之后每拍调 cia402_sdo_step），-1 = 发不出去 */

@@ -41,8 +41,7 @@ static const struct enable_cmd ENABLE_SEQ[] = {
 static void fail(struct cia402_node *n)
 {
 	n->en_state = CIA402_EN_FAILED;
-	n->activity = CIA402_ACT_IDLE;
-	n->result = CIA402_RESULT_FAILED;
+	cia402_finish(n, CIA402_RESULT_FAILED);
 }
 
 /* 写一条命令：控制字走统一入口（要记住当前值），其余直接写 */
@@ -59,8 +58,7 @@ static void advance(struct cia402_node *n)
 {
 	if (n->en.seq + 1U >= ENABLE_SEQ_COUNT) {
 		n->en_state = CIA402_EN_ENABLED; /* 序列走完；游标停在最后一条，不再用 */
-		n->activity = CIA402_ACT_IDLE;
-		n->result = CIA402_RESULT_DONE;
+		cia402_finish(n, CIA402_RESULT_DONE);
 		return;
 	}
 	n->en.seq++;

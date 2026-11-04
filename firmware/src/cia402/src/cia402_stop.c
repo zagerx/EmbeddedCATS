@@ -29,8 +29,7 @@ int cia402_halt_begin(struct cia402_node *n)
 
 static void halt_done(struct cia402_node *n, enum cia402_result r)
 {
-	n->activity = CIA402_ACT_IDLE;
-	n->result = r;
+	cia402_finish(n, r);
 }
 
 void cia402_halt_step(struct cia402_node *n)
@@ -194,11 +193,9 @@ void cia402_quick_stop_step(struct cia402_node *n)
 		if (r < 0) {
 			n->result = CIA402_RESULT_FAILED;
 		}
-		n->activity = CIA402_ACT_IDLE;
 		n->en_state = CIA402_EN_NOT_ENABLED; /* 已无输出：再动必须先重新使能 */
-		if (n->result == CIA402_RESULT_NONE) {
-			n->result = CIA402_RESULT_DONE;
-		}
+		cia402_finish(n, (n->result == CIA402_RESULT_NONE) ? CIA402_RESULT_DONE
+								   : CIA402_RESULT_FAILED);
 		return;
 	}
 	}

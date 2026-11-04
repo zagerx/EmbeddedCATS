@@ -131,11 +131,14 @@ struct cia402_node {
 	enum cia402_state state;            /* 最近一次读到的状态字解析结果 */
 	uint16_t statusword;                /* 最近一次读到的原始状态字 */
 	uint32_t abort_code; /* 失败时驱动器回的 abort；0 = 不是 abort 引起的 */
+	uint8_t failed; /* 最近一次过程失败过（下一个过程开始时清）；取不走 */
 
 	/* ---- 层内进度：只有 cia402_*.c 读写，上层不要碰 ---- */
-	enum cia402_activity activity; /* 当前在推的协议过程 */
-	enum cia402_result result;     /* 上一个过程的结论，待取 */
-	uint16_t controlword;          /* 当前控制字（402 状态，写 6040 时用） */
+	enum cia402_activity activity;      /* 当前在推的协议过程 */
+	enum cia402_result result;          /* 上一个过程的结论，待取 */
+	uint16_t controlword;               /* 当前控制字（402 状态，写 6040 时用） */
+	enum cia402_activity prev_activity; /* 上一拍的 activity，判"卡住"用 */
+	uint32_t activity_since_ms;         /* 进入当前 activity 的时刻 */
 
 	struct {
 		uint8_t seq;             /* 配置表第几条（下标，恒 < 条数） */

@@ -50,8 +50,7 @@ static const struct config_item CONFIG_SEQ[] = {
 static void fail(struct cia402_node *n)
 {
 	n->cfg_state = CIA402_CFG_FAILED;
-	n->activity = CIA402_ACT_IDLE;
-	n->result = CIA402_RESULT_FAILED;
+	cia402_finish(n, CIA402_RESULT_FAILED);
 }
 
 /* 把最近一次 SDO 读到的原始数据（小端）拼成整数 */
@@ -71,8 +70,7 @@ static void advance(struct cia402_node *n)
 {
 	if (n->cfg.seq + 1U >= CONFIG_SEQ_COUNT) {
 		n->cfg_state = CIA402_CFG_CONFIGURED; /* 游标停在最后一条，不再用 */
-		n->activity = CIA402_ACT_IDLE;
-		n->result = CIA402_RESULT_DONE;
+		cia402_finish(n, CIA402_RESULT_DONE);
 		return;
 	}
 	n->cfg.seq++;
