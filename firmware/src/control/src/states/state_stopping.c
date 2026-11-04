@@ -20,7 +20,7 @@ const struct hsm_state st_stopping = {
 
 static int st_stopping_h(struct hsm *me, const struct hsm_event *e)
 {
-	struct cats_app *app = container_of(me, struct cats_app, hsm);
+	struct cats_control *app = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:

@@ -15,8 +15,8 @@
  *   - 迁移到自己的祖先时，目标不重新 ENTRY（LCA == 目标）。
  */
 
-#ifndef APP_HSM_H
-#define APP_HSM_H
+#ifndef CONTROL_HSM_H
+#define CONTROL_HSM_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -95,4 +95,4 @@ void hsm_transition(struct hsm *h, const struct hsm_state *target, uint32_t now)
 /* 查询 */
 const struct hsm_state *hsm_current(const struct hsm *h);
 
-#endif /* APP_HSM_H */
+#endif /* CONTROL_HSM_H */

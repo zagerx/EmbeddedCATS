@@ -20,25 +20,25 @@ constexpr int kRefreshIntervalMs = 50;
 constexpr int kStatsIntervalMs = 5000;
 
 /* app 的运行状态 → 顶部状态条。两边枚举刻意一一对应，仍显式写全，免得日后错位 */
-StateBar::State to_bar_state(enum cats_run_state s)
+StateBar::State to_bar_state(enum cats_state s)
 {
 	switch (s) {
-	case CATS_RUN_PREPARING:
+	case CATS_STATE_PREPARING:
 		return StateBar::State::Preparing;
-	case CATS_RUN_ENABLING:
+	case CATS_STATE_ENABLING:
 		return StateBar::State::Enabling;
 	/* READY 与 MOVING 在界面上合成一档“运行中”：状态条只给粗粒度提示，
-	 * 精确状态看 cats_app_state_name() 的文本（日志/终端）。 */
-	case CATS_RUN_READY:
-	case CATS_RUN_MOVING:
+	 * 精确状态看 cats_control_state_name() 的文本（日志/终端）。 */
+	case CATS_STATE_READY:
+	case CATS_STATE_MOVING:
 		return StateBar::State::Running;
-	case CATS_RUN_STOPPING:
+	case CATS_STATE_STOPPING:
 		return StateBar::State::Stopping;
-	case CATS_RUN_FAULT:
+	case CATS_STATE_FAULT:
 		return StateBar::State::Fault;
-	case CATS_RUN_ESTOP:
+	case CATS_STATE_ESTOP:
 		return StateBar::State::EStop;
-	case CATS_RUN_STATE_COUNT:
+	case CATS_STATE_COUNT:
 		break;
 	}
 	return StateBar::State::Preparing;
@@ -92,7 +92,7 @@ bool AppBinder::openChannel(const QString &ifname)
 		return false;
 	}
 	channel_open_ = true;
-	/* 建主站与 cats_app_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
+	/* 建主站与 cats_control_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
 	 * 而且之后所有状态都在那个线程里改 */
 	return true;
 }
@@ -134,7 +134,7 @@ void AppBinder::pushLog(const QString &line)
 
 void AppBinder::publish()
 {
-	const enum cats_run_state state = cats_app_state();
+	const enum cats_state state = cats_control_state();
 
 	if (state == last_state_) {
 		return; /* 状态没变就不碰控件 */
@@ -144,5 +144,5 @@ void AppBinder::publish()
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(state));
 	}
-	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_app_state_name(state))));
+	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_control_state_name(state))));
 }

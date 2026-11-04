@@ -2,7 +2,7 @@
  * app_binder.h — 界面与 app 的唯一接缝
  *
  * 职责（只做"搬运"，不含任何业务判断）：
- *   CanThread            → 建主站、cats_app_init、1 ms 节拍调 cats_app_poll()
+ *   CanThread            → 建主站、cats_control_init、1 ms 节拍调 cats_control_poll()
  *   QTimer 50 ms         → 读状态刷界面（不跟着 1 ms 节拍跑）
  *   QTimer 5 s           → 打一行节拍统计
  *
@@ -13,7 +13,7 @@
  * 暴露任何业务头。
  *
  * 时序：**两个线程**。控制线程只跑节拍，界面线程只跑界面；两者之间只有
- * app 层发布的原子只读值（见 app.h「线程约定」），本层不共享别的数据。
+ * control 层发布的只读值（见 control.h「线程约定」），本层不共享别的数据。
  */
 
 #ifndef BINDINGS_APP_BINDER_H
@@ -21,7 +21,7 @@
 
 #include <socketcan/can_io_socketcan.h>
 
-#include <app/app.h>
+#include <control/control.h>
 
 #include "can_thread.h"
 
@@ -67,7 +67,7 @@ class AppBinder : public QObject
 	LogPanel *log_panel_ = nullptr;
 
 	/* 上一次刷给界面的状态；初值用一个不可能的状态，保证首帧一定刷 */
-	enum cats_run_state last_state_ = CATS_RUN_STATE_COUNT;
+	enum cats_state last_state_ = CATS_STATE_COUNT;
 };
 
 #endif /* BINDINGS_APP_BINDER_H */

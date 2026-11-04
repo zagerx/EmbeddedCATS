@@ -5,11 +5,11 @@
  * 每拍：只看两个事实——都使能上了 → RUNNING；有轴失败 / 超时 → FAULT；
  * 退出：无动作（失败时轴自己已经停在失败步骤，不再发帧）。
  *
- * 本状态不推进任何步骤：轴的推进在 axis_poll_all() 里（cats_app_poll 每拍
+ * 本状态不推进任何步骤：轴的推进在 axis_poll_all() 里（cats_control_poll 每拍
  * 调一次），这里只读 axis_all_enabled() / axis_any_failed() 的结论。
  *
  * 心跳也约束本状态：使能到一半掉线，不能继续往下走。这个判断不在本文件，
- * 在 app.c 的 handle_heartbeat()（RUNNING / STOPPING / ENABLING 一视同仁）。
+ * 在 control.c 的 handle_heartbeat()（READY / MOVING / STOPPING / ENABLING 一视同仁）。
  */
 
 #include "states.h"
@@ -25,7 +25,7 @@ const struct hsm_state st_enabling = {
 
 static int st_enabling_h(struct hsm *me, const struct hsm_event *e)
 {
-	struct cats_app *app = container_of(me, struct cats_app, hsm);
+	struct cats_control *app = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:

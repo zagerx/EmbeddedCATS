@@ -13,7 +13,7 @@
  * 判定会用上残留的 ACTIVE 而提前进 RUNNING，随后槽位变 UNKNOWN，
  * 可能在 750 ms 内被判成心跳丢失。驱动器响应足够快时不会走到这条路。
  *
- * 心跳的采集不在这里：cats_app_poll() 每拍算好 app->hb_ok，本状态只读。
+ * 心跳的采集不在这里：cats_control_poll() 每拍算好 app->hb_ok，本状态只读。
  * 时间用 me->entered_ms 手算（内核不提供定时器）。
  */
 
@@ -31,7 +31,7 @@ const struct hsm_state st_preparing = {
 
 static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
 {
-	struct cats_app *app = container_of(me, struct cats_app, hsm);
+	struct cats_control *app = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:

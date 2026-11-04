@@ -4,7 +4,7 @@
  * 只有两部分：圆点 + 大号状态码（PREPARING / ENABLING / RUNNING / …），
  * 下面一行中文说明。
  *
- * 枚举与 app 的 `cats_run_state` 一一对应，但这里**不 include app.h**：
+ * 枚举与 control 的 `cats_state` 一一对应，但这里**不 include control.h**：
  * 只是长得像，接逻辑时由 bindings/ 做一次映射。
  */
 

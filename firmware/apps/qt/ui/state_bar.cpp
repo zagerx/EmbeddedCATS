@@ -21,7 +21,7 @@ struct StateInfo {
 	int dot_size;
 };
 
-/* 顺序必须与 app 的 cats_run_state 一致 */
+/* 顺序必须与 app 的 cats_state 一致 */
 const StateInfo kStates[] = {
 	{"PREPARING", "准备中", "正在复位节点并等待 boot-up", StatusLed::State::Busy, 12},
 	{"ENABLING", "使能中", "正在让驱动器进入 PP 并使能", StatusLed::State::Busy, 12},

@@ -6,7 +6,7 @@
  *       停止指令在这里没有可做的事（本来就在保持位置）。
  * 退出：无动作。
  *
- * 心跳不在这里判：cats_app_poll() 每拍算好 app->hb_ok，再统一迁移（见 app.c）。
+ * 心跳不在这里判：cats_control_poll() 每拍算好 app->hb_ok，再统一迁移（见 control.c）。
  */
 
 #include "states.h"
@@ -20,7 +20,7 @@ const struct hsm_state st_ready = {
 
 static int st_ready_h(struct hsm *me, const struct hsm_event *e)
 {
-	struct cats_app *app = container_of(me, struct cats_app, hsm);
+	struct cats_control *app = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY: {
@@ -35,10 +35,10 @@ static int st_ready_h(struct hsm *me, const struct hsm_event *e)
 	}
 
 	case CATS_SIG_TICK: {
-		enum cats_cmd_kind cmd = cats_take_cmd(app);
+		enum cats_cmd_kind cmd = cats_take_cmd(app, &app->move);
 
 		if (cmd == CATS_CMD_MOVE) {
-			app->move = app->cmd; /* 取副本：之后指令槽再变也不影响本次 */
+			/* 参数已在临界区里复制到 app->move，指令槽再变也不影响本次 */
 			HSM_TRAN(&st_moving);
 		}
 		/* CATS_CMD_STOP：已经在保持位置，忽略 */

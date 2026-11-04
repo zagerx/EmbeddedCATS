@@ -16,7 +16,7 @@
 | `ui/` | 区块控件：`state_bar`、`axis_card`、`log_panel`、`status_led` |
 | `theme/` | 调色板 `theme.h` + 样式表 `app.qss`（`@token` 由 `theme.cpp` 替换） |
 | `res/qt.qrc` | 资源打包（当前只有 `app.qss`） |
-| `bindings/` | **预留·暂空**：将来接 `cats_app_*` 的唯一落点，约定见其 README |
+| `bindings/` | **预留·暂空**：将来接 `cats_control_*` 的唯一落点，约定见其 README |
 
 依赖方向：`main → shell → ui → theme`，**单向**；`ui/` 不知道壳的存在。
 
@@ -54,7 +54,7 @@ QT_QPA_PLATFORM=offscreen ./firmware/build/cats_qt   # 仅冒烟
 | `EStop` | ESTOP | 急停 | 红 |
 
 本版固定显示 `Idle`（`StateBar` 构造末尾调用一次 `setState(State::Idle)`），
-接逻辑时由 `bindings/` 把 `cats_app_state()` 映射过来。
+接逻辑时由 `bindings/` 把 `cats_control_state()` 映射过来。
 
 ## 命名规范
 

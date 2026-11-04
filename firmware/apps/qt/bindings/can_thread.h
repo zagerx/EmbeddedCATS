@@ -1,14 +1,14 @@
 /*
- * can_thread.h — 控制线程：1 ms 绝对节拍，独占 cats_app_*
+ * can_thread.h — 控制线程：1 ms 绝对节拍，独占 cats_control_*
  *
  * 为什么单独起线程：Qt 的定时器在界面线程里派发，重绘、日志、对话框都会把节拍
  * 往后推。控制节拍不能受界面影响，所以让它自己一个线程，线程里只做一件事：
  *
- *   建主站 → 初始化 app → while (运行) { cats_app_poll(); 睡到下一拍的绝对时刻; }
+ *   建主站 → 初始化 app → while (运行) { cats_control_poll(); 睡到下一拍的绝对时刻; }
  *
- * 线程归属（与 app.h 的线程约定一致）：
- *   - 本类只在**控制线程**里调 cats_app_*，是状态机的唯一写者；
- *   - 界面线程只通过只读接口看状态，用 cats_app_estop() 投急停请求。
+ * 线程归属（与 control.h 的线程约定一致）：
+ *   - 本类只在**控制线程**里调 cats_control_*，是状态机的唯一写者；
+ *   - 界面线程只通过只读接口看状态，用 cats_control_estop() 投急停请求。
  *
  * 所有权：CAN 通道由集成层打开与关闭，本类只借用指针，不 open / close。
  */
@@ -41,7 +41,7 @@ class CanThread
 	CanThread(const CanThread &) = delete;
 	CanThread &operator=(const CanThread &) = delete;
 
-	/* 起线程：线程内建主站（登记节点 1 / 2）并 cats_app_init，随后进 1 ms 循环。
+	/* 起线程：线程内建主站（登记节点 1 / 2）并 cats_control_init，随后进 1 ms 循环。
 	 * 会等初始化结果再返回；失败时 err 里是给界面看的说明。 */
 	bool start(struct can_io *bus, QString *err);
 

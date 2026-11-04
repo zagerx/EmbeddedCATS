@@ -10,7 +10,7 @@
 
 #include "can_thread.h"
 
-#include <app/app.h>
+#include <control/control.h>
 
 #include <time.h>
 #include <utility>
@@ -105,7 +105,7 @@ void CanThread::run(std::promise<bool> init_done)
 	(void)co_master_add_node(&master_, 1);
 	(void)co_master_add_node(&master_, 2);
 
-	const bool ok = cats_app_init(&master_) == CATS_APP_OK;
+	const bool ok = cats_control_init(&master_) == CATS_OK;
 	init_done.set_value(ok);
 	if (!ok) {
 		return;
@@ -128,7 +128,7 @@ void CanThread::run(std::promise<bool> init_done)
 			late_ticks_.fetch_add(1u, std::memory_order_relaxed);
 		}
 
-		(void)cats_app_poll(); /* 收帧 + 推进状态机；非阻塞 */
+		(void)cats_control_poll(); /* 收帧 + 推进状态机；非阻塞 */
 		ticks_.fetch_add(1u, std::memory_order_relaxed);
 
 		sleep_until(next);

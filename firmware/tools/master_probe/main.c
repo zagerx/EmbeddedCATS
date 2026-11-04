@@ -11,7 +11,7 @@
  * 退出：Ctrl-C 或到时。
  */
 
-#include <app/app.h>
+#include <control/control.h>
 #include <socketcan/can_io_socketcan.h>
 
 #include <signal.h>
@@ -102,7 +102,7 @@ int main(int argc, char **argv)
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
 	long seconds = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;
 	struct probe_cmd cmd = probe_cmd_parse(argc, argv);
-	enum cats_run_state last = CATS_RUN_STATE_COUNT;
+	enum cats_state last = CATS_STATE_COUNT;
 	uint32_t start_ms;
 	uint32_t now;
 	int moved = 0;
@@ -124,8 +124,8 @@ int main(int argc, char **argv)
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	if (cats_app_init(&master) != CATS_APP_OK) {
-		fprintf(stderr, "cats_app_init 失败\n");
+	if (cats_control_init(&master) != CATS_OK) {
+		fprintf(stderr, "cats_control_init 失败\n");
 		can_io_close(&io);
 		return 1;
 	}
@@ -139,14 +139,14 @@ int main(int argc, char **argv)
 			can_io_close(&io);
 			return 1;
 		}
-		(void)cats_app_set_axis_scale(0, cmd.pulses_per_rev, cmd.um_per_rev);
+		(void)cats_control_set_axis_scale(0, cmd.pulses_per_rev, cmd.um_per_rev);
 		printf("测试换算：%d pulse/rev，%d µm/rev（测试值，不是实测机械参数）\n",
 		       (int)cmd.pulses_per_rev, (int)cmd.um_per_rev);
 		fflush(stdout);
 	}
 
 	while (!s_stop) {
-		(void)cats_app_poll();
+		(void)cats_control_poll();
 
 		now = can_io_now_ms(&io);
 		if (cmd.armed) {
@@ -155,8 +155,9 @@ int main(int argc, char **argv)
 			if (cmd.move_um >= 0 && !moved && t >= cmd.move_at_ms) {
 				moved = 1;
 				printf("[%6ld] 指令：move_to %ld µm\n", t, cmd.move_um);
-				if (cats_app_move_to(0, (int32_t)cmd.move_um, (int32_t)cmd.vel_um_s,
-						     (int32_t)cmd.acc_um_s2) != 0) {
+				if (cats_control_move_to(0, (int32_t)cmd.move_um,
+							 (int32_t)cmd.vel_um_s,
+							 (int32_t)cmd.acc_um_s2) != 0) {
 					printf("          —— 被拒（换算未配/轴号错）\n");
 				}
 				fflush(stdout);
@@ -164,27 +165,27 @@ int main(int argc, char **argv)
 			if (cmd.stop_at_ms >= 0 && !stopped && t >= cmd.stop_at_ms) {
 				stopped = 1;
 				printf("[%6ld] 指令：stop\n", t);
-				cats_app_stop();
+				cats_control_stop();
 				fflush(stdout);
 			}
 			if (cmd.estop_at_ms >= 0 && !estopped && t >= cmd.estop_at_ms) {
 				estopped = 1;
 				printf("[%6ld] 指令：estop\n", t);
-				cats_app_estop();
+				cats_control_estop();
 				fflush(stdout);
 			}
 		}
 
-		if (cats_app_state() != last) {
-			last = cats_app_state();
+		if (cats_control_state() != last) {
+			last = cats_control_state();
 			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
-			       cats_app_state_name(last));
-			if (last == CATS_RUN_FAULT) {
+			       cats_control_state_name(last));
+			if (last == CATS_STATE_FAULT) {
 				uint8_t i;
 
-				printf(" (%s", cats_app_fault_name(cats_app_fault_code()));
+				printf(" (%s", cats_control_fault_name(cats_control_fault_code()));
 				for (i = 0; i < 2; i++) {
-					uint32_t abort_code = cats_app_axis_abort(i);
+					uint32_t abort_code = cats_control_axis_abort(i);
 
 					if (abort_code != 0U) {
 						printf(", axis%u abort=0x%08X", (unsigned)i,

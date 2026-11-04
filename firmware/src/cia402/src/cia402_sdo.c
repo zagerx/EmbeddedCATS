@@ -9,7 +9,7 @@
  * 不认识 402（不知道 6040 / 6041 是什么），也不决定"什么时候发"——
  * 发的时机归 cia402_enable.c，本文件只当一次传输的载体。
  *
- * 为什么不是阻塞等：cats_app_poll() 1 ms 一拍，上游 Upload/Download 恰好是
+ * 为什么不是阻塞等：cats_control_poll() 1 ms 一拍，上游 Upload/Download 恰好是
  * 步进函数，等待期返回 waitingResponse，所以天然能"每拍走一步"。
  */
 

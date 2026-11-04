@@ -4,7 +4,7 @@
 
 | 子目录 | 说明 |
 |---|---|
-| `master_probe/` | 无界面运行器：20 ms 推进 `cats_app_poll()`，验证启动流程与心跳监控 |
+| `master_probe/` | 无界面运行器：20 ms 推进 `cats_control_poll()`，验证启动流程与心跳监控 |
 | `fake_drive/` | CANopen 从站模拟器：无驱动器时在两路 PCAN 上模拟双轴节点（NMT + SDO + 心跳） |
 | `hsm_demo/` | 状态机骨架：一状态一文件，`main.c` 暂空 |
 
@@ -17,7 +17,7 @@
 ## hsm_demo
 
 状态机骨架：`main.c` 暂空，一状态一文件，`states.c` 是唯一注册点。只依赖
-`src/app/src/hsm/hsm.c`，不链 `cats_app`。
+`src/control/src/hsm/hsm.c`，不链 `cats_control`。
 
 ```
 tools/hsm_demo/
