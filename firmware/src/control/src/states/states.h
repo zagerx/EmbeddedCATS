@@ -6,14 +6,17 @@
  *
  * 层次（见各文件里状态对象的 .super 字段）：
  *   st_root
- *   ├── st_operational   运行期父状态（本轮不处理事件，留给公共逻辑）
- *   │   ├── st_preparing / st_enabling / st_ready / st_moving / st_stopping
- *   ├── st_fault
+ *   ├── st_online      运行期父状态：故障出口 + 心跳 + 上抛其余事件
+ *   │   ├── st_preparing / st_enabling / st_holding / st_moving / st_halting
+ *   ├── st_fault       （直接挂 root：安全态不继承运行期动作）
  *   └── st_estop
+ *
+ * 约定：运行期子状态的 TICK 处理完自己的事后返回 HSM_RET_SUPER，
+ *       由 st_online 补做公共判定（故障码 / 心跳），由它决定本拍最终归属。
  */
 
-#ifndef APP_STATES_H
-#define APP_STATES_H
+#ifndef CONTROL_STATES_H
+#define CONTROL_STATES_H
 
 #include "../control_internal.h"
 
@@ -23,13 +26,13 @@
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
 extern const struct hsm_state st_root;
-extern const struct hsm_state st_operational;
+extern const struct hsm_state st_online;
 extern const struct hsm_state st_preparing;
 extern const struct hsm_state st_enabling;
-extern const struct hsm_state st_ready;
+extern const struct hsm_state st_holding;
 extern const struct hsm_state st_moving;
-extern const struct hsm_state st_stopping;
+extern const struct hsm_state st_halting;
 extern const struct hsm_state st_fault;
 extern const struct hsm_state st_estop;
 
-#endif /* APP_STATES_H */
+#endif /* CONTROL_STATES_H */

@@ -29,6 +29,11 @@ static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 	case HSM_SIG_EXIT:
 		break;
 
+	case CATS_SIG_TICK:
+		/* 终态吃掉节拍：不能让 ROOT 的“故障码 → FAULT”规则把
+		 * ESTOP 又拉回 FAULT（进入急停前可能已经置过故障码）。 */
+		return HSM_RET_HANDLED;
+
 	default:
 		return HSM_RET_SUPER;
 	}

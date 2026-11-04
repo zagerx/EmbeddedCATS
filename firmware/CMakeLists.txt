@@ -106,12 +106,12 @@ add_library(cats_control STATIC
 	src/control/src/hsm/hsm.c
 	src/control/src/states/states.c
 	src/control/src/states/state_root.c
-	src/control/src/states/state_operational.c
+	src/control/src/states/state_online.c
 	src/control/src/states/state_preparing.c
 	src/control/src/states/state_enabling.c
-	src/control/src/states/state_ready.c
+	src/control/src/states/state_holding.c
 	src/control/src/states/state_moving.c
-	src/control/src/states/state_stopping.c
+	src/control/src/states/state_halting.c
 	src/control/src/states/state_fault.c
 	src/control/src/states/state_estop.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/control/include)

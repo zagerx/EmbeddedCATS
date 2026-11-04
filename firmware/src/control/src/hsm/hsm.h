@@ -47,7 +47,7 @@ struct hsm_state {
  *   static int st_running_h(struct hsm *me, const struct hsm_event *e);
  *   const struct hsm_state st_running = {
  *       .handler = st_running_h,
- *       .super = &st_operational,
+ *       .super = &st_parent,
  *       .name = "RUNNING",
  *   };
  */

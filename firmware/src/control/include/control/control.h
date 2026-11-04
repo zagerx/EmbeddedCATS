@@ -56,21 +56,24 @@ enum cats_result {
  *   迁移由 hsm_dispatch() 统一完成"旧状态 EXIT → 换指针 → 新状态 ENTRY"；
  *   ENTRY/EXIT 也是事件，进入/离开状态的动作有固定位置。
  *
- * 运行状态（应用层，与 NMT 状态、402 状态三者不混）：
+ * 运行状态（控制层，与 NMT 状态、402 状态三者不混）：
  *   PREPARING 准备中：复位节点并等 boot-up
  *   ENABLING  使能中：NMT 启动 + 各轴进 PP 并上使能（各轴并行）
- *   READY     就绪：已使能、没有运动在途，可接受指令
+ *   HOLDING   保持中：已使能、没有运动在途，可接受指令（保持力矩）
  *   MOVING    运动中：一条 PP 运动在途（收到新目标则覆盖）
- *   STOPPING  停止中：收到停止指令，减速停在当前位置（保持使能）
- *   FAULT     故障：通信/协议/运动类错误，停住
- *   ESTOP     急停：quick stop → 断使能，只能重启程序
+ *   HALTING   减速停在途：6040 bit8 = Halt，停在当前位置（保持使能）
+ *   FAULT     故障：通信/协议/运动类错误，停住（终态）
+ *   ESTOP     急停：quick stop → 断使能，只能重启程序（终态）
+ *
+ * 名字不用 READY / STOPPING：READY 在 CiA 402 里是 "Ready to switch on"，
+ * STOPPING 容易被读成"停机/关机"，而这里做的是 Halt。
  */
 enum cats_state {
 	CATS_STATE_PREPARING = 0,
 	CATS_STATE_ENABLING,
-	CATS_STATE_READY,
+	CATS_STATE_HOLDING,
 	CATS_STATE_MOVING,
-	CATS_STATE_STOPPING,
+	CATS_STATE_HALTING,
 	CATS_STATE_FAULT,
 	CATS_STATE_ESTOP,
 	CATS_STATE_COUNT /* 状态个数，states[] 表的大小 */

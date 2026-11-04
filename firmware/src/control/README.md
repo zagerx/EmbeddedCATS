@@ -41,5 +41,8 @@ control/
 - **跨线程只共享 5 个字段**（指令槽 / 急停请求 / 两个发布值），由一把 `pthread_mutex_t` 保护；
 - 时序、超时、状态全在本层及以下，壳只负责“什么时候调”。
 
-> 状态机：PREPARING → ENABLING → READY ⇄ MOVING，STOPPING 回 READY，
+> 状态机：PREPARING → ENABLING → HOLDING ⇄ MOVING，HALTING 回 HOLDING，
 > FAULT / ESTOP 为终态（ESTOP 只能重启程序退出）。
+>
+> 层次：ROOT（统一故障出口）├─ PREPARING（不在 ONLINE 下：此时心跳还没有是正常的）
+> └─ ONLINE（心跳丢失 → FAULT）├─ ENABLING / HOLDING / MOVING / HALTING。

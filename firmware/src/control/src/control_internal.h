@@ -54,9 +54,8 @@ struct cats_control {
 	/* ---- 控制线程私有（只有 cats_control_poll 这条链路会读写） ---- */
 	uint8_t hb_ok; /* 本拍所有轴心跳都正常；每拍刷新，状态只读不算 */
 	struct cats_move_cmd move; /* 从指令槽取走后的参数副本 */
-	int move_err;              /* axis_move_to / axis_halt 的返回码，0 = 已受理 */
 	struct hsm hsm; /* 纯状态机机制（当前状态、迁移目标、进入时刻） */
-	enum cats_fault fault_code; /* 最后一次出错原因 */
+	enum cats_fault fault_code; /* 出错原因；非 NONE 时由 ONLINE 统一迁 FAULT */
 
 	/* ---- 跨线程共享：全部由 lock 保护 ----
 	 * 写者：任意线程（指令槽：填好 cmd 再置 cmd_kind；急停：只置 estop_req）

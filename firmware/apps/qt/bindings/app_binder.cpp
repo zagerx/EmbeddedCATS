@@ -27,12 +27,12 @@ StateBar::State to_bar_state(enum cats_state s)
 		return StateBar::State::Preparing;
 	case CATS_STATE_ENABLING:
 		return StateBar::State::Enabling;
-	/* READY 与 MOVING 在界面上合成一档“运行中”：状态条只给粗粒度提示，
+	/* HOLDING 与 MOVING 在界面上合成一档“运行中”：状态条只给粗粒度提示，
 	 * 精确状态看 cats_control_state_name() 的文本（日志/终端）。 */
-	case CATS_STATE_READY:
+	case CATS_STATE_HOLDING:
 	case CATS_STATE_MOVING:
 		return StateBar::State::Running;
-	case CATS_STATE_STOPPING:
+	case CATS_STATE_HALTING:
 		return StateBar::State::Stopping;
 	case CATS_STATE_FAULT:
 		return StateBar::State::Fault;

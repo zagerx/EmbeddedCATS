@@ -2,7 +2,7 @@
  * states.c — 状态表与状态名映射（**唯一的注册点**）
  *
  * 新增状态时：写好 state_xxx.c → 在 states.h 加声明 → 在本表加一行。
-* 下标与 enum cats_state 一一对应，靠 static_assert 保证不会错位。
+ * 下标与 enum cats_state 一一对应，靠 static_assert 保证不会错位。
  */
 
 #include "states.h"
@@ -11,15 +11,15 @@
 
 const struct hsm_state *const states[CATS_STATE_COUNT] = {
 	[CATS_STATE_PREPARING] = &st_preparing, [CATS_STATE_ENABLING] = &st_enabling,
-	[CATS_STATE_READY] = &st_ready,         [CATS_STATE_MOVING] = &st_moving,
-	[CATS_STATE_STOPPING] = &st_stopping,   [CATS_STATE_FAULT] = &st_fault,
+	[CATS_STATE_HOLDING] = &st_holding,     [CATS_STATE_MOVING] = &st_moving,
+	[CATS_STATE_HALTING] = &st_halting,     [CATS_STATE_FAULT] = &st_fault,
 	[CATS_STATE_ESTOP] = &st_estop,
 };
 
 static const char *const NAMES[CATS_STATE_COUNT] = {
 	[CATS_STATE_PREPARING] = "PREPARING", [CATS_STATE_ENABLING] = "ENABLING",
-	[CATS_STATE_READY] = "READY",         [CATS_STATE_MOVING] = "MOVING",
-	[CATS_STATE_STOPPING] = "STOPPING",   [CATS_STATE_FAULT] = "FAULT",
+	[CATS_STATE_HOLDING] = "HOLDING",     [CATS_STATE_MOVING] = "MOVING",
+	[CATS_STATE_HALTING] = "HALTING",     [CATS_STATE_FAULT] = "FAULT",
 	[CATS_STATE_ESTOP] = "ESTOP",
 };
 
@@ -49,7 +49,7 @@ const char *cats_control_fault_name(enum cats_fault f)
 	return FAULT_NAMES[f];
 }
 
-uint32_t now_ms(struct cats_control *app)
+uint32_t now_ms(struct cats_control *ctl)
 {
-	return app->master != NULL ? can_io_now_ms(app->master->bus) : 0;
+	return ctl->master != NULL ? can_io_now_ms(ctl->master->bus) : 0;
 }

@@ -59,37 +59,25 @@ enum cats_result cats_control_init(struct co_master *master)
 }
 
 /*
- * 心跳的唯一入口：先把事实算好存进 app->hb_ok（各状态都读同一个值），
- * 再在“受心跳约束的状态”里执行故障迁移。
+ * 心跳：本函数只把**事实**算好存进 ctl->hb_ok（每拍一次，所有状态读同一个值）。
  *
- * 受约束的只有已接管驱动器的状态（RUNNING / STOPPING / ENABLING）：
- *   PREPARING 有自己的静默期与超时（故障码也不同）；
- *   ESTOP 已在最安全处且没有出口，再迁一次只会把原因覆盖掉；
- *   FAULT 本身已经是故障。
+ * “掉线就进 FAULT”的判定不在这里，而在 st_online（运行期父状态）：
+ * 它是 ONLINE 子状态的公共规则，写成层次比写成状态白名单可靠——
+ * 新增一个运行期状态时不需要回来改任何名单。
+ * FAULT / ESTOP 挂在 root 下，自然也拿不到这条规则。
  */
-static void handle_heartbeat(struct cats_control *app, uint32_t now)
+static void refresh_heartbeat_fact(struct cats_control *ctl)
 {
 	uint8_t i;
 
 	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
-	app->hb_ok = app->axis_count > 0 ? 1 : 0;
-	for (i = 0; i < app->axis_count; i++) {
-		if (co_master_node_alive(app->master, app->axes[i].node_id) != 0) {
-			app->hb_ok = 0;
+	ctl->hb_ok = ctl->axis_count > 0 ? 1 : 0;
+	for (i = 0; i < ctl->axis_count; i++) {
+		if (co_master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
+			ctl->hb_ok = 0;
 			break;
 		}
 	}
-
-	if (app->hb_ok) {
-		return;
-	}
-	if (app->hsm.state != &st_enabling && app->hsm.state != &st_ready &&
-	    app->hsm.state != &st_moving && app->hsm.state != &st_stopping) {
-		return;
-	}
-
-	app->fault_code = CATS_FAULT_HEARTBEAT_LOST;
-	hsm_transition(&app->hsm, &st_fault, now);
 }
 
 enum cats_result cats_control_poll(void)
@@ -113,7 +101,7 @@ enum cats_result cats_control_poll(void)
 	now = now_ms(&s_ctl);
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_ctl.master, now);
-	handle_heartbeat(&s_ctl, now);
+	refresh_heartbeat_fact(&s_ctl);
 
 	/* 各层自管推进：轴（含 402/SDO）每拍走一步；状态机只看事实 */
 	axis_poll_all(s_ctl.axes, s_ctl.axis_count, now);
