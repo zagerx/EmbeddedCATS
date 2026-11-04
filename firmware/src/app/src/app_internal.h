@@ -25,15 +25,40 @@ enum cats_app_sig {
 	CATS_SIG_STOP                 /* 请求停止 */
 };
 
+/* 指令槽里的指令种类（单槽，后到覆盖先到） */
+enum cats_cmd_kind {
+	CATS_CMD_NONE = 0,
+	CATS_CMD_MOVE, /* 绝对位置运动 */
+	CATS_CMD_STOP  /* 停止运动 */
+};
+
+/* 位置指令的参数（业务单位：µm / µm·s⁻¹ / µm·s⁻²） */
+struct cats_move_cmd {
+	uint8_t axis;
+	int32_t um;
+	int32_t um_s;
+	int32_t um_s2;
+};
+
 /* 业务轴（轴层）：一个轴 = 一个节点 + 该节点的 402 推进器，见 axis/axis.h */
 struct cats_app {
 	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
 
 	struct cats_axis axes[CATS_APP_MAX_AXES];
-	struct axis_group group; /* 轴集合：谁在用 SDO 由它排（依次使能） */
+	struct axis_group group; /* 轴集合：每拍逐轴推进，每轴有自己的 SDO 通道 */
 	uint8_t axis_count;
 	/* 本拍所有轴心跳都正常；每拍由 cats_app_poll() 刷新，状态只读不算 */
 	uint8_t hb_ok;
+
+	/* ---- 跨线程指令槽：单槽、覆盖最新 ----
+	 * 写者（任意线程）：先写 cmd 各字段，最后 __atomic_store(RELEASE) 写 cmd_kind；
+	 * 读者（控制线程）：cats_take_cmd() 用 ACQ_REL 交换，再读 cmd 字段。 */
+	int cmd_kind; /* enum cats_cmd_kind */
+	struct cats_move_cmd cmd;
+
+	/* ---- 控制线程私有：取走后的参数副本（不再与指令槽共享） ---- */
+	struct cats_move_cmd move;
+	int move_err; /* axis_move_to / axis_halt 的返回码，0 = 已受理 */
 
 	struct hsm hsm; /* 纯状态机机制（当前状态、迁移目标、进入时刻） */
 	enum cats_app_fault fault_code; /* 最后一次出错原因 */
@@ -52,5 +77,12 @@ extern const struct hsm_state *const states[CATS_RUN_STATE_COUNT];
 
 /* 取当前时刻；未接管主站时返回 0 */
 uint32_t now_ms(struct cats_app *app);
+
+/* 取走指令槽（只允许控制线程调）：返回本次拿到的指令种类，槽随即清空 */
+static inline enum cats_cmd_kind cats_take_cmd(struct cats_app *app)
+{
+	return (enum cats_cmd_kind)__atomic_exchange_n(&app->cmd_kind, CATS_CMD_NONE,
+						       __ATOMIC_ACQ_REL);
+}
 
 #endif /* APP_APP_INTERNAL_H */

@@ -9,8 +9,10 @@
  * （setup / UploadInitiate / DownloadInitiate / DownloadBufWrite /
  *   Upload / Download / UploadBufRead / Close），用法见 301/CO_SDOclient.h。
  *
- * 通道只有一条（OD_CNT_SDO_CLI = 1）：同一时刻只允许一次传输在途，
- * 谁先发起谁先传完；要并行的两个轴得由调用方自己排顺序。
+ * 一个服务节点一条通道：OD 的 1280h / 1281h 各自绑一个站号（COB-ID +
+ * server node-ID），上游 CO_SDOclient_init() 在启动时就绑好了。所以两个轴
+ * 各自用自己的客户端，传输互不打断；调用方只说“我要和站号 N 说话”，不关心
+ * 下标怎么排。
  */
 
 #ifndef CANOPEN_SDO_CLIENT_H
@@ -24,8 +26,8 @@
 extern "C" {
 #endif
 
-/* 取主站的 SDO 客户端对象；协议栈没起来时返回 NULL */
-CO_SDOclient_t *co_master_sdo_client(struct co_master *m);
+/* 取绑定了该站号的 SDO 客户端；没配这个站点或协议栈没起来时返回 NULL */
+CO_SDOclient_t *co_master_sdo_client(struct co_master *m, uint8_t node_id);
 
 #ifdef __cplusplus
 } /* extern "C" */

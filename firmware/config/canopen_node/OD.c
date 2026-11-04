@@ -42,10 +42,19 @@ OD_ATTR_PERSIST_COMM OD_PERSIST_COMM_t OD_PERSIST_COMM = {
 			   .revisionNumber = 0x00000000,
 			   .serialNumber = 0x00000000},
 	.x1019_synchronousCounterOverflowValue = 0x00,
+	/* 两个 SDO 客户端 = 两条到驱动器的 SDO 通道（DS301 默认 COB-ID）:
+	 *   1280h → 站号 1: 0x601 / 0x581
+	 *   1281h → 站号 2: 0x602 / 0x582
+	 * 上游 CO_SDOclient_init() 直接读这里绑好的 COB-ID，所以上层不需要自己
+	 * 调 setup；站号 → 客户端 的对应关系只在本文件声明一次。 */
 	.x1280_SDOClientParameter = {.highestSub_indexSupported = 0x03,
-				     .COB_IDClientToServerTx = 0x80000000,
-				     .COB_IDServerToClientRx = 0x80000000,
+				     .COB_IDClientToServerTx = 0x00000601,
+				     .COB_IDServerToClientRx = 0x00000581,
 				     .node_IDOfTheSDOServer = 0x01},
+	.x1281_SDOClientParameter = {.highestSub_indexSupported = 0x03,
+				     .COB_IDClientToServerTx = 0x00000602,
+				     .COB_IDServerToClientRx = 0x00000582,
+				     .node_IDOfTheSDOServer = 0x02},
 	.x1400_RPDOCommunicationParameter = {.highestSub_indexSupported = 0x05,
 					     .COB_IDUsedByRPDO = 0x80000200,
 					     .transmissionType = 0xFE,
@@ -190,6 +199,7 @@ typedef struct {
 	OD_obj_var_t o_1019_synchronousCounterOverflowValue;
 	OD_obj_record_t o_1200_SDOServerParameter[3];
 	OD_obj_record_t o_1280_SDOClientParameter[4];
+	OD_obj_record_t o_1281_SDOClientParameter[4];
 	OD_obj_record_t o_1400_RPDOCommunicationParameter[4];
 	OD_obj_record_t o_1401_RPDOCommunicationParameter[4];
 	OD_obj_record_t o_1402_RPDOCommunicationParameter[4];
@@ -316,6 +326,23 @@ static CO_PROGMEM ODObjs_t ODObjs = {
 		  .attribute = ODA_SDO_RW | ODA_TRPDO | ODA_MB,
 		  .dataLength = 4},
 		 {.dataOrig = &OD_PERSIST_COMM.x1280_SDOClientParameter.node_IDOfTheSDOServer,
+		  .subIndex = 3,
+		  .attribute = ODA_SDO_RW,
+		  .dataLength = 1}},
+	.o_1281_SDOClientParameter =
+		{{.dataOrig = &OD_PERSIST_COMM.x1281_SDOClientParameter.highestSub_indexSupported,
+		  .subIndex = 0,
+		  .attribute = ODA_SDO_R,
+		  .dataLength = 1},
+		 {.dataOrig = &OD_PERSIST_COMM.x1281_SDOClientParameter.COB_IDClientToServerTx,
+		  .subIndex = 1,
+		  .attribute = ODA_SDO_RW | ODA_TRPDO | ODA_MB,
+		  .dataLength = 4},
+		 {.dataOrig = &OD_PERSIST_COMM.x1281_SDOClientParameter.COB_IDServerToClientRx,
+		  .subIndex = 2,
+		  .attribute = ODA_SDO_RW | ODA_TRPDO | ODA_MB,
+		  .dataLength = 4},
+		 {.dataOrig = &OD_PERSIST_COMM.x1281_SDOClientParameter.node_IDOfTheSDOServer,
 		  .subIndex = 3,
 		  .attribute = ODA_SDO_RW,
 		  .dataLength = 1}},
@@ -821,6 +848,7 @@ static OD_ATTR_OD OD_entry_t ODList[] = {
 	{0x1019, 0x01, ODT_VAR, &ODObjs.o_1019_synchronousCounterOverflowValue, NULL},
 	{0x1200, 0x03, ODT_REC, &ODObjs.o_1200_SDOServerParameter, NULL},
 	{0x1280, 0x04, ODT_REC, &ODObjs.o_1280_SDOClientParameter, NULL},
+	{0x1281, 0x04, ODT_REC, &ODObjs.o_1281_SDOClientParameter, NULL},
 	{0x1400, 0x04, ODT_REC, &ODObjs.o_1400_RPDOCommunicationParameter, NULL},
 	{0x1401, 0x04, ODT_REC, &ODObjs.o_1401_RPDOCommunicationParameter, NULL},
 	{0x1402, 0x04, ODT_REC, &ODObjs.o_1402_RPDOCommunicationParameter, NULL},

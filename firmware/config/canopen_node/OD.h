@@ -43,7 +43,7 @@
 #define OD_CNT_HB_CONS 1
 #define OD_CNT_HB_PROD 1
 #define OD_CNT_SDO_SRV 1
-#define OD_CNT_SDO_CLI 1
+#define OD_CNT_SDO_CLI 2
 #define OD_CNT_RPDO 4
 #define OD_CNT_TPDO 4
 
@@ -85,6 +85,12 @@ typedef struct {
         uint32_t COB_IDServerToClientRx;
         uint8_t node_IDOfTheSDOServer;
     } x1280_SDOClientParameter;
+    struct {
+        uint8_t highestSub_indexSupported;
+        uint32_t COB_IDClientToServerTx;
+        uint32_t COB_IDServerToClientRx;
+        uint8_t node_IDOfTheSDOServer;
+    } x1281_SDOClientParameter;
     struct {
         uint8_t highestSub_indexSupported;
         uint32_t COB_IDUsedByRPDO;
@@ -280,22 +286,23 @@ extern OD_ATTR_OD OD_t *OD;
 #define OD_ENTRY_H1019 &OD->list[14]
 #define OD_ENTRY_H1200 &OD->list[15]
 #define OD_ENTRY_H1280 &OD->list[16]
-#define OD_ENTRY_H1400 &OD->list[17]
-#define OD_ENTRY_H1401 &OD->list[18]
-#define OD_ENTRY_H1402 &OD->list[19]
-#define OD_ENTRY_H1403 &OD->list[20]
-#define OD_ENTRY_H1600 &OD->list[21]
-#define OD_ENTRY_H1601 &OD->list[22]
-#define OD_ENTRY_H1602 &OD->list[23]
-#define OD_ENTRY_H1603 &OD->list[24]
-#define OD_ENTRY_H1800 &OD->list[25]
-#define OD_ENTRY_H1801 &OD->list[26]
-#define OD_ENTRY_H1802 &OD->list[27]
-#define OD_ENTRY_H1803 &OD->list[28]
-#define OD_ENTRY_H1A00 &OD->list[29]
-#define OD_ENTRY_H1A01 &OD->list[30]
-#define OD_ENTRY_H1A02 &OD->list[31]
-#define OD_ENTRY_H1A03 &OD->list[32]
+#define OD_ENTRY_H1281 &OD->list[17]
+#define OD_ENTRY_H1400 &OD->list[18]
+#define OD_ENTRY_H1401 &OD->list[19]
+#define OD_ENTRY_H1402 &OD->list[20]
+#define OD_ENTRY_H1403 &OD->list[21]
+#define OD_ENTRY_H1600 &OD->list[22]
+#define OD_ENTRY_H1601 &OD->list[23]
+#define OD_ENTRY_H1602 &OD->list[24]
+#define OD_ENTRY_H1603 &OD->list[25]
+#define OD_ENTRY_H1800 &OD->list[26]
+#define OD_ENTRY_H1801 &OD->list[27]
+#define OD_ENTRY_H1802 &OD->list[28]
+#define OD_ENTRY_H1803 &OD->list[29]
+#define OD_ENTRY_H1A00 &OD->list[30]
+#define OD_ENTRY_H1A01 &OD->list[31]
+#define OD_ENTRY_H1A02 &OD->list[32]
+#define OD_ENTRY_H1A03 &OD->list[33]
 
 
 /*******************************************************************************
@@ -318,22 +325,23 @@ extern OD_ATTR_OD OD_t *OD;
 #define OD_ENTRY_H1019_synchronousCounterOverflowValue &OD->list[14]
 #define OD_ENTRY_H1200_SDOServerParameter &OD->list[15]
 #define OD_ENTRY_H1280_SDOClientParameter &OD->list[16]
-#define OD_ENTRY_H1400_RPDOCommunicationParameter &OD->list[17]
-#define OD_ENTRY_H1401_RPDOCommunicationParameter &OD->list[18]
-#define OD_ENTRY_H1402_RPDOCommunicationParameter &OD->list[19]
-#define OD_ENTRY_H1403_RPDOCommunicationParameter &OD->list[20]
-#define OD_ENTRY_H1600_RPDOMappingParameter &OD->list[21]
-#define OD_ENTRY_H1601_RPDOMappingParameter &OD->list[22]
-#define OD_ENTRY_H1602_RPDOMappingParameter &OD->list[23]
-#define OD_ENTRY_H1603_RPDOMappingParameter &OD->list[24]
-#define OD_ENTRY_H1800_TPDOCommunicationParameter &OD->list[25]
-#define OD_ENTRY_H1801_TPDOCommunicationParameter &OD->list[26]
-#define OD_ENTRY_H1802_TPDOCommunicationParameter &OD->list[27]
-#define OD_ENTRY_H1803_TPDOCommunicationParameter &OD->list[28]
-#define OD_ENTRY_H1A00_TPDOMappingParameter &OD->list[29]
-#define OD_ENTRY_H1A01_TPDOMappingParameter &OD->list[30]
-#define OD_ENTRY_H1A02_TPDOMappingParameter &OD->list[31]
-#define OD_ENTRY_H1A03_TPDOMappingParameter &OD->list[32]
+#define OD_ENTRY_H1281_SDOClientParameter &OD->list[17]
+#define OD_ENTRY_H1400_RPDOCommunicationParameter &OD->list[18]
+#define OD_ENTRY_H1401_RPDOCommunicationParameter &OD->list[19]
+#define OD_ENTRY_H1402_RPDOCommunicationParameter &OD->list[20]
+#define OD_ENTRY_H1403_RPDOCommunicationParameter &OD->list[21]
+#define OD_ENTRY_H1600_RPDOMappingParameter &OD->list[22]
+#define OD_ENTRY_H1601_RPDOMappingParameter &OD->list[23]
+#define OD_ENTRY_H1602_RPDOMappingParameter &OD->list[24]
+#define OD_ENTRY_H1603_RPDOMappingParameter &OD->list[25]
+#define OD_ENTRY_H1800_TPDOCommunicationParameter &OD->list[26]
+#define OD_ENTRY_H1801_TPDOCommunicationParameter &OD->list[27]
+#define OD_ENTRY_H1802_TPDOCommunicationParameter &OD->list[28]
+#define OD_ENTRY_H1803_TPDOCommunicationParameter &OD->list[29]
+#define OD_ENTRY_H1A00_TPDOMappingParameter &OD->list[30]
+#define OD_ENTRY_H1A01_TPDOMappingParameter &OD->list[31]
+#define OD_ENTRY_H1A02_TPDOMappingParameter &OD->list[32]
+#define OD_ENTRY_H1A03_TPDOMappingParameter &OD->list[33]
 
 
 /*******************************************************************************

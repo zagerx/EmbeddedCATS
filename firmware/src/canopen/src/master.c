@@ -159,10 +159,20 @@ int co_master_node_alive(const struct co_master *m, uint8_t node_id)
 	return CO_HBconsumer_getState(s_co->HBcons, idx) == CO_HBconsumer_ACTIVE ? 0 : 1;
 }
 
-CO_SDOclient_t *co_master_sdo_client(struct co_master *m)
+CO_SDOclient_t *co_master_sdo_client(struct co_master *m, uint8_t node_id)
 {
+	uint8_t i;
+
 	if (m == NULL || s_co == NULL) {
 		return NULL;
 	}
-	return s_co->SDOclient;
+	/* “哪个客户端服务哪个站号”只在 OD 里声明（1280h/1281h 的子索引 3），
+	 * 上游 init 时已把站号和 COB-ID 绑进对象，这里只查表，不猜下标。 */
+	for (i = 0; i < OD_CNT_SDO_CLI; i++) {
+		if (s_co->SDOclient[i].valid &&
+		    s_co->SDOclient[i].nodeIDOfTheSDOServer == node_id) {
+			return &s_co->SDOclient[i];
+		}
+	}
+	return NULL;
 }

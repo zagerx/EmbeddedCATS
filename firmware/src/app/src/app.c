@@ -85,8 +85,8 @@ static void handle_heartbeat(struct cats_app *app, uint32_t now)
 	if (app->hb_ok) {
 		return;
 	}
-	if (app->hsm.state != &st_running && app->hsm.state != &st_stopping &&
-	    app->hsm.state != &st_enabling) {
+	if (app->hsm.state != &st_enabling && app->hsm.state != &st_ready &&
+	    app->hsm.state != &st_moving && app->hsm.state != &st_stopping) {
 		return;
 	}
 
@@ -132,6 +132,41 @@ void cats_app_estop(void)
 	/* 只置请求，不在这里改状态机：任何线程都可安全调用，
 	 * 真正的迁移由控制线程在下一拍（≤ 1 个节拍）执行 */
 	__atomic_store_n(&s_app.estop_req, 1, __ATOMIC_RELEASE);
+}
+
+int cats_app_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2)
+{
+	if (s_app.master == NULL || axis >= s_app.axis_count) {
+		return -1;
+	}
+	if (s_app.axes[axis].pulses_per_rev <= 0 || s_app.axes[axis].um_per_rev <= 0) {
+		return -1; /* 换算参数没配：不接受位置指令 */
+	}
+
+	s_app.cmd.axis = axis;
+	s_app.cmd.um = um;
+	s_app.cmd.um_s = um_s;
+	s_app.cmd.um_s2 = um_s2;
+	/* 字段写完才发布种类：读者读到的种类一定伴随完整的参数 */
+	__atomic_store_n(&s_app.cmd_kind, CATS_CMD_MOVE, __ATOMIC_RELEASE);
+	return 0;
+}
+
+void cats_app_stop(void)
+{
+	if (s_app.master == NULL) {
+		return;
+	}
+	__atomic_store_n(&s_app.cmd_kind, CATS_CMD_STOP, __ATOMIC_RELEASE);
+}
+
+int cats_app_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, int32_t um_per_rev)
+{
+	if (axis >= CATS_APP_MAX_AXES) {
+		return -1;
+	}
+	axis_set_scale(&s_app.axes[axis], pulses_per_rev, um_per_rev);
+	return 0;
 }
 
 enum cats_app_fault cats_app_fault_code(void)

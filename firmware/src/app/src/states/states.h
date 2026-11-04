@@ -7,7 +7,7 @@
  * 层次（见各文件里状态对象的 .super 字段）：
  *   st_root
  *   ├── st_operational   运行期父状态（本轮不处理事件，留给公共逻辑）
- *   │   ├── st_preparing / st_running / st_stopping
+ *   │   ├── st_preparing / st_enabling / st_ready / st_moving / st_stopping
  *   ├── st_fault
  *   └── st_estop
  */
@@ -26,7 +26,8 @@ extern const struct hsm_state st_root;
 extern const struct hsm_state st_operational;
 extern const struct hsm_state st_preparing;
 extern const struct hsm_state st_enabling;
-extern const struct hsm_state st_running;
+extern const struct hsm_state st_ready;
+extern const struct hsm_state st_moving;
 extern const struct hsm_state st_stopping;
 extern const struct hsm_state st_fault;
 extern const struct hsm_state st_estop;

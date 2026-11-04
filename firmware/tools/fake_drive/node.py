@@ -44,12 +44,16 @@ UPLOAD_CS = {1: 0x4F, 2: 0x4B, 4: 0x43}
 DEFAULT_HEARTBEAT_MS = 500
 
 # ---- CiA 402：状态字取值（手册 5.3 / DS 402）--------------------------
-# 本模拟器只实现“使能”这条路径：0x40 → 0x21 → 0x23 → 0x27，外加故障复位。
+# 本模拟器实现“使能”与“PP 最小运动模型”：0x40 → 0x21 → 0x23 → 0x27，
+# 写 607A + 6040 bit4 上升沿 ⇒ 按 6081 匀速走到目标（加减速未模拟）。
 CIA402_SWITCH_ON_DISABLED = 0x0040
 CIA402_READY = 0x0021
 CIA402_SWITCHED_ON = 0x0023
 CIA402_OP_ENABLED = 0x0027
 CIA402_FAULT = 0x0008
+
+SW_TARGET_REACHED = 0x0400  # bit10：已到位
+SW_SETPOINT_ACK = 0x1000  # bit12：新目标已接收（PP 握手）
 
 
 class Node:
@@ -80,6 +84,15 @@ class Node:
         self.follow_402 = follow_402
         self.controlword = 0
         self.state402 = CIA402_SWITCH_ON_DISABLED
+        # PP 最小模型：位置 / 目标 / 速度，以及运动结束时刻
+        self.position = 0
+        self.target = 0
+        self.velocity = 0
+        self._move_start = 0.0
+        self._move_end: float | None = None
+        self._move_from = 0
+        self._reached = True
+        self._setpoint_ack = False
         self._publish_statusword()
 
     # ---- 基础设施 ---------------------------------------------------
@@ -109,16 +122,73 @@ class Node:
         )
 
     def next_deadline(self) -> float | None:
-        """下一次要主动发帧的时刻（monotonic 秒）；没有周期任务返回 None。"""
-        return self._next_heartbeat
+        """下一次要主动干活的时刻（monotonic 秒）；没有周期任务返回 None。"""
+        deadlines = [d for d in (self._next_heartbeat, self._move_end) if d is not None]
+        return min(deadlines) if deadlines else None
 
     def tick(self, now: float) -> None:
         """事件循环每次醒来调一次（不管有没有收到帧）。"""
+        self._tick_motion(now)
         if self._next_heartbeat is None or now < self._next_heartbeat:
             return
         self.send_cob(0x700 + self.node_id, bytes([self.nmt]), pad=False)
         # 不追赶欠下的拍数：迟了就迟了，如实反映 USB-CAN 的抖动
         self._next_heartbeat = now + self.heartbeat_ms / 1000.0
+
+    # ---- PP 运动（最小模型：匀速，无加减速）--------------------------
+    def _tick_motion(self, now: float) -> None:
+        if self._move_end is None or now < self._move_end:
+            return
+        self.position = self.target
+        self._move_end = None
+        self._reached = True
+        self.od.set_internal(0x6064, 0, self.position & 0xFFFFFFFF)
+        self._publish_statusword()
+        self.log(f"PP：到位 {self.position} pulse")
+
+    def _start_move(self, now: float) -> None:
+        """6040 bit4 上升沿：把 607A 当目标，按 6081 匀速走完。"""
+        self.target = self.od.read(0x607A, 0)[0]
+        if self.target >= 0x80000000:  # 16/32 位有符号回绕
+            self.target -= 0x100000000
+        self.velocity = self.od.read(0x6081, 0)[0]
+        self._move_from = self.position
+        distance = abs(self.target - self.position)
+        self._reached = distance == 0
+        if self.velocity <= 0 or distance == 0:
+            self._move_end = None
+            self.position = self.target
+        else:
+            self._move_start = now
+            self._move_end = now + distance / float(self.velocity)
+        self._setpoint_ack = True
+        self.od.set_internal(0x6064, 0, self.position & 0xFFFFFFFF)
+        self._publish_statusword()
+        self.log(
+            f"PP：新目标 {self.target} pulse，速度 {self.velocity} pulse/s，"
+            f"距离 {distance}"
+        )
+
+    def _halt_move(self, now: float) -> None:
+        """6040 bit8：减速停。本模型直接停在当前位置。"""
+        if self._move_end is not None:
+            done = (now - self._move_start) * self.velocity
+            step = min(abs(self.target - self._move_from), int(done))
+            sign = 1 if self.target >= self._move_from else -1
+            self.position = self._move_from + sign * step
+            self._move_end = None
+            self.od.set_internal(0x6064, 0, self.position & 0xFFFFFFFF)
+        self._reached = True
+        self._publish_statusword()
+        self.log(f"PP：Halt，停在 {self.position} pulse")
+
+    def _statusword(self) -> int:
+        sw = self.state402
+        if self._reached:
+            sw |= SW_TARGET_REACHED
+        if self._setpoint_ack:
+            sw |= SW_SETPOINT_ACK
+        return sw
 
     def reset_communication(self) -> None:
         """通讯复位（NMT 0x82）：心跳周期回出厂值并重发 boot-up。其它通讯参数本期未实现。"""
@@ -232,26 +302,49 @@ class Node:
             self.od.set_internal(0x6061, 0, entry.value)
         elif index == 0x6040:
             self.apply_controlword(entry.value)
+        elif index == 0x607A:
+            pass  # 目标位置先存着，等 bit4 上升沿才真正开始走
+        elif index == 0x6081:
+            pass  # 速度同上
 
     # ---- CiA 402（只做使能这条路径）---------------------------------
     def apply_controlword(self, cw: int) -> None:
-        """控制字 → 402 迁移。命令掩码取 DS 402 的（手册 5.3 的位定义）。"""
+        """控制字 → 402 迁移 + PP 触发（bit4 上升沿 / bit8 停顿）。"""
+        prev = self.controlword
+        self.controlword = cw
         if not self.follow_402:
             self.log(f"402：收到控制字 0x{cw:04X}，但状态机未启用（--no-402）")
+            return
+        if (cw & 0x0F) == 0x00:  # 断使能（写 0x00）
+            self._set_state402(CIA402_SWITCH_ON_DISABLED, "禁止电压输出")
             return
         if self.state402 == CIA402_FAULT:
             if cw & 0x80:  # bit7 上升沿：故障复位
                 self._set_state402(CIA402_SWITCH_ON_DISABLED, "故障复位")
             return
-        if (cw & 0x02) == 0:
-            self._set_state402(CIA402_SWITCH_ON_DISABLED, "禁止电压输出")
-        elif (cw & 0x8F) == 0x0F:  # Enable operation（0x1F/0x2F/0x4F/0x5F 同）
+        if (cw & 0x02) and not (cw & 0x04):  # quick stop
+            self._halt_move(time.monotonic())
+            self._set_state402(CIA402_SWITCH_ON_DISABLED, "Quick stop")
+            return
+        if (cw & 0x8F) == 0x0F:  # Enable operation（0x1F/0x2F/0x4F/0x5F 同）
             self._set_state402(CIA402_OP_ENABLED, "Enable operation")
         elif (cw & 0x87) == 0x07:  # Switch on
             if self.state402 in (CIA402_READY, CIA402_SWITCHED_ON):
                 self._set_state402(CIA402_SWITCHED_ON, "Switch on")
         elif (cw & 0x87) == 0x06:  # Shutdown
             self._set_state402(CIA402_READY, "Shutdown")
+
+        now = time.monotonic()
+        if (cw & 0x100) and not (prev & 0x100):  # bit8 上升沿：减速停
+            self._halt_move(now)
+        elif not (cw & 0x100) and (prev & 0x100):
+            self._reached = True
+            self._publish_statusword()
+        if (cw & 0x10) and not (prev & 0x10):  # bit4 上升沿：新目标
+            self._start_move(now)
+        elif not (cw & 0x10) and (prev & 0x10):
+            self._setpoint_ack = False
+            self._publish_statusword()
 
     def _set_state402(self, state: int, why: str) -> None:
         if state == self.state402:
@@ -262,7 +355,7 @@ class Node:
 
     def _publish_statusword(self) -> None:
         """状态字是只读对象，由设备自己更新（不走 SDO 写权限检查）。"""
-        self.od.set_internal(0x6041, 0, self.state402)
+        self.od.set_internal(0x6041, 0, self._statusword())
 
     def sdo_abort(self, index: int, sub: int, code: int) -> None:
         self.send_cob(

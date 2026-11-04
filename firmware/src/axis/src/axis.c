@@ -1,12 +1,12 @@
 /*
- * axis.c — 轴集合的推进与"谁在用 SDO"的排队
+ * axis.c — 轴集合：把每拍推进分发给各轴
  *
- * 只有一条 SDO 通道，所以这里用最简单的策略：一个一个来。
- * 前一个轴出了结论（使能成功或失败）才轮到下一个；失败也照样往下走，
- * 好让每个轴都拿到自己的结论，最后由 axis_group_any_failed() 一并上报。
+ * 一个轴 = 一个节点，每个节点有一条自己的 SDO 通道（OD 的 1280h/1281h 各绑
+ * 一个站号），所以轴与轴之间不需要排队：同时发起、各走各的，谁先出结论谁
+ * 先上报，一个轴失败不影响另一个轴。
  *
- * 排队放在这一层而不是 cia402：cia402 是"一个节点的推进器"，它不该知道
- * 还有别的节点；而"轴之间怎么排"是轴集合的业务决定。
+ * 因此这里没有仲裁状态（没有"轮到谁"），失败由 axis_group_any_failed()
+ * 一并上报给 app。
  */
 
 #include <axis/axis.h>
@@ -16,42 +16,106 @@
 void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id)
 {
 	a->node_id = node_id;
+	a->pulses_per_rev = 0;
+	a->um_per_rev = 0;
 	cia402_init(&a->drv, m, node_id);
+}
+
+void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, int32_t um_per_rev)
+{
+	if (a == NULL) {
+		return;
+	}
+	a->pulses_per_rev = pulses_per_rev;
+	a->um_per_rev = um_per_rev;
+}
+
+/* µm → pulse（中间用 64 位，避免 1 m × 10000 脉冲就溢出） */
+static int32_t scale_um(const struct cats_axis *a, int32_t um)
+{
+	int64_t p = (int64_t)um * (int64_t)a->pulses_per_rev / (int64_t)a->um_per_rev;
+
+	if (p > INT32_MAX) {
+		return INT32_MAX;
+	}
+	if (p < -INT32_MAX) {
+		return -INT32_MAX;
+	}
+	return (int32_t)p;
+}
+
+int axis_move_to(struct cats_axis *a, int32_t um, int32_t um_s, int32_t um_s2)
+{
+	if (a == NULL || a->pulses_per_rev <= 0 || a->um_per_rev <= 0) {
+		return -1; /* 没配机械参数就不接指令：宁可不动，也不算错位置 */
+	}
+	return cia402_pp_start(&a->drv, scale_um(a, um), scale_um(a, um_s), scale_um(a, um_s2),
+			       scale_um(a, um_s2));
+}
+
+int axis_halt(struct cats_axis *a)
+{
+	return (a == NULL) ? -1 : cia402_halt(&a->drv);
+}
+
+enum axis_motion axis_take_motion(struct cats_axis *a)
+{
+	enum cia402_result r;
+
+	if (a == NULL) {
+		return AXIS_MOTION_NONE;
+	}
+	r = cia402_take_result(&a->drv);
+	if (r == CIA402_RESULT_DONE) {
+		return AXIS_MOTION_DONE;
+	}
+	if (r == CIA402_RESULT_FAILED) {
+		return AXIS_MOTION_FAILED;
+	}
+	return cia402_busy(&a->drv) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
 }
 
 void axis_group_init(struct axis_group *g, struct cats_axis *axes, uint8_t count)
 {
 	g->axes = axes;
 	g->count = count;
-	g->active = count; /* 没有轴在推进 */
 }
 
 int axis_group_enable(struct axis_group *g)
 {
+	uint8_t i;
+
 	if (g == NULL || g->axes == NULL || g->count == 0U) {
 		return -1;
 	}
-	g->active = 0;
-	return cia402_request_enable(&g->axes[0].drv) < 0 ? -1 : 0;
+	for (i = 0; i < g->count; i++) {
+		/* 1 = 已经要求过（不重复发起），不算错 */
+		(void)cia402_request_enable(&g->axes[i].drv);
+	}
+	return 0;
 }
 
 void axis_group_poll(struct axis_group *g, uint32_t now_ms)
 {
-	struct cia402_node *drv;
+	uint8_t i;
 
-	if (g == NULL || g->axes == NULL || g->active >= g->count) {
-		return; /* 没有轴在推进 */
+	if (g == NULL || g->axes == NULL) {
+		return;
 	}
-
-	drv = &g->axes[g->active].drv;
-	cia402_poll(drv, now_ms);
-
-	if (!cia402_is_enabled(drv) && !cia402_failed(drv)) {
-		return; /* 当前轴还没结论 */
+	for (i = 0; i < g->count; i++) {
+		cia402_poll(&g->axes[i].drv, now_ms);
 	}
-	g->active++;
-	if (g->active < g->count) {
-		(void)cia402_request_enable(&g->axes[g->active].drv);
+}
+
+void axis_group_quick_stop(struct axis_group *g)
+{
+	uint8_t i;
+
+	if (g == NULL || g->axes == NULL) {
+		return;
+	}
+	for (i = 0; i < g->count; i++) {
+		(void)cia402_quick_stop(&g->axes[i].drv);
 	}
 }
 

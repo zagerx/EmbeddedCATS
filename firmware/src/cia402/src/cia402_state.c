@@ -17,8 +17,19 @@
 
 #include <cia402/cia402.h>
 
+#include "cia402_internal.h"
+
 #define SW_FAULT_MASK 0x004Fu     /* bit0..3 + bit6 */
 #define SW_OPERATION_MASK 0x006Fu /* bit0..3 + bit5 + bit6 */
+
+void cia402_take_statusword(struct cia402_node *n)
+{
+	if (n->data_len > 0U) {
+		n->statusword = (uint16_t)(n->data[0] |
+					   (uint16_t)(n->data_len > 1U ? n->data[1] : 0U) << 8);
+	}
+	n->state = cia402_parse(n->statusword);
+}
 
 enum cia402_state cia402_parse(uint16_t statusword)
 {

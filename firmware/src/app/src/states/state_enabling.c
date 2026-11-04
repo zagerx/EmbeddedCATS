@@ -1,7 +1,7 @@
 /*
  * state_enabling.c — 使能中
  *
- * 进入：NMT 启动（0x01，手册 6.1.4 步骤 2）+ 请求各轴依次使能；
+ * 进入：NMT 启动（0x01，手册 6.1.4 步骤 2）+ 请求各轴使能（并发，互不阻塞）；
  * 每拍：只看两个事实——都使能上了 → RUNNING；有轴失败 / 超时 → FAULT；
  * 退出：无动作（失败时轴自己已经停在失败步骤，不再发帧）。
  *
@@ -46,7 +46,7 @@ static int st_enabling_h(struct hsm *me, const struct hsm_event *e)
 			HSM_TRAN(&st_fault);
 		}
 		if (axis_group_all_enabled(&app->group)) {
-			HSM_TRAN(&st_running);
+			HSM_TRAN(&st_ready);
 		}
 		if (elapsed > ENABLE_TIMEOUT_MS) {
 			app->fault_code = CATS_FAULT_ENABLE_TIMEOUT;

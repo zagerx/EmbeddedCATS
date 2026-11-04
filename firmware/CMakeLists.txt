@@ -79,11 +79,17 @@ target_link_libraries(canopen_kernel PUBLIC canopen_node)
 
 # 设备层：CiA 402（驱动器语义）。控制字/状态字/使能序列只在这一层
 #   用上游的 SDO 客户端原语驱动（canopen/sdo_client.h 只交出对象，不封装动作）
-add_library(cia402 STATIC src/cia402/src/cia402.c src/cia402/src/cia402_state.c)
+add_library(cia402 STATIC
+	src/cia402/src/cia402.c
+	src/cia402/src/cia402_enable.c
+	src/cia402/src/cia402_pp.c
+	src/cia402/src/cia402_sdo.c
+	src/cia402/src/cia402_state.c
+	src/cia402/src/cia402_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/cia402/include)
 target_link_libraries(cia402 PUBLIC canopen_kernel)
 
-# 轴层：轴集合 + “谁在用 SDO”的排队（单通道 ⇒ 依次使能）
+# 轴层：轴集合（每节点一条 SDO 通道 ⇒ 各轴并行使能、互不阻塞）
 add_library(cats_axis STATIC src/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/axis/include)
 target_link_libraries(cats_axis PUBLIC cia402)
@@ -100,7 +106,8 @@ add_library(cats_app STATIC
 	src/app/src/states/state_operational.c
 	src/app/src/states/state_preparing.c
 	src/app/src/states/state_enabling.c
-	src/app/src/states/state_running.c
+	src/app/src/states/state_ready.c
+	src/app/src/states/state_moving.c
 	src/app/src/states/state_stopping.c
 	src/app/src/states/state_fault.c
 	src/app/src/states/state_estop.c)

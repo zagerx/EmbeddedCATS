@@ -1,8 +1,11 @@
 /*
  * state_estop.c — 急停态
  *
- * ENTRY：停 SYNC + 各轴 quick stop（安全动作只在这里做一次）；
- * 之后停住不动：没有出口事件，只能重启程序。
+ * ENTRY：各轴 quick stop → 断使能（两段式，由 402 层异步走完）。
+ *        急停是安全动作，**抢占**任何在途过程（运动、停车、使能都不排队）。
+ * 之后：停住不动。没有出口事件，只能重启程序——自动恢复会把风险带回来。
+ *
+ * 进本状态不走"允许/拒绝"判断：cats_app_poll() 里急停请求优先于一切。
  */
 
 #include "states.h"
@@ -20,12 +23,10 @@ static int st_estop_h(struct hsm *me, const struct hsm_event *e)
 
 	switch (e->sig) {
 	case HSM_SIG_ENTRY:
-		/* TODO(下一拍)：停 SYNC + 各轴 cia402_quick_stop() */
-		(void)app;
+		axis_group_quick_stop(&app->group);
 		break;
 
 	case HSM_SIG_EXIT:
-		/* 无出口动作 */
 		break;
 
 	default:

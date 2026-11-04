@@ -11,14 +11,16 @@
 
 const struct hsm_state *const states[CATS_RUN_STATE_COUNT] = {
 	[CATS_RUN_PREPARING] = &st_preparing, [CATS_RUN_ENABLING] = &st_enabling,
-	[CATS_RUN_RUNNING] = &st_running,     [CATS_RUN_STOPPING] = &st_stopping,
-	[CATS_RUN_FAULT] = &st_fault,         [CATS_RUN_ESTOP] = &st_estop,
+	[CATS_RUN_READY] = &st_ready,         [CATS_RUN_MOVING] = &st_moving,
+	[CATS_RUN_STOPPING] = &st_stopping,   [CATS_RUN_FAULT] = &st_fault,
+	[CATS_RUN_ESTOP] = &st_estop,
 };
 
 static const char *const NAMES[CATS_RUN_STATE_COUNT] = {
 	[CATS_RUN_PREPARING] = "PREPARING", [CATS_RUN_ENABLING] = "ENABLING",
-	[CATS_RUN_RUNNING] = "RUNNING",     [CATS_RUN_STOPPING] = "STOPPING",
-	[CATS_RUN_FAULT] = "FAULT",         [CATS_RUN_ESTOP] = "ESTOP",
+	[CATS_RUN_READY] = "READY",         [CATS_RUN_MOVING] = "MOVING",
+	[CATS_RUN_STOPPING] = "STOPPING",   [CATS_RUN_FAULT] = "FAULT",
+	[CATS_RUN_ESTOP] = "ESTOP",
 };
 
 static const char *const FAULT_NAMES[] = {
@@ -27,6 +29,8 @@ static const char *const FAULT_NAMES[] = {
 	[CATS_FAULT_HEARTBEAT_LOST] = "HEARTBEAT_LOST",
 	[CATS_FAULT_ENABLE_TIMEOUT] = "ENABLE_TIMEOUT",
 	[CATS_FAULT_ENABLE_FAILED] = "ENABLE_FAILED",
+	[CATS_FAULT_MOTION_FAILED] = "MOTION_FAILED",
+	[CATS_FAULT_STOP_FAILED] = "STOP_FAILED",
 };
 
 const char *cats_app_state_name(enum cats_run_state s)

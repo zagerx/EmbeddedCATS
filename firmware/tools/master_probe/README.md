@@ -10,6 +10,26 @@
 ./build/master_probe can0        # 一直跑，Ctrl-C 退出
 ```
 
+### 注入指令（可选）
+
+```bash
+# 2 mm 绝对位置，速度 4 mm/s；换算参数是**测试用**的（不是实测机械参数）
+./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 2000 --vel 4000
+
+# 运动中停（MOVING → STOPPING → READY）
+./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 20000 --vel 4000 --stop-at 2500
+
+# 运动中急停（MOVING → ESTOP）
+./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 20000 --vel 2000 --estop-at 3000
+```
+
+| 参数 | 含义 |
+|---|---|
+| `--move <µm>` / `--move-at <ms>` | 位置指令（默认 1500 ms 发，等使能完） |
+| `--vel <µm/s>` / `--acc <µm/s²>` | 速度与加速度（默认 10000 / 50000） |
+| `--stop-at <ms>` / `--estop-at <ms>` | 到点发停止 / 急停 |
+| `--pulses <n>` / `--lead <µm>` | 每转脉冲数与每转微米（开跑前打印一行提醒这是测试值） |
+
 ## 输出
 
 ```text

@@ -55,16 +55,18 @@ enum cats_app_result {
  *
  * 运行状态（应用层，与 NMT 状态、402 状态三者不混）：
  *   PREPARING 准备中：复位节点并等 boot-up
- *   ENABLING  使能中：NMT 启动 + 各轴进 PP 并上使能（一轴一轴来）
- *   RUNNING   运行中：周期推进，可发运动指令
- *   STOPPING  停止中：下使能 → NMT pre-op（出口逻辑待补）
- *   FAULT     故障：通信/协议类错误，停住
- *   ESTOP     急停：安全态，只能由 cats_app_estop() 强制进入，停住
+ *   ENABLING  使能中：NMT 启动 + 各轴进 PP 并上使能（各轴并行）
+ *   READY     就绪：已使能、没有运动在途，可接受指令
+ *   MOVING    运动中：一条 PP 运动在途（收到新目标则覆盖）
+ *   STOPPING  停止中：收到停止指令，减速停在当前位置（保持使能）
+ *   FAULT     故障：通信/协议/运动类错误，停住
+ *   ESTOP     急停：quick stop → 断使能，只能重启程序
  */
 enum cats_run_state {
 	CATS_RUN_PREPARING = 0,
 	CATS_RUN_ENABLING,
-	CATS_RUN_RUNNING,
+	CATS_RUN_READY,
+	CATS_RUN_MOVING,
 	CATS_RUN_STOPPING,
 	CATS_RUN_FAULT,
 	CATS_RUN_ESTOP,
@@ -77,7 +79,9 @@ enum cats_app_fault {
 	CATS_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里静默期过后仍等不到心跳 */
 	CATS_FAULT_HEARTBEAT_LOST, /* 运行期节点心跳超时 */
 	CATS_FAULT_ENABLE_TIMEOUT, /* ENABLING 里超过 ENABLE_TIMEOUT_MS 还没使能上 */
-	CATS_FAULT_ENABLE_FAILED   /* ENABLING 里驱动器回了 abort 或 402 进故障 */
+	CATS_FAULT_ENABLE_FAILED,  /* ENABLING 里驱动器回了 abort 或 402 进故障 */
+	CATS_FAULT_MOTION_FAILED,  /* MOVING 里 abort / 超时 / 402 进故障 */
+	CATS_FAULT_STOP_FAILED     /* STOPPING 里停不下来（超时或 abort） */
 };
 
 /* 初始化：绑定主站并建状态机。建完即处于 PREPARING，之后由 poll 自行推进 */
@@ -92,6 +96,26 @@ enum cats_app_result cats_app_poll(void);
 
 /* 供界面刷新状态显示 */
 enum cats_run_state cats_app_state(void);
+
+/*
+ * 位置指令（绝对位置）。业务单位：位置 µm，速度 µm/s，加速度 µm/s²。
+ * 任意线程可调，只记一条待执行指令（单槽，覆盖上一条），由控制线程执行。
+ * 返回 0 = 已记下；-1 = 参数不合法 / 换算未配置。
+ * 注意：能否执行由状态机决定（只在 READY / MOVING 里生效），返回 0 不代表已在动。
+ */
+int cats_app_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2);
+
+/*
+ * 停止指令：减速停在当前位置并保持使能（可继续接指令）。任意线程可调。
+ */
+void cats_app_stop(void);
+
+/*
+ * 装配层给换算参数：每转多少脉冲（驱动器 6092h）、每转多少微米（丝杠导程）。
+ * 未配置时位置指令一律拒绝（宁可不动，也不算错位置）。
+ * 0 = 成功；-1 = 轴号越界。
+ */
+int cats_app_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, int32_t um_per_rev);
 
 /* 状态名："PREPARING" / "RUNNING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
 const char *cats_app_state_name(enum cats_run_state s);
