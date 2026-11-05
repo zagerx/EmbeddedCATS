@@ -14,6 +14,8 @@
 #include <control/control.h>
 #include <socketcan/can_io_socketcan.h>
 
+#include <cats_mech.h>
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,21 +25,18 @@
 #define POLL_INTERVAL_MS 20u /* 节拍：够判 750 ms 心跳超时（误差 2.7%） */
 
 /* 可选：到点往 app 注入一条指令，方便在命令行复现运动/停止/急停。
- * 单位：位置 mm、速度 mm/s、加速度 mm/s²；--pulses/--lead 是**测试用**的
- * 换算参数（每转多少脉冲 / 每转多少毫米），不是实测机械参数。 */
+ * 单位：位置 mm、速度 mm/s、加速度 mm/s²（换算参数是编译期常量，见 config/cats_mech.h）。 */
 struct probe_cmd {
 	double move_mm;
 	double move2_mm;
 	double vel_mm_s;
 	double acc_mm_s2;
-	double mm_per_rev;
 	long move_at_ms;
 	long move2_at_ms;
 	long stop_at_ms;
 	long estop_at_ms;
 	long spam;
 	long spam_at_ms;
-	int32_t pulses_per_rev;
 	int has_move;
 	int has_move2;
 	int has_stop;
@@ -53,7 +52,6 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 
 	c.vel_mm_s = 10.0; /* 默认 10 mm/s */
 	c.acc_mm_s2 = 50.0;
-	c.pulses_per_rev = 10000;
 	c.move_at_ms = -1;
 	c.move2_at_ms = -1;
 	c.stop_at_ms = -1;
@@ -90,10 +88,6 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.vel_mm_s = v;
 		} else if (strcmp(k, "--acc") == 0) {
 			c.acc_mm_s2 = v;
-		} else if (strcmp(k, "--pulses") == 0) {
-			c.pulses_per_rev = (int32_t)v;
-		} else if (strcmp(k, "--lead") == 0) {
-			c.mm_per_rev = v;
 		}
 	}
 
@@ -173,14 +167,8 @@ int main(int argc, char **argv)
 	s_base_ms = start_ms;
 
 	if (cmd.armed) {
-		if (cmd.mm_per_rev <= 0.0 || cmd.pulses_per_rev <= 0) {
-			fprintf(stderr, "注入指令需要 --lead <mm/rev> 与 --pulses <pulse/rev>\n");
-			can_io_close(&io);
-			return 1;
-		}
-		(void)cats_control_set_axis_scale(0, cmd.pulses_per_rev, (float)cmd.mm_per_rev);
-		printf("测试换算：%d pulse/rev，%.3f mm/rev（测试值，不是实测机械参数）\n",
-		       (int)cmd.pulses_per_rev, cmd.mm_per_rev);
+		printf("换算参数由 config/cats_mech.h 决定（%d pulse/rev，%.3f mm/rev）\n",
+		       (int)CATS_AXIS_PULSES_PER_REV, (double)CATS_AXIS_MM_PER_REV);
 		fflush(stdout);
 	}
 

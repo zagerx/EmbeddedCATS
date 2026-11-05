@@ -127,13 +127,6 @@ enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float 
  */
 void cats_control_stop(void);
 
-/*
- * 装配层给换算参数：每转多少脉冲（驱动器 6092h）、每转多少毫米（丝杆导程）。
- * 未配置时位置指令一律拒绕（宁可不动，也不算错位置）。
- * 0 = 成功；-1 = 轴号越界。
- */
-int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, float mm_per_rev);
-
 /* 状态名："PREPARING" / "RUNNING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
 const char *cats_control_state_name(enum cats_state s);
 

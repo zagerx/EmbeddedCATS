@@ -165,9 +165,6 @@ enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float 
 	if (s_ctl.master == NULL || axis >= s_ctl.axis_count) {
 		return CATS_ERR_PARAM;
 	}
-	if (s_ctl.axes[axis].pulses_per_rev <= 0 || s_ctl.axes[axis].mm_per_rev <= 0.0f) {
-		return CATS_ERR_PARAM; /* 换算参数没配：不接受位置指令 */
-	}
 	/* NaN 进到整数换算就是未定义行为：在入口就拦住（±inf 由轴层饱和处理） */
 	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
 		return CATS_ERR_PARAM;
@@ -194,15 +191,6 @@ void cats_control_stop(void)
 	/* 停止也插队：排在已有序命令前面，永不失败 */
 	e.super.sig = CATS_SIG_STOP;
 	cats_evtq_push_front(&s_ctl.evtq, &e);
-}
-
-int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, float mm_per_rev)
-{
-	if (axis >= CATS_MAX_AXES) {
-		return -1;
-	}
-	axis_set_scale(&s_ctl.axes[axis], pulses_per_rev, mm_per_rev);
-	return 0;
 }
 
 enum cats_fault cats_control_fault_code(void)

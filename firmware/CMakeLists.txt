@@ -97,6 +97,8 @@ target_link_libraries(cia402 PUBLIC canopen_kernel)
 # 轴层：轴集合（每节点一条 SDO 通道 ⇒ 各轴并行使能、互不阻塞）
 add_library(cats_axis STATIC src/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/axis/include)
+# 机械换算常量（cats_mech.h）属于整机配置，只给轴层用
+target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
 target_link_libraries(cats_axis PUBLIC cia402)
 
 # 应用层：QP 风格层次状态机（HSM）
@@ -143,5 +145,6 @@ target_link_libraries(cats_qt PRIVATE cats_control backend_socketcan Qt6::Widget
 
 # 工具：无界面运行器。20 ms 推进 cats_control_poll()，用来在没有界面时验证逻辑
 add_executable(master_probe tools/master_probe/main.c)
+target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
 target_link_libraries(master_probe PRIVATE cats_control backend_socketcan)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)

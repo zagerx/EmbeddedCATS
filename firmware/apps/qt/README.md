@@ -72,8 +72,8 @@ HALTING / FAULT / ESTOP）。
 （`6041` 状态字 → `6064` 实际位置 → `606C` 实际速度），与状态机串行共用同一条 SDO 通道
 （流程优先，监控读让路；超时 20 ms，失败保留上一次有效值）。
 
-- 位置 / 速度在轴层按 `pulses_per_rev / mm_per_rev` 换算成 `mm`、`mm/s`；
-  未配机械参数时对应 `valid` 位为 0，界面显示 `—`。
+- 位置 / 速度在轴层按 `config/cats_mech.h` 的编译期常量换算成 `mm`、`mm/s`
+  （当前临时值：1000 pulse/rev、5 mm/rev）；读到过才有值，没读到显示 `—`。
 - 状态字显示成 `0x001F` 形式。
 - 「错误码」优先显示该轴 SDO abort（`abort 0x08xxxxxx`），否则显示整机故障名。
 
@@ -81,7 +81,7 @@ HALTING / FAULT / ESTOP）。
 
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
   `cats_control_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
-  取整到脉冲只发生在轴层；未调 `cats_control_set_axis_scale()` 前一概拒绕。
+  取整到脉冲只发生在轴层，机械换算参数是编译期常量（`config/cats_mech.h`）。
 - `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
   入口（2.1 的三个按钮已摆好，但未绑定）。
 - 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。

@@ -21,14 +21,11 @@
 extern "C" {
 #endif
 
-/* 一个轴 = 一个节点 + 该节点的 402 推进器 + 业务↔协议单位换算 */
+/* 一个轴 = 一个节点 + 该节点的 402 推进器。
+ * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct cats_axis {
 	uint8_t node_id;
 	struct cia402_node drv; /* 402 的知识全在里面，本层只问它结果 */
-
-	/* 换算参数由装配层给定（机械参数不属于协议） */
-	int32_t pulses_per_rev; /* 6092h：每转多少脉冲 */
-	float mm_per_rev;       /* 传动：每转多少毫米（丝杆导程） */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
@@ -52,8 +49,7 @@ enum axis_motion {
 
 void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id);
 
-/* 装配层给换算参数；未配置（任一 ≤ 0）时运动指令一律拒绕 */
-void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, float mm_per_rev);
+/* 机械换算（每转脉冲数 / 每转毫米）见 config/cats_mech.h，编译期固定 */
 
 /* 绝对位置运动（mm / mm·s⁻¹ / mm·s⁻²）。0 = 已受理；1 = 轴上有过程在跑；-1 = 不允许 */
 int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2);
@@ -67,8 +63,7 @@ enum axis_motion axis_take_motion(struct cats_axis *a);
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
 uint32_t axis_abort_code(const struct cats_axis *a);
 
-/* 取实时反馈样本（不触发传输，只搬运 50 ms 监测到的值）。
- * 未配机械参数时位置/速度的 valid 位为 0（宁可显示不了，也不算错值）。 */
+/* 取实时反馈样本（不触发传输，只搬运 50 ms 监测到的值） */
 void axis_sample(const struct cats_axis *a, struct axis_sample *out);
 
 /* ---- 批量动作：对一组轴逐个施加（每轴有自己的 SDO 通道，互不阻塞） ---- */

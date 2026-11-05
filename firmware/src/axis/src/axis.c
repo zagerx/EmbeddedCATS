@@ -11,23 +11,14 @@
 
 #include <axis/axis.h>
 
+#include <cats_mech.h>
+
 #include <stddef.h>
 
 void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id)
 {
 	a->node_id = node_id;
-	a->pulses_per_rev = 0;
-	a->mm_per_rev = 0.0f;
 	cia402_init(&a->drv, m, node_id);
-}
-
-void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, float mm_per_rev)
-{
-	if (a == NULL) {
-		return;
-	}
-	a->pulses_per_rev = pulses_per_rev;
-	a->mm_per_rev = mm_per_rev;
 }
 
 /*
@@ -35,11 +26,13 @@ void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, float mm_per_re
  *   1. 先升到 double 算（float 乘法会丢位，且 double 在 x86-64/aarch64 上
  *      都是同一套 IEEE 双精度运算，结果可复现）；
  *   2. 四舍五入、远离零（加 0.5 再截断，不依赖 libm）；
- *   3. 饱和到 int32，防越界（1 m × 10000 pulse/rev 用 int32 也装不下）。
+ *   3. 饱和到 int32，防越界。
+ *
+ * 机械参数是编译期常量，见 config/cats_mech.h
  */
-static int32_t scale_mm(const struct cats_axis *a, float mm)
+static int32_t scale_mm(float mm)
 {
-	double p = ((double)mm * (double)a->pulses_per_rev) / (double)a->mm_per_rev;
+	double p = ((double)mm * (double)CATS_AXIS_PULSES_PER_REV) / (double)CATS_AXIS_MM_PER_REV;
 
 	p += (p >= 0.0) ? 0.5 : -0.5;
 	if (p >= 2147483647.0) {
@@ -53,14 +46,14 @@ static int32_t scale_mm(const struct cats_axis *a, float mm)
 
 int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 {
-	if (a == NULL || a->pulses_per_rev <= 0 || a->mm_per_rev <= 0.0f) {
-		return -1; /* 没配机械参数就不接指令：宁可不动，也不算错位置 */
+	if (a == NULL) {
+		return -1;
 	}
 	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
 		return -1; /* NaN：进到整数换算就是未定义行为，这里就拦住 */
 	}
-	return cia402_pp_start(&a->drv, scale_mm(a, mm), scale_mm(a, mm_s), scale_mm(a, mm_s2),
-			       scale_mm(a, mm_s2));
+	return cia402_pp_start(&a->drv, scale_mm(mm), scale_mm(mm_s), scale_mm(mm_s2),
+			       scale_mm(mm_s2));
 }
 
 int axis_halt(struct cats_axis *a)
@@ -74,9 +67,10 @@ uint32_t axis_abort_code(const struct cats_axis *a)
 }
 
 /* pulse → mm，与 scale_mm() 方向相反；同样用 double 算，结果可复现 */
-static float unscale_mm(const struct cats_axis *a, int32_t pulse)
+static float unscale_mm(int32_t pulse)
 {
-	return (float)(((double)pulse * (double)a->mm_per_rev) / (double)a->pulses_per_rev);
+	return (float)(((double)pulse * (double)CATS_AXIS_MM_PER_REV) /
+		       (double)CATS_AXIS_PULSES_PER_REV);
 }
 
 void axis_sample(const struct cats_axis *a, struct axis_sample *out)
@@ -99,17 +93,12 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 	if ((valid & CIA402_MON_VALID_STATUSWORD) != 0U) {
 		out->valid |= CIA402_MON_VALID_STATUSWORD;
 	}
-
-	/* 没配机械参数就没法换算，宁可标无效 */
-	if (a->pulses_per_rev <= 0 || a->mm_per_rev <= 0.0f) {
-		return;
-	}
 	if ((valid & CIA402_MON_VALID_POSITION) != 0U) {
-		out->position_mm = unscale_mm(a, cia402_monitor_position(&a->drv));
+		out->position_mm = unscale_mm(cia402_monitor_position(&a->drv));
 		out->valid |= CIA402_MON_VALID_POSITION;
 	}
 	if ((valid & CIA402_MON_VALID_VELOCITY) != 0U) {
-		out->velocity_mm_s = unscale_mm(a, cia402_monitor_velocity(&a->drv));
+		out->velocity_mm_s = unscale_mm(cia402_monitor_velocity(&a->drv));
 		out->valid |= CIA402_MON_VALID_VELOCITY;
 	}
 }
