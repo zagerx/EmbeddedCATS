@@ -34,6 +34,7 @@ static void publish_readonly(struct cats_control *app)
 		samples[i].position_mm = s.position_mm;
 		samples[i].velocity_mm_s = s.velocity_mm_s;
 		samples[i].statusword = s.statusword;
+		samples[i].error_code = s.error_code;
 		samples[i].valid = s.valid;
 	}
 	pthread_mutex_lock(&app->lock);

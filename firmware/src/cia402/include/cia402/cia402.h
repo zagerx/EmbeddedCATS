@@ -139,10 +139,11 @@ struct cia402_node {
 		uint16_t statusword; /* 6041 原始状态字 */
 		int32_t position;    /* 6064 实际位置（脉冲） */
 		int32_t velocity;    /* 606C 实际速度（脉冲/秒） */
+		uint16_t error_code; /* 603F 驱动器错误码（驱动器自己报的） */
 		uint32_t last_ms;    /* 上次发起监控读的时刻 */
 		uint32_t fail_count; /* 监控读失败次数（诊断用） */
 		uint8_t slot;        /* 下一圈读哪个对象（见 monitor.c 轮转表） */
-		uint8_t valid; /* bit0 状态字 / bit1 位置 / bit2 速度：至少读到过一次 */
+		uint8_t valid; /* bit0 状态字 / bit1 位置 / bit2 速度 / bit3 错误码 */
 		uint8_t await; /* 在途事务是否由监控发起 */
 	} monitor;
 
@@ -203,13 +204,15 @@ enum cia402_state cia402_parse(uint16_t statusword);
 int32_t cia402_monitor_position(const struct cia402_node *n);
 int32_t cia402_monitor_velocity(const struct cia402_node *n);
 uint16_t cia402_monitor_statusword(const struct cia402_node *n);
+uint16_t cia402_monitor_error_code(const struct cia402_node *n);
 uint8_t cia402_monitor_valid(const struct cia402_node *n);
 
 /* cia402_monitor_valid() 的位 */
 enum {
 	CIA402_MON_VALID_STATUSWORD = 0x01,
 	CIA402_MON_VALID_POSITION = 0x02,
-	CIA402_MON_VALID_VELOCITY = 0x04
+	CIA402_MON_VALID_VELOCITY = 0x04,
+	CIA402_MON_VALID_ERROR_CODE = 0x08
 };
 
 void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id);

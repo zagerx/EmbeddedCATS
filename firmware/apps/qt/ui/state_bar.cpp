@@ -65,6 +65,19 @@ void StateBar::setState(State state, const QString &code)
 	led_->setState(info.led);
 	led_->setDotSize(info.dot_size);
 	led_->setText(code);
-	hint_->setText(QStringLiteral("%1 · %2").arg(QString::fromUtf8(info.title),
-						     QString::fromUtf8(info.hint)));
+	hint_base_ = QStringLiteral("%1 · %2").arg(QString::fromUtf8(info.title),
+						   QString::fromUtf8(info.hint));
+	refreshHint();
+}
+
+void StateBar::setDetail(const QString &detail)
+{
+	detail_ = detail;
+	refreshHint();
+}
+
+void StateBar::refreshHint(void)
+{
+	hint_->setText(detail_.isEmpty() ? hint_base_
+					 : QStringLiteral("%1 · %2").arg(hint_base_, detail_));
 }

@@ -36,6 +36,7 @@ struct axis_sample {
 	float position_mm;
 	float velocity_mm_s;
 	uint16_t statusword;
+	uint16_t error_code; /* 603F：驱动器自己报的错误码（不是主站的判断） */
 	uint8_t valid;
 };
 

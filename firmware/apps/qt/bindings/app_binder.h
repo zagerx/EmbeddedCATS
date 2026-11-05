@@ -68,9 +68,11 @@ class AppBinder : public QObject
 	StateBar *state_bar_ = nullptr;
 	LogPanel *log_panel_ = nullptr;
 	AxisCard *axis_cards_[2] = {nullptr, nullptr}; /* 轴 1 / 轴 2，按 objectName 取 */
+	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
 
 	/* 上一次刷给界面的状态；初值用一个不可能的状态，保证首帧一定刷 */
 	enum cats_state last_state_ = CATS_STATE_COUNT;
+	enum cats_fault last_fault_ = CATS_FAULT_NONE;
 };
 
 #endif /* BINDINGS_APP_BINDER_H */

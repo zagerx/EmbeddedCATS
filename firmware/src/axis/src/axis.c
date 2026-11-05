@@ -83,6 +83,7 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 	out->position_mm = 0.0f;
 	out->velocity_mm_s = 0.0f;
 	out->statusword = 0U;
+	out->error_code = 0U;
 	out->valid = 0U;
 	if (a == NULL) {
 		return;
@@ -100,6 +101,10 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 	if ((valid & CIA402_MON_VALID_VELOCITY) != 0U) {
 		out->velocity_mm_s = unscale_mm(cia402_monitor_velocity(&a->drv));
 		out->valid |= CIA402_MON_VALID_VELOCITY;
+	}
+	out->error_code = cia402_monitor_error_code(&a->drv);
+	if ((valid & CIA402_MON_VALID_ERROR_CODE) != 0U) {
+		out->valid |= CIA402_MON_VALID_ERROR_CODE;
 	}
 }
 

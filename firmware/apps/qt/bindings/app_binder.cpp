@@ -134,8 +134,6 @@ void AppBinder::onRefresh()
 
 void AppBinder::updateAxisCards()
 {
-	const enum cats_fault fault = cats_control_fault_code();
-
 	for (uint8_t i = 0; i < 2; i++) {
 		AxisCard *card = axis_cards_[i];
 		struct cats_axis_sample sample;
@@ -159,14 +157,21 @@ void AppBinder::updateAxisCards()
 					    ? hex16(sample.statusword)
 					    : QStringLiteral("—"));
 
+		/* 错误码只有一来源：驱动器的 603F（主站的故障判断不往这里写） */
+		card->setError((sample.valid & CATS_SAMPLE_VALID_ERROR_CODE) != 0U
+				       ? hex16(sample.error_code)
+				       : QStringLiteral("—"));
+
+		/* SDO abort 是传输层失败原因，不属于驱动器错误码：只进日志 */
 		const uint32_t abort = cats_control_axis_abort(i);
-		if (abort != 0U) {
-			card->setError(
-				QStringLiteral("abort 0x%1").arg(abort, 8, 16, QLatin1Char('0')));
-		} else if (fault != CATS_FAULT_NONE) {
-			card->setError(QString::fromUtf8(cats_control_fault_name(fault)));
-		} else {
-			card->setError(QStringLiteral("—"));
+
+		if (abort != last_abort_[i]) {
+			last_abort_[i] = abort;
+			if (abort != 0U) {
+				pushLog(QStringLiteral("axis%1 SDO abort 0x%2")
+						.arg(i + 1)
+						.arg(abort, 8, 16, QLatin1Char('0')));
+			}
 		}
 	}
 }
@@ -191,15 +196,21 @@ void AppBinder::pushLog(const QString &line)
 void AppBinder::publish()
 {
 	const enum cats_state state = cats_control_state();
+	const enum cats_fault fault = cats_control_fault_code();
 
-	if (state == last_state_) {
-		return; /* 状态没变就不碰控件 */
+	if (state == last_state_ && fault == last_fault_) {
+		return; /* 状态和故障都没变就不碰控件 */
 	}
 	last_state_ = state;
+	last_fault_ = fault;
 
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(state),
 				     QString::fromUtf8(cats_control_state_name(state)));
+		/* 整机故障原因跟在状态后面；不在 FAULT 时清掉 */
+		state_bar_->setDetail(fault != CATS_FAULT_NONE
+					      ? QString::fromUtf8(cats_control_fault_name(fault))
+					      : QString());
 	}
 	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_control_state_name(state))));
 }

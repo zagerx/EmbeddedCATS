@@ -36,9 +36,16 @@ class StateBar : public QWidget
 	/* 纯显示接口：state 决定颜色与说明，code 是展示用的精确状态名 */
 	void setState(State state, const QString &code);
 
+	/* 补充一行说明（整机故障名等）；传空串则清掉 */
+	void setDetail(const QString &detail);
+
       private:
+	void refreshHint(void);
+
 	StatusLed *led_ = nullptr;
 	QLabel *hint_ = nullptr;
+	QString hint_base_; /* “档位 · 说明”，由 setState 算好 */
+	QString detail_;    /* 附在后面的补充信息 */
 };
 
 #endif /* STATE_BAR_H */

@@ -65,6 +65,7 @@ void cia402_monitor_poll(struct cia402_node *n, uint32_t now_ms);
 #define CIA402_IDX_TARGET_POSITION 0x607Au
 #define CIA402_IDX_POSITION_ACTUAL 0x6064u
 #define CIA402_IDX_ACTUAL_VELOCITY 0x606Cu /* 实际速度（读，监控用） */
+#define CIA402_IDX_ERROR_CODE 0x603Fu /* 错误代码（读，监控用；驱动器自己报的） */
 #define CIA402_IDX_PROFILE_VELOCITY 0x6081u
 #define CIA402_IDX_PROFILE_ACCELERATION 0x6083u
 #define CIA402_IDX_PROFILE_DECELERATION 0x6084u

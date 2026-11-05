@@ -157,12 +157,14 @@ struct cats_axis_sample {
 	float position_mm;
 	float velocity_mm_s;
 	uint16_t statusword;
+	uint16_t error_code; /* 603F：驱动器错误码（控制器自己的故障不在此） */
 	uint8_t valid;
 };
 
 #define CATS_SAMPLE_VALID_STATUSWORD 0x01u
 #define CATS_SAMPLE_VALID_POSITION 0x02u
 #define CATS_SAMPLE_VALID_VELOCITY 0x04u
+#define CATS_SAMPLE_VALID_ERROR_CODE 0x08u
 
 /* 取该轴最新样本：0 = 写入了 out；CATS_ERR_PARAM = 轴号越界 / out 为空。
  * 任意线程可调（与状态/故障码同一把锁，只拷几个字段）。 */

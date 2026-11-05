@@ -1,7 +1,7 @@
 /*
- * cia402_monitor.c — 后台监控读数（状态字 / 实际位置 / 实际速度）
+ * cia402_monitor.c — 后台监控读数（状态字 / 实际位置 / 实际速度 / 驱动器错误码）
  *
- * 每 50 ms 轮转读一个对象：6041 → 6064 → 606C，单节点 150 ms 一圈。
+ * 每 50 ms 轮转读一个对象：6041 → 6064 → 606C → 603F，单节点 200 ms 一圈。
  * 与状态机共用同一条 SDO 通道（一个节点只有一个客户端对象），规则：
  *   1) 只在 n->sdo == IDLE 时发起；有别人的事务在途就跳过这一圈；
  *   2) 事务打归属标记（sdo_owner = MONITOR），流程调 cia402_sdo_result()
@@ -19,13 +19,14 @@
 /* 监控读的等待上限：比流程用的 200 ms 短得多，避免拖住状态机 */
 #define MONITOR_TIMEOUT_MS 20u
 
-#define MONITOR_SLOT_COUNT 3u
+#define MONITOR_SLOT_COUNT 4u
 
 /* 轮转表：下标 = monitor.slot；顺序即刷新优先级 */
 static const uint16_t kSlotIndex[MONITOR_SLOT_COUNT] = {
 	CIA402_IDX_STATUSWORD,      /* 0：状态字 */
 	CIA402_IDX_POSITION_ACTUAL, /* 1：实际位置 */
 	CIA402_IDX_ACTUAL_VELOCITY, /* 2：实际速度 */
+	CIA402_IDX_ERROR_CODE,      /* 3：驱动器错误码 */
 };
 
 /* 把 n->data（小端）拼成 32 位；不足 4 字节的高位补 0 */
@@ -54,9 +55,13 @@ static void store(struct cia402_node *n, uint8_t slot)
 		n->monitor.position = (int32_t)v;
 		n->monitor.valid |= CIA402_MON_VALID_POSITION;
 		break;
-	default:
+	case 2:
 		n->monitor.velocity = (int32_t)v;
 		n->monitor.valid |= CIA402_MON_VALID_VELOCITY;
+		break;
+	default:
+		n->monitor.error_code = (uint16_t)(v & 0xFFFFu);
+		n->monitor.valid |= CIA402_MON_VALID_ERROR_CODE;
 		break;
 	}
 }
@@ -118,6 +123,11 @@ int32_t cia402_monitor_velocity(const struct cia402_node *n)
 uint16_t cia402_monitor_statusword(const struct cia402_node *n)
 {
 	return (n == NULL) ? 0 : n->monitor.statusword;
+}
+
+uint16_t cia402_monitor_error_code(const struct cia402_node *n)
+{
+	return (n == NULL) ? 0 : n->monitor.error_code;
 }
 
 uint8_t cia402_monitor_valid(const struct cia402_node *n)
