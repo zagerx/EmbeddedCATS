@@ -66,15 +66,24 @@ HALTING / FAULT / ESTOP）。
 
 尚未接入控制层时状态码显示占位符 `—`。
 
+## 实时反馈（轴卡片下半部分）
+
+数据源是 cia402 的 **50 ms 后台监控读**：每 50 ms 轮转读一个对象
+（`6041` 状态字 → `6064` 实际位置 → `606C` 实际速度），与状态机串行共用同一条 SDO 通道
+（流程优先，监控读让路；超时 20 ms，失败保留上一次有效值）。
+
+- 位置 / 速度在轴层按 `pulses_per_rev / mm_per_rev` 换算成 `mm`、`mm/s`；
+  未配机械参数时对应 `valid` 位为 0，界面显示 `—`。
+- 状态字显示成 `0x001F` 形式。
+- 「错误码」优先显示该轴 SDO abort（`abort 0x08xxxxxx`），否则显示整机故障名。
+
 ## 当前缺口（有意不加功能）
 
-- `axis_card` 的「反馈」四项（实际位置 / 实际速度 / 状态字 / 错误码）是**占位显示**：
-  `control.h` 目前只发布 `state`、`fault_code`、`fault_name`、`axis_abort`。
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
   `cats_control_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
   取整到脉冲只发生在轴层；未调 `cats_control_set_axis_scale()` 前一概拒绕。
 - `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
-  入口（2.1 留白就是给它们的）。
+  入口（2.1 的三个按钮已摆好，但未绑定）。
 - 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
 
 ## 命名规范

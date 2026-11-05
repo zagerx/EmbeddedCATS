@@ -57,6 +57,7 @@ struct cats_control {
 	struct cats_evtq evtq; /* 输入事件队列（自带锁，多生产者 / 单消费者） */
 	int published_state;   /* enum cats_state，每拍发布一次 */
 	int published_fault;   /* enum cats_fault，与状态同拍发布 */
+	struct cats_axis_sample published_axes[CATS_MAX_AXES]; /* 各轴实时反馈样本 */
 };
 
 /* states.c 定义的状态表：下标 = enum cats_state，值 = 状态函数 */

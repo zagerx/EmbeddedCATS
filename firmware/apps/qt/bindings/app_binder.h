@@ -33,6 +33,7 @@ class QWidget;
 
 class LogPanel;
 class StateBar;
+class AxisCard;
 
 class AppBinder : public QObject
 {
@@ -54,6 +55,7 @@ class AppBinder : public QObject
 	bool openChannel(const QString &ifname); /* 只开通道；建主站在控制线程里做 */
 	void startTimers();                      /* 刷新与统计两个界面定时器 */
 	void publish();                    /* app 状态 → 界面（状态没变就不碰） */
+	void updateAxisCards();            /* 两轴实时样本 → 轴卡片（每 50 ms） */
 	void pushLog(const QString &line); /* 往日志面板追加一行 */
 
 	struct can_io bus_;
@@ -65,6 +67,7 @@ class AppBinder : public QObject
 	QTimer *stats_ = nullptr;
 	StateBar *state_bar_ = nullptr;
 	LogPanel *log_panel_ = nullptr;
+	AxisCard *axis_cards_[2] = {nullptr, nullptr}; /* 轴 1 / 轴 2，按 objectName 取 */
 
 	/* 上一次刷给界面的状态；初值用一个不可能的状态，保证首帧一定刷 */
 	enum cats_state last_state_ = CATS_STATE_COUNT;

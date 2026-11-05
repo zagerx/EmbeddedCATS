@@ -30,18 +30,30 @@ static CO_SDOclient_t *client_of(const struct cia402_node *n)
 	return co_master_sdo_client(n->master, n->node_id);
 }
 
-int cia402_sdo_read(struct cia402_node *n, uint16_t index, uint8_t sub)
+int cia402_sdo_read_to(struct cia402_node *n, uint16_t index, uint8_t sub, uint16_t timeout_ms)
 {
 	CO_SDOclient_t *cli = client_of(n);
 
+	/* 单资源：有在途事务时只能报“忙”。上游 UploadInitiate 不检查忙，
+	 * 直接再发会覆盖对方的状态与 FIFO（不是报错，是静默顶掉）。 */
+	if (n->sdo != CIA402_SDO_IDLE) {
+		return 1;
+	}
 	n->abort_code = 0;
 	n->data_len = 0;
-	if (cli == NULL || CO_SDOclientUploadInitiate(cli, index, sub, SDO_TIMEOUT_MS, false) < 0) {
+	if (cli == NULL || CO_SDOclientUploadInitiate(cli, index, sub, timeout_ms, false) < 0) {
 		n->sdo = CIA402_SDO_FAILED;
+		n->sdo_owner = CIA402_SDO_OWNER_PROCESS;
 		return -1;
 	}
+	n->sdo_owner = CIA402_SDO_OWNER_PROCESS;
 	n->sdo = CIA402_SDO_READING;
 	return 0;
+}
+
+int cia402_sdo_read(struct cia402_node *n, uint16_t index, uint8_t sub)
+{
+	return cia402_sdo_read_to(n, index, sub, SDO_TIMEOUT_MS);
 }
 
 int cia402_sdo_write(struct cia402_node *n, uint16_t index, uint8_t sub, uint32_t value,
@@ -51,19 +63,25 @@ int cia402_sdo_write(struct cia402_node *n, uint16_t index, uint8_t sub, uint32_
 	uint8_t data[4];
 	uint8_t i;
 
-	n->abort_code = 0;
+	/* 与读同理：有在途事务时只报“忙”，不覆盖，也不清诊断值 */
+	if (n->sdo != CIA402_SDO_IDLE) {
+		return 1;
+	}
 	if (cli == NULL || size == 0U || size > sizeof(data)) {
 		n->sdo = CIA402_SDO_FAILED;
 		return -1;
 	}
+	n->abort_code = 0;
 	for (i = 0; i < size; i++) {
 		data[i] = (uint8_t)((value >> (8U * i)) & 0xFFu); /* SDO 用小端 */
 	}
 	if (CO_SDOclientDownloadInitiate(cli, index, sub, size, SDO_TIMEOUT_MS, false) < 0 ||
 	    CO_SDOclientDownloadBufWrite(cli, data, size) != size) {
 		n->sdo = CIA402_SDO_FAILED;
+		n->sdo_owner = CIA402_SDO_OWNER_PROCESS;
 		return -1;
 	}
+	n->sdo_owner = CIA402_SDO_OWNER_PROCESS;
 	n->sdo = CIA402_SDO_WRITING;
 	return 0;
 }
@@ -111,6 +129,10 @@ void cia402_sdo_step(struct cia402_node *n, uint32_t diff_us)
 
 int cia402_sdo_result(struct cia402_node *n)
 {
+	/* 监控读的事务不归流程管：看不见它的结果，继续等自己的 */
+	if (n->sdo_owner != CIA402_SDO_OWNER_PROCESS) {
+		return 0;
+	}
 	if (n->sdo == CIA402_SDO_DONE) {
 		n->sdo = CIA402_SDO_IDLE;
 		return 1;

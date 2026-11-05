@@ -13,8 +13,6 @@
 
 AxisCard::AxisCard(const QString &title, QWidget *parent) : QFrame(parent)
 {
-	setObjectName(QStringLiteral("axisCard"));
-
 	auto *root = new QVBoxLayout(this);
 	root->setContentsMargins(16, 10, 16, 12);
 	root->setSpacing(8);
@@ -30,6 +28,26 @@ AxisCard::AxisCard(const QString &title, QWidget *parent) : QFrame(parent)
 	root->addWidget(build_command_group());
 	root->addWidget(build_feedback_group());
 	root->addStretch(1);
+}
+
+void AxisCard::setPosition(const QString &text)
+{
+	position_value_->setText(text);
+}
+
+void AxisCard::setVelocity(const QString &text)
+{
+	velocity_value_->setText(text);
+}
+
+void AxisCard::setStatusword(const QString &text)
+{
+	status_word_value_->setText(text);
+}
+
+void AxisCard::setError(const QString &text)
+{
+	error_code_value_->setText(text);
 }
 
 QGroupBox *AxisCard::build_command_group()

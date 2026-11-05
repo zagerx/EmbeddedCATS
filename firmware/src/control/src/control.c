@@ -17,7 +17,8 @@ static struct cats_control s_ctl = {.lock = PTHREAD_MUTEX_INITIALIZER};
 static void publish_readonly(struct cats_control *app)
 {
 	int state = CATS_STATE_PREPARING;
-	int i;
+	struct cats_axis_sample samples[CATS_MAX_AXES];
+	uint8_t i;
 
 	for (i = 0; i < CATS_STATE_COUNT; i++) {
 		if (states[i] == sm_hsm_state(&app->hsm)) {
@@ -25,9 +26,22 @@ static void publish_readonly(struct cats_control *app)
 			break;
 		}
 	}
+	/* 换算在锁外做（axis_sample 只读本线程写的字段，不做 I/O） */
+	for (i = 0; i < CATS_MAX_AXES; i++) {
+		struct axis_sample s;
+
+		axis_sample(&app->axes[i], &s);
+		samples[i].position_mm = s.position_mm;
+		samples[i].velocity_mm_s = s.velocity_mm_s;
+		samples[i].statusword = s.statusword;
+		samples[i].valid = s.valid;
+	}
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
 	app->published_fault = (int)app->fault_code;
+	for (i = 0; i < CATS_MAX_AXES; i++) {
+		app->published_axes[i] = samples[i];
+	}
 	pthread_mutex_unlock(&app->lock);
 }
 
@@ -217,4 +231,15 @@ uint32_t cats_control_axis_abort(uint8_t axis)
 		return 0U;
 	}
 	return axis_abort_code(&s_ctl.axes[axis]);
+}
+
+enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample *out)
+{
+	if (out == NULL || axis >= CATS_MAX_AXES) {
+		return CATS_ERR_PARAM;
+	}
+	pthread_mutex_lock(&s_ctl.lock);
+	*out = s_ctl.published_axes[axis];
+	pthread_mutex_unlock(&s_ctl.lock);
+	return CATS_OK;
 }

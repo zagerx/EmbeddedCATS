@@ -32,7 +32,9 @@ QWidget {
 #workArea,
 #reservedArea,
 #axisRow,
-#axisCard {
+/* 轴卡片按类名匹配：每张卡的 objectName 不同（axisCard1 / axisCard2），
+ * 供绑定层区分左右轴 */
+AxisCard {
 	background: @bg;
 	border: none;
 }

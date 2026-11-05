@@ -80,13 +80,19 @@ void cia402_enable_step(struct cia402_node *n)
 	const struct enable_cmd *cmd = &ENABLE_SEQ[n->en.seq];
 
 	switch (n->en.phase) {
-	case CIA402_PHASE_WRITE: /* 发写 */
-		if (write_cmd(n, cmd) != 0) {
+	case CIA402_PHASE_WRITE: { /* 发写 */
+		int r = write_cmd(n, cmd);
+
+		if (r > 0) {
+			return; /* 通道被监控读占用：下拍再发 */
+		}
+		if (r < 0) {
 			fail(n);
 			return;
 		}
 		n->en.phase = CIA402_PHASE_WAIT_WRITE;
 		return;
+	}
 
 	case CIA402_PHASE_WAIT_WRITE: { /* 等写结果 */
 		int r = cia402_sdo_result(n);
@@ -102,13 +108,19 @@ void cia402_enable_step(struct cia402_node *n)
 		return;
 	}
 
-	case CIA402_PHASE_READ: /* 发读状态字 */
-		if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) != 0) {
+	case CIA402_PHASE_READ: { /* 发读状态字 */
+		int r = cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0);
+
+		if (r > 0) {
+			return; /* 通道忙：下拍再发 */
+		}
+		if (r < 0) {
 			fail(n);
 			return;
 		}
 		n->en.phase = CIA402_PHASE_WAIT_READ;
 		return;
+	}
 
 	default: { /* CIA402_PHASE_WAIT_READ：等读结果并判状态 */
 		int r = cia402_sdo_result(n);

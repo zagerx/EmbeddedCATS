@@ -17,8 +17,9 @@
  *         **封装成事件入队**，由控制线程在下一拍（≤ 1 ms）逐个消费。
  *         停止/急停插到队头，普通位置指令排在队尾。
  *
- * 跨线程只共享 5 个字段（指令槽、急停请求、两个发布值），由**一把 pthread mutex**
- * 保护；临界区里只有几条赋值，不含 I/O、状态机动作或循环。
+ * 跨线程只共享这几项（事件队列、状态、故障码、各轴实时样本），由**一把 pthread
+ * mutex** 保护；临界区里只有几条赋值/结构体拷贝，不含 I/O、状态机动作或循环。
+ * 实时样本由 cia402 的 50 ms 后台监控读得到（与状态机串行共用同一条 SDO 通道）。
  * 实际竞争接近零（界面 50 ms 读一次、控制线程 1 ms 写一次）。
  *
  * 为什么是单例：一个进程只管一条 CAN 总线、一组轴。用静态实例既不动态分配内存，
@@ -153,6 +154,26 @@ const char *cats_control_fault_name(enum cats_fault f);
 /* 该轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的（超时/参数错）。
  * 进 FAULT 后保留，方便现场排查；轴号越界返回 0。 */
 uint32_t cats_control_axis_abort(uint8_t axis);
+
+/*
+ * 实时反馈样本（由 cia402 的 50 ms 后台监控读数换算而来）。
+ * valid 的位：bit0 状态字 / bit1 位置 / bit2 速度；位为 0 表示“还没读到过”，
+ * 界面应显示占位符而不是把 0 当成真实值。
+ */
+struct cats_axis_sample {
+	float position_mm;
+	float velocity_mm_s;
+	uint16_t statusword;
+	uint8_t valid;
+};
+
+#define CATS_SAMPLE_VALID_STATUSWORD 0x01u
+#define CATS_SAMPLE_VALID_POSITION 0x02u
+#define CATS_SAMPLE_VALID_VELOCITY 0x04u
+
+/* 取该轴最新样本：0 = 写入了 out；CATS_ERR_PARAM = 轴号越界 / out 为空。
+ * 任意线程可调（与状态/故障码同一把锁，只拷几个字段）。 */
+enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample *out);
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -133,6 +133,19 @@ struct cia402_node {
 	uint32_t abort_code; /* 失败时驱动器回的 abort；0 = 不是 abort 引起的 */
 	uint8_t failed; /* 最近一次过程失败过（下一个过程开始时清）；取不走 */
 
+	/* 后台监控读数：50 ms 轮转读 6041 / 6064 / 606C，读不到就保留旧值。
+	 * 这些值只给上层看，不参与状态机判断。 */
+	struct {
+		uint16_t statusword; /* 6041 原始状态字 */
+		int32_t position;    /* 6064 实际位置（脉冲） */
+		int32_t velocity;    /* 606C 实际速度（脉冲/秒） */
+		uint32_t last_ms;    /* 上次发起监控读的时刻 */
+		uint32_t fail_count; /* 监控读失败次数（诊断用） */
+		uint8_t slot;        /* 下一圈读哪个对象（见 monitor.c 轮转表） */
+		uint8_t valid; /* bit0 状态字 / bit1 位置 / bit2 速度：至少读到过一次 */
+		uint8_t await; /* 在途事务是否由监控发起 */
+	} monitor;
+
 	/* ---- 层内进度：只有 cia402_*.c 读写，上层不要碰 ---- */
 	enum cia402_activity activity;      /* 当前在推的协议过程 */
 	enum cia402_result result;          /* 上一个过程的结论，待取 */
@@ -172,6 +185,7 @@ struct cia402_node {
 	} estop;
 
 	enum cia402_sdo_state sdo; /* 当前 SDO 事务 */
+	uint8_t sdo_owner;         /* 事务归属：0 = 流程，1 = 监控（见 monitor.c） */
 	uint8_t data[4];           /* 最近一次 SDO 读到的原始数据（小端） */
 	uint8_t data_len;
 
@@ -182,6 +196,21 @@ struct cia402_node {
 
 /* 纯函数：状态字 → 402 状态。可单独测，不碰总线 */
 enum cia402_state cia402_parse(uint16_t statusword);
+
+/* ---- 后台监控读数（50 ms 轮转，与状态机共用同一条 SDO 通道） ----
+ * valid 的位：bit0 状态字 / bit1 位置 / bit2 速度；对应位为 0 表示还没读到过。
+ * 没读到时保留上一次的值，所以显示前先看 valid。 */
+int32_t cia402_monitor_position(const struct cia402_node *n);
+int32_t cia402_monitor_velocity(const struct cia402_node *n);
+uint16_t cia402_monitor_statusword(const struct cia402_node *n);
+uint8_t cia402_monitor_valid(const struct cia402_node *n);
+
+/* cia402_monitor_valid() 的位 */
+enum {
+	CIA402_MON_VALID_STATUSWORD = 0x01,
+	CIA402_MON_VALID_POSITION = 0x02,
+	CIA402_MON_VALID_VELOCITY = 0x04
+};
 
 void cia402_init(struct cia402_node *n, struct co_master *m, uint8_t node_id);
 

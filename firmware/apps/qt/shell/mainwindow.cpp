@@ -113,9 +113,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	axis_layout->setContentsMargins(0, 0, 0, 0);
 	axis_layout->setSpacing(0);
 
-	axis_layout->addWidget(new AxisCard(QStringLiteral("轴 1"), axis_row), 1);
+	auto *axis1 = new AxisCard(QStringLiteral("轴 1"), axis_row);
+	axis1->setObjectName(QStringLiteral("axisCard1"));
+	auto *axis2 = new AxisCard(QStringLiteral("轴 2"), axis_row);
+	axis2->setObjectName(QStringLiteral("axisCard2"));
+
+	axis_layout->addWidget(axis1, 1);
 	axis_layout->addWidget(make_divider(axis_row, Qt::Vertical)); /* 2.2 / 2.3 */
-	axis_layout->addWidget(new AxisCard(QStringLiteral("轴 2"), axis_row), 1);
+	axis_layout->addWidget(axis2, 1);
 
 	work_layout->addWidget(axis_row, 1);
 	root->addWidget(work_area, 1);

@@ -91,13 +91,19 @@ void cia402_config_step(struct cia402_node *n)
 	const struct config_item *item = &CONFIG_SEQ[n->cfg.seq];
 
 	switch (n->cfg.phase) {
-	case CIA402_PHASE_WRITE: /* 发写 */
-		if (cia402_sdo_write(n, item->index, item->sub, item->value, item->size) != 0) {
+	case CIA402_PHASE_WRITE: { /* 发写 */
+		int r = cia402_sdo_write(n, item->index, item->sub, item->value, item->size);
+
+		if (r > 0) {
+			return; /* 通道被监控读占用：下拍再发，相位不变 */
+		}
+		if (r < 0) {
 			fail(n);
 			return;
 		}
 		n->cfg.phase = CIA402_PHASE_WAIT_WRITE;
 		return;
+	}
 
 	case CIA402_PHASE_WAIT_WRITE: { /* 等写结果 */
 		int r = cia402_sdo_result(n);
@@ -117,13 +123,19 @@ void cia402_config_step(struct cia402_node *n)
 		return;
 	}
 
-	case CIA402_PHASE_READ: /* 发读，核对写进去的值 */
-		if (cia402_sdo_read(n, item->check_index, item->check_sub) != 0) {
+	case CIA402_PHASE_READ: { /* 发读，核对写进去的值 */
+		int r = cia402_sdo_read(n, item->check_index, item->check_sub);
+
+		if (r > 0) {
+			return; /* 通道忙：下拍再发 */
+		}
+		if (r < 0) {
 			fail(n);
 			return;
 		}
 		n->cfg.phase = CIA402_PHASE_WAIT_READ;
 		return;
+	}
 
 	default: { /* CIA402_PHASE_WAIT_READ：等读结果并比对 */
 		int r = cia402_sdo_result(n);

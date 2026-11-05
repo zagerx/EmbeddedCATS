@@ -98,7 +98,10 @@ void cia402_pp_step(struct cia402_node *n)
 			n->pp.phase = CIA402_PP_WAIT_ARRIVE;
 			return; /* 下一拍开始读状态字 */
 		}
-		if (r != 0) {
+		if (r > 0) {
+			return; /* 通道被监控读占用：下拍再发，相位不变 */
+		}
+		if (r < 0) {
 			pp_fail(n);
 			return;
 		}
@@ -128,10 +131,10 @@ void cia402_pp_step(struct cia402_node *n)
 			return;
 		}
 		if (n->sdo == CIA402_SDO_IDLE) { /* 该发一次读 */
-			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) != 0) {
+			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) < 0) {
 				pp_fail(n);
 			}
-			return;
+			return; /* 成功或忙：下一拍再看 */
 		}
 		r = cia402_sdo_result(n);
 		if (r == 0) {
@@ -162,10 +165,10 @@ void cia402_pp_step(struct cia402_node *n)
 
 	case CIA402_PP_CHECK_POS: /* 读实际位置，看是不是已经在目标上 */
 		if (n->sdo == CIA402_SDO_IDLE) {
-			if (cia402_sdo_read(n, CIA402_IDX_POSITION_ACTUAL, 0) != 0) {
+			if (cia402_sdo_read(n, CIA402_IDX_POSITION_ACTUAL, 0) < 0) {
 				pp_fail(n);
 			}
-			return;
+			return; /* 成功或忙：下一拍再看 */
 		}
 		n->pp.phase = CIA402_PP_WAIT_POS;
 		return;

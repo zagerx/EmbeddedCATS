@@ -86,6 +86,7 @@ add_library(cia402 STATIC
 	src/cia402/src/cia402.c
 	src/cia402/src/cia402_config.c
 	src/cia402/src/cia402_enable.c
+	src/cia402/src/cia402_monitor.c
 	src/cia402/src/cia402_pp.c
 	src/cia402/src/cia402_sdo.c
 	src/cia402/src/cia402_state.c

@@ -35,13 +35,19 @@ static void halt_done(struct cia402_node *n, enum cia402_result r)
 void cia402_halt_step(struct cia402_node *n)
 {
 	switch (n->halt.phase) {
-	case CIA402_HALT_SET: /* 置 bit8 */
-		if (cia402_write_controlword(n, (uint16_t)(n->controlword | CIA402_CW_HALT)) != 0) {
+	case CIA402_HALT_SET: { /* 置 bit8 */
+		int r = cia402_write_controlword(n, (uint16_t)(n->controlword | CIA402_CW_HALT));
+
+		if (r > 0) {
+			return; /* 通道被监控读占用：下拍再发 */
+		}
+		if (r < 0) {
 			halt_done(n, CIA402_RESULT_FAILED);
 			return;
 		}
 		n->halt.phase = CIA402_HALT_WAIT_SET;
 		return;
+	}
 
 	case CIA402_HALT_WAIT_SET: { /* 等置位写完 */
 		int r = cia402_sdo_result(n);
@@ -65,10 +71,10 @@ void cia402_halt_step(struct cia402_node *n)
 			return;
 		}
 		if (n->sdo == CIA402_SDO_IDLE) {
-			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) != 0) {
+			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) < 0) {
 				halt_done(n, CIA402_RESULT_FAILED);
 			}
-			return;
+			return; /* 成功或忙：下一拍再看 */
 		}
 		r = cia402_sdo_result(n);
 		if (r == 0) {
@@ -89,14 +95,20 @@ void cia402_halt_step(struct cia402_node *n)
 		return;
 	}
 
-	case CIA402_HALT_CLEAR: /* 清 bit8，回到可操作态 */
-		if (cia402_write_controlword(
-			    n, (uint16_t)(n->controlword & (uint16_t)~CIA402_CW_HALT)) != 0) {
+	case CIA402_HALT_CLEAR: { /* 清 bit8，回到可操作态 */
+		int r = cia402_write_controlword(
+			n, (uint16_t)(n->controlword & (uint16_t)~CIA402_CW_HALT));
+
+		if (r > 0) {
+			return; /* 通道忙：下拍再发 */
+		}
+		if (r < 0) {
 			halt_done(n, CIA402_RESULT_FAILED);
 			return;
 		}
 		n->halt.phase = CIA402_HALT_WAIT_CLEAR;
 		return;
+	}
 
 	default: { /* CIA402_HALT_WAIT_CLEAR */
 		int r = cia402_sdo_result(n);
@@ -123,14 +135,20 @@ int cia402_quick_stop_begin(struct cia402_node *n)
 void cia402_quick_stop_step(struct cia402_node *n)
 {
 	switch (n->estop.phase) {
-	case CIA402_ESTOP_QUICK: /* 6040 = 0x02 */
-		if (cia402_write_controlword(n, CIA402_CW_QUICK_STOP) != 0) {
+	case CIA402_ESTOP_QUICK: { /* 6040 = 0x02 */
+		int r = cia402_write_controlword(n, CIA402_CW_QUICK_STOP);
+
+		if (r > 0) {
+			return; /* 通道忙：下拍再发（急停只在同一拍内让一让） */
+		}
+		if (r < 0) {
 			n->result = CIA402_RESULT_FAILED;
 			n->estop.phase = CIA402_ESTOP_DISABLE;
 			return;
 		}
 		n->estop.phase = CIA402_ESTOP_WAIT_QUICK;
 		return;
+	}
 
 	case CIA402_ESTOP_WAIT_QUICK: {
 		int r = cia402_sdo_result(n);
@@ -153,11 +171,11 @@ void cia402_quick_stop_step(struct cia402_node *n)
 			return;
 		}
 		if (n->sdo == CIA402_SDO_IDLE) {
-			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) != 0) {
+			if (cia402_sdo_read(n, CIA402_IDX_STATUSWORD, 0) < 0) {
 				n->result = CIA402_RESULT_FAILED;
 				n->estop.phase = CIA402_ESTOP_DISABLE;
 			}
-			return;
+			return; /* 成功或忙：下一拍再看 */
 		}
 		r = cia402_sdo_result(n);
 		if (r == 0) {
@@ -175,14 +193,18 @@ void cia402_quick_stop_step(struct cia402_node *n)
 		return;
 	}
 
-	case CIA402_ESTOP_DISABLE: /* 6040 = 0x00，断使能 */
-		if (cia402_write_controlword(n, CIA402_CW_DISABLE) != 0) {
+	case CIA402_ESTOP_DISABLE: { /* 6040 = 0x00，断使能 */
+		int r = cia402_write_controlword(n, CIA402_CW_DISABLE);
+
+		if (r > 0) {
+			return; /* 通道忙：下拍再发 */
+		}
+		if (r < 0) {
 			n->result = CIA402_RESULT_FAILED;
-			n->estop.phase = CIA402_ESTOP_WAIT_DISABLE;
-			return;
 		}
 		n->estop.phase = CIA402_ESTOP_WAIT_DISABLE;
 		return;
+	}
 
 	default: { /* CIA402_ESTOP_WAIT_DISABLE：写完就结束，不再自动恢复 */
 		int r = cia402_sdo_result(n);

@@ -73,6 +73,47 @@ uint32_t axis_abort_code(const struct cats_axis *a)
 	return (a == NULL) ? 0U : cia402_abort_code(&a->drv);
 }
 
+/* pulse → mm，与 scale_mm() 方向相反；同样用 double 算，结果可复现 */
+static float unscale_mm(const struct cats_axis *a, int32_t pulse)
+{
+	return (float)(((double)pulse * (double)a->mm_per_rev) / (double)a->pulses_per_rev);
+}
+
+void axis_sample(const struct cats_axis *a, struct axis_sample *out)
+{
+	uint8_t valid;
+
+	if (out == NULL) {
+		return;
+	}
+	out->position_mm = 0.0f;
+	out->velocity_mm_s = 0.0f;
+	out->statusword = 0U;
+	out->valid = 0U;
+	if (a == NULL) {
+		return;
+	}
+
+	valid = cia402_monitor_valid(&a->drv);
+	out->statusword = cia402_monitor_statusword(&a->drv);
+	if ((valid & CIA402_MON_VALID_STATUSWORD) != 0U) {
+		out->valid |= CIA402_MON_VALID_STATUSWORD;
+	}
+
+	/* 没配机械参数就没法换算，宁可标无效 */
+	if (a->pulses_per_rev <= 0 || a->mm_per_rev <= 0.0f) {
+		return;
+	}
+	if ((valid & CIA402_MON_VALID_POSITION) != 0U) {
+		out->position_mm = unscale_mm(a, cia402_monitor_position(&a->drv));
+		out->valid |= CIA402_MON_VALID_POSITION;
+	}
+	if ((valid & CIA402_MON_VALID_VELOCITY) != 0U) {
+		out->velocity_mm_s = unscale_mm(a, cia402_monitor_velocity(&a->drv));
+		out->valid |= CIA402_MON_VALID_VELOCITY;
+	}
+}
+
 enum axis_motion axis_take_motion(struct cats_axis *a)
 {
 	enum cia402_result r;

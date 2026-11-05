@@ -33,6 +33,15 @@ struct cats_axis {
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
+/* 实时反馈样本：由 cia402 的 50 ms 后台监控读数换算而来。
+ * valid 的位见 cia402.h 的 CIA402_MON_VALID_*；位为 0 时对应值无意义。 */
+struct axis_sample {
+	float position_mm;
+	float velocity_mm_s;
+	uint16_t statusword;
+	uint8_t valid;
+};
+
 /* 运动结论汇总（已从 402 取走，不会重复上报） */
 enum axis_motion {
 	AXIS_MOTION_NONE = 0, /* 没有运动在途 */
@@ -57,6 +66,10 @@ enum axis_motion axis_take_motion(struct cats_axis *a);
 
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
 uint32_t axis_abort_code(const struct cats_axis *a);
+
+/* 取实时反馈样本（不触发传输，只搬运 50 ms 监测到的值）。
+ * 未配机械参数时位置/速度的 valid 位为 0（宁可显示不了，也不算错值）。 */
+void axis_sample(const struct cats_axis *a, struct axis_sample *out);
 
 /* ---- 批量动作：对一组轴逐个施加（每轴有自己的 SDO 通道，互不阻塞） ---- */
 

@@ -7,9 +7,12 @@
 
 #include "app_binder.h"
 
+#include "ui/axis_card.h"
 #include "ui/log_panel.h"
 #include "ui/state_bar.h"
 
+#include <QLatin1Char>
+#include <QString>
 #include <QTimer>
 
 namespace
@@ -18,6 +21,13 @@ namespace
 constexpr int kRefreshIntervalMs = 50;
 /* 节拍统计：每 5 s 往日志写一行，用来判断节拍稳不稳 */
 constexpr int kStatsIntervalMs = 5000;
+
+/* 状态字显示成 0x001F 这种定宽十六进制 */
+QString hex16(uint16_t v)
+{
+	return QStringLiteral("0x") +
+	       QString::number(v, 16).rightJustified(4, QLatin1Char('0')).toUpper();
+}
 
 /* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */
 StateBar::State to_bar_state(enum cats_state s)
@@ -80,9 +90,14 @@ void AppBinder::findWidgets(QWidget *root)
 {
 	log_panel_ = root->findChild<LogPanel *>();
 	state_bar_ = root->findChild<StateBar *>();
+	axis_cards_[0] = root->findChild<AxisCard *>(QStringLiteral("axisCard1"));
+	axis_cards_[1] = root->findChild<AxisCard *>(QStringLiteral("axisCard2"));
 
 	if (state_bar_ == nullptr) {
 		pushLog(QStringLiteral("绑定：找不到状态条，状态不会刷新"));
+	}
+	if (axis_cards_[0] == nullptr || axis_cards_[1] == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到轴卡片，实时反馈不会刷新"));
 	}
 }
 
@@ -114,6 +129,46 @@ void AppBinder::startTimers()
 void AppBinder::onRefresh()
 {
 	publish();
+	updateAxisCards();
+}
+
+void AppBinder::updateAxisCards()
+{
+	const enum cats_fault fault = cats_control_fault_code();
+
+	for (uint8_t i = 0; i < 2; i++) {
+		AxisCard *card = axis_cards_[i];
+		struct cats_axis_sample sample;
+
+		if (card == nullptr) {
+			continue;
+		}
+		if (cats_control_axis_sample(i, &sample) != CATS_OK) {
+			continue;
+		}
+
+		card->setPosition(
+			(sample.valid & CATS_SAMPLE_VALID_POSITION) != 0U
+				? QString::number(static_cast<double>(sample.position_mm), 'f', 3)
+				: QStringLiteral("—"));
+		card->setVelocity(
+			(sample.valid & CATS_SAMPLE_VALID_VELOCITY) != 0U
+				? QString::number(static_cast<double>(sample.velocity_mm_s), 'f', 3)
+				: QStringLiteral("—"));
+		card->setStatusword((sample.valid & CATS_SAMPLE_VALID_STATUSWORD) != 0U
+					    ? hex16(sample.statusword)
+					    : QStringLiteral("—"));
+
+		const uint32_t abort = cats_control_axis_abort(i);
+		if (abort != 0U) {
+			card->setError(
+				QStringLiteral("abort 0x%1").arg(abort, 8, 16, QLatin1Char('0')));
+		} else if (fault != CATS_FAULT_NONE) {
+			card->setError(QString::fromUtf8(cats_control_fault_name(fault)));
+		} else {
+			card->setError(QStringLiteral("—"));
+		}
+	}
 }
 
 void AppBinder::onStats()

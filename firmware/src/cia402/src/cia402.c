@@ -54,6 +54,8 @@ void cia402_abort_inflight(struct cia402_node *n)
 {
 	/* 抢占必须把在途事务丢掉；上游的 initiate 会重设客户端状态 */
 	n->sdo = CIA402_SDO_IDLE;
+	n->sdo_owner = CIA402_SDO_OWNER_PROCESS;
+	n->monitor.await = 0; /* 被抢掉的监控读不算结果，下一圈重发 */
 }
 
 int cia402_request_config(struct cia402_node *n)
@@ -178,6 +180,9 @@ void cia402_poll(struct cia402_node *n, uint32_t now_ms)
 	default:
 		break; /* IDLE：没有过程在跑 */
 	}
+
+	/* 过程推完之后再排监控读：有在途事务就自己跳过，绝不插队 */
+	cia402_monitor_poll(n, now_ms);
 }
 
 int cia402_busy(const struct cia402_node *n)
