@@ -2,9 +2,9 @@
  * control_internal.h — 控制层内部对象与共享声明（**不对外发布**）
  *
  * 供 control.c 与各 states/state_*.c 共享：
- *   struct cats_control 整机控制主体（状态机 + 主站指针 + 轴 + 故障码）
- *   enum cats_sig       业务事件（内核只认 ENTRY/EXIT，业务信号从这里起编号）
- *   states[]           状态描述符表（states/states.c 定义）
+ *   struct cats_control 整机控制主体（状态机 + 主站指针 + 轴 + 事件队列）
+ *   enum cats_sig       业务事件（内核只认 EMPTY/ENTRY/EXIT/INIT，业务信号从 SM_SIG_USER 起编号）
+ *   states[]           状态函数表（states/states.c 定义）
  *   now_ms()           取当前时刻的小工具
  */
 
@@ -18,29 +18,19 @@
 #include <pthread.h>
 
 #include "hsm/sm_hsm.h"
+#include "evt_queue/evt_queue.h"
 
 #define CATS_MAX_AXES 2
 
 /* 业务事件：内核只认 EMPTY/ENTRY/EXIT/INIT，业务信号从 SM_SIG_USER 起编号 */
 enum cats_sig {
-	CATS_SIG_TICK = SM_SIG_USER, /* 周期节拍，cats_control_poll() 每拍投一个 */
-	CATS_SIG_ESTOP               /* 急停请求：由 st_root 统一迁 ESTOP */
+	CATS_SIG_TICK = SM_SIG_USER, /* 周期节拍，cats_control_poll() 每拍自己投一个 */
+	CATS_SIG_MOVE,               /* 位置指令（载荷见 cats_evt.u.move） */
+	CATS_SIG_STOP,               /* 停止：减速停（6040 bit8） */
+	CATS_SIG_ESTOP               /* 急停：quick stop → 断使能 */
 };
 
-/* 指令槽里的指令种类（单槽，后到覆盖先到） */
-enum cats_cmd_kind {
-	CATS_CMD_NONE = 0,
-	CATS_CMD_MOVE, /* 绝对位置运动 */
-	CATS_CMD_STOP  /* 停止运动 */
-};
-
-/* 位置指令的参数（业务单位：µm / µm·s⁻¹ / µm·s⁻²） */
-struct cats_move_cmd {
-	uint8_t axis;
-	int32_t um;
-	int32_t um_s;
-	int32_t um_s2;
-};
+/* 位置指令的参数（业务单位：µm / µm·s⁻¹ / µm·s⁻²）；定义在 evt_queue.h */
 
 /*
  * 字段顺序刻意分三段：装配期只读 → 控制线程私有 → 跨线程共享（放最后）。
@@ -59,16 +49,14 @@ struct cats_control {
 	uint32_t state_since_ms; /* 进入当前状态的时刻；cats_control_poll 每拍刷新 */
 	enum cats_fault fault_code; /* 出错原因；非 NONE 时由 ROOT 统一迁 FAULT */
 
-	/* ---- 跨线程共享：全部由 lock 保护 ----
-	 * 写者：任意线程（指令槽：填好 cmd 再置 cmd_kind；急停：只置 estop_req）
-	 * 读者：控制线程（取走指令）/ 任意线程（读发布值）
+	/* ---- 跨线程共享 ----
+	 * 写者：任意线程（事件入队，evtq 自带锁）
+	 * 读者：控制线程（取事件）/ 任意线程（读发布值，用 lock 保护）
 	 * 临界区里只有几条赋值，不包含任何 I/O、状态机动作或循环。 */
 	pthread_mutex_t lock;
-	int cmd_kind;             /* enum cats_cmd_kind */
-	struct cats_move_cmd cmd; /* 待执行指令的参数 */
-	int published_state;      /* enum cats_state，每拍发布一次 */
-	int published_fault;      /* enum cats_fault，与状态同拍发布 */
-	int estop_req;            /* 非 0 = 有线程请求急停，控制线程下一拍执行 */
+	struct cats_evtq evtq; /* 输入事件队列（自带锁，多生产者 / 单消费者） */
+	int published_state;   /* enum cats_state，每拍发布一次 */
+	int published_fault;   /* enum cats_fault，与状态同拍发布 */
 };
 
 /* states.c 定义的状态表：下标 = enum cats_state，值 = 状态函数 */
@@ -76,21 +64,5 @@ extern const sm_state_t states[CATS_STATE_COUNT];
 
 /* 取当前时刻；未接管主站时返回 0 */
 uint32_t now_ms(struct cats_control *app);
-
-/* 取走指令槽（只允许控制线程调）：返回种类；MOVE 时把参数一并复制到 *out。
- * 复制与清槽在同一个临界区里完成，所以不会拿到“被新指令覆盖了一半”的参数。 */
-static inline enum cats_cmd_kind cats_take_cmd(struct cats_control *app, struct cats_move_cmd *out)
-{
-	enum cats_cmd_kind kind;
-
-	pthread_mutex_lock(&app->lock);
-	kind = (enum cats_cmd_kind)app->cmd_kind;
-	if (kind == CATS_CMD_MOVE && out != NULL) {
-		*out = app->cmd;
-	}
-	app->cmd_kind = CATS_CMD_NONE;
-	pthread_mutex_unlock(&app->lock);
-	return kind;
-}
 
 #endif /* CONTROL_INTERNAL_H */

@@ -28,16 +28,16 @@ sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e)
 		break;
 	}
 
-	case CATS_SIG_TICK: {
-		enum cats_cmd_kind cmd = cats_take_cmd(ctl, &ctl->move);
+	case CATS_SIG_MOVE:
+		/* 事件自带参数：拷贝到 ctl->move，供 MOVING 的 ENTRY 下发 */
+		ctl->move = SM_EVT_CAST(struct cats_evt, e)->u.move;
+		return SM_TRAN(&st_moving);
 
-		if (cmd == CATS_CMD_MOVE) {
-			/* 参数已在临界区里复制到 ctl->move，指令槽再变也不影响本次 */
-			return SM_TRAN(&st_moving);
-		}
-		/* CATS_CMD_STOP / NONE：丢弃 */
-		return SM_SUPER(&st_online); /* 公共判定交 ONLINE */
-	}
+	case CATS_SIG_STOP:
+		return SM_HANDLED(); /* 已经在保持位置，没有可做的事 */
+
+	case CATS_SIG_TICK:
+		return SM_SUPER(&st_online); /* 没有命令：让 ONLINE 补做心跳判定 */
 
 	case SM_SIG_EXIT:
 		break;

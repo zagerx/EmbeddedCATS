@@ -30,27 +30,22 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		if (issue_move(ctl) != 0) {
+		/* <0 = 真失败（没使能/参数非法）；>0 = 忙，不会发生在这里 */
+		if (issue_move(ctl) < 0) {
 			ctl->fault_code = CATS_FAULT_MOTION_FAILED;
 		}
 		break;
 
+	case CATS_SIG_MOVE:
+		/* 运动中的新目标：cia402 层不接受改目标，本段跑完再说 ⇒ 丢弃 */
+		return SM_HANDLED();
+
+	case CATS_SIG_STOP:
+		return SM_TRAN(&st_halting); /* Halt 动作在 HALTING 的 ENTRY */
+
 	case CATS_SIG_TICK: {
-		enum cats_cmd_kind cmd;
-		enum axis_motion m;
+		enum axis_motion m = axis_take_motion(&ctl->axes[ctl->move.axis]);
 
-		cmd = cats_take_cmd(ctl, &ctl->move);
-		if (cmd == CATS_CMD_STOP) {
-			return SM_TRAN(&st_halting); /* Halt 动作在 HALTING 的 ENTRY */
-		}
-		if (cmd == CATS_CMD_MOVE) {
-			if (issue_move(ctl) != 0) { /* 覆盖目标：PP 允许运动中被改 */
-				ctl->fault_code = CATS_FAULT_MOTION_FAILED;
-			}
-			return SM_SUPER(&st_online); /* 下一拍再开始等新结论 */
-		}
-
-		m = axis_take_motion(&ctl->axes[ctl->move.axis]);
 		if (m == AXIS_MOTION_DONE) {
 			return SM_TRAN(&st_holding);
 		}

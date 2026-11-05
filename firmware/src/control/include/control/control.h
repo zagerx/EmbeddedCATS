@@ -14,7 +14,8 @@
  *   写者：只有控制线程可以调 cats_control_init() / cats_control_poll()。
  *   读者：任意线程可调 cats_control_state() / cats_control_fault_code()。
  *   指令：cats_control_move_to() / cats_control_stop() / cats_control_estop() 任意线程可调，
- *         只记一条待执行指令/请求，由控制线程在下一拍（≤ 1 ms）执行。
+ *         **封装成事件入队**，由控制线程在下一拍（≤ 1 ms）逐个消费。
+ *         停止/急停插到队头，普通位置指令排在队尾。
  *
  * 跨线程只共享 5 个字段（指令槽、急停请求、两个发布值），由**一把 pthread mutex**
  * 保护；临界区里只有几条赋值，不含 I/O、状态机动作或循环。
@@ -47,7 +48,8 @@ extern "C" {
 enum cats_result {
 	CATS_OK = 0,
 	CATS_ERR_STATE, /* 状态不允许：重复 start / 没 start 就 poll */
-	CATS_ERR_PARAM  /* 参数不合法：通道名为空 */
+	CATS_ERR_PARAM, /* 参数不合法：通道名为空 / 轴号越界 */
+	CATS_ERR_BUSY   /* 事件队列已满：这条指令没进队，请稍后重试 */
 };
 
 /*
@@ -110,14 +112,17 @@ enum cats_state cats_control_state(void);
 
 /*
  * 位置指令（绝对位置）。业务单位：位置 µm，速度 µm/s，加速度 µm/s²。
- * 任意线程可调，只记一条待执行指令（单槽，覆盖上一条），由控制线程执行。
- * 返回 0 = 已记下；-1 = 参数不合法 / 换算未配置。
- * 注意：能否执行由状态机决定（只在 READY / MOVING 里生效），返回 0 不代表已在动。
+ * 任意线程可调：封装成 CATS_SIG_MOVE 事件排到队尾，多条指令按顺序保留。
+ * 返回 CATS_OK = 已入队；CATS_ERR_BUSY = 队列满（本指令被丢弃）；
+ *      CATS_ERR_PARAM = 轴号越界 / 换算未配 / 未初始化。
+ * 注意：能否执行由状态机决定（HOLDING 里生效；运动中收到的命令被丢弃），
+ *       入队成功不代表已在动。
  */
-int cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2);
+enum cats_result cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2);
 
 /*
  * 停止指令：减速停在当前位置并保持使能（可继续接指令）。任意线程可调。
+ * 事件插到队头（优先于已排队的位量指令），永不失败。
  */
 void cats_control_stop(void);
 
@@ -132,9 +137,9 @@ int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, int32_t um
 const char *cats_control_state_name(enum cats_state s);
 
 /*
- * 急停：任意线程可调，只置请求，控制线程在下一拍（≤ 1 ms）执行迁移。
+ * 急停：任意线程可调。事件插到队头（优先于已排队的所有命令），永不失败。
  * 进入后停住，不自动退出。
- * 由调用方（未来 lyos 的 cmd topic、或外部 STO 检测）触发。
+ * 由调用方（lyos 的 cmd topic、或外部 STO 检测）触发。
  * 行为：停 SYNC + 各轴 quick stop，然后切到 ESTOP。
  */
 void cats_control_estop(void);

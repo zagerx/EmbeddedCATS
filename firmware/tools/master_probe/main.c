@@ -28,8 +28,12 @@
 struct probe_cmd {
 	long move_um;
 	long move_at_ms;
+	long move2_um;
+	long move2_at_ms;
 	long stop_at_ms;
 	long estop_at_ms;
+	long spam;
+	long spam_at_ms;
 	long vel_um_s;
 	long acc_um_s2;
 	int32_t pulses_per_rev;
@@ -39,7 +43,7 @@ struct probe_cmd {
 
 static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 {
-	struct probe_cmd c = {-1, -1, -1, -1, 10000, 50000, 10000, 0, 0};
+	struct probe_cmd c = {-1, -1, -1, -1, -1, -1, -1, 0, 10000, 50000, 10000, 0, 0};
 	int i;
 
 	for (i = 3; i + 1 < argc; i += 2) {
@@ -51,12 +55,22 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.armed = 1;
 		} else if (strcmp(k, "--move-at") == 0) {
 			c.move_at_ms = v;
+		} else if (strcmp(k, "--move2") == 0) {
+			c.move2_um = v;
+			c.armed = 1;
+		} else if (strcmp(k, "--move2-at") == 0) {
+			c.move2_at_ms = v;
 		} else if (strcmp(k, "--stop-at") == 0) {
 			c.stop_at_ms = v;
 			c.armed = 1;
 		} else if (strcmp(k, "--estop-at") == 0) {
 			c.estop_at_ms = v;
 			c.armed = 1;
+		} else if (strcmp(k, "--spam") == 0) {
+			c.spam = v;
+			c.armed = 1;
+		} else if (strcmp(k, "--spam-at") == 0) {
+			c.spam_at_ms = v;
 		} else if (strcmp(k, "--vel") == 0) {
 			c.vel_um_s = v;
 		} else if (strcmp(k, "--acc") == 0) {
@@ -69,6 +83,12 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	}
 	if (c.move_um >= 0 && c.move_at_ms < 0) {
 		c.move_at_ms = 1500; /* 默认等 ENABLING 结束再发 */
+	}
+	if (c.move2_um >= 0 && c.move2_at_ms < 0) {
+		c.move2_at_ms = (c.move_um >= 0 ? c.move_at_ms : 1500) + 500;
+	}
+	if (c.spam > 0 && c.spam_at_ms < 0) {
+		c.spam_at_ms = (c.move_um >= 0 ? c.move_at_ms : 1500) + 200;
 	}
 	return c;
 }
@@ -106,6 +126,8 @@ int main(int argc, char **argv)
 	uint32_t start_ms;
 	uint32_t now;
 	int moved = 0;
+	int moved2 = 0;
+	int spammed = 0;
 	int stopped = 0;
 	int estopped = 0;
 
@@ -157,9 +179,39 @@ int main(int argc, char **argv)
 				printf("[%6ld] 指令：move_to %ld µm\n", t, cmd.move_um);
 				if (cats_control_move_to(0, (int32_t)cmd.move_um,
 							 (int32_t)cmd.vel_um_s,
-							 (int32_t)cmd.acc_um_s2) != 0) {
-					printf("          —— 被拒（换算未配/轴号错）\n");
+							 (int32_t)cmd.acc_um_s2) != CATS_OK) {
+					printf("          —— 入队失败（参数错或队列满）\n");
 				}
+				fflush(stdout);
+			}
+			if (cmd.move2_um >= 0 && !moved2 && t >= cmd.move2_at_ms) {
+				moved2 = 1;
+				printf("[%6ld] 指令：move_to %ld µm（第二条）\n", t, cmd.move2_um);
+				if (cats_control_move_to(0, (int32_t)cmd.move2_um,
+							 (int32_t)cmd.vel_um_s,
+							 (int32_t)cmd.acc_um_s2) != CATS_OK) {
+					printf("          —— 入队失败（参数错或队列满）\n");
+				}
+				fflush(stdout);
+			}
+			if (cmd.spam > 0 && !spammed && t >= cmd.spam_at_ms) {
+				long i;
+				long ok = 0;
+				long busy = 0;
+
+				spammed = 1;
+				for (i = 0; i < cmd.spam; i++) {
+					if (cats_control_move_to(0, (int32_t)(1000 * (i + 1)),
+								 (int32_t)cmd.vel_um_s,
+								 (int32_t)cmd.acc_um_s2) ==
+					    CATS_OK) {
+						ok++;
+					} else {
+						busy++;
+					}
+				}
+				printf("[%6ld] 连发 %ld 条 move：入队 %ld，BUSY %ld\n", t, cmd.spam,
+				       ok, busy);
 				fflush(stdout);
 			}
 			if (cmd.stop_at_ms >= 0 && !stopped && t >= cmd.stop_at_ms) {

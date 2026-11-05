@@ -53,6 +53,7 @@ enum cats_result cats_control_init(struct co_master *master)
 
 	/* 初态：initial() 返回 SM_TRAN(&st_preparing)，内核把 sm_top → ROOT → PREPARING
 	 * 的 ENTRY 链走一遍，广播复位从 PREPARING 的 ENTRY 里发出 */
+	cats_evtq_init(&s_ctl.evtq);
 	sm_hsm_init(&s_ctl.hsm, &initial);
 	s_ctl.state_since_ms = now_ms(&s_ctl);
 
@@ -84,37 +85,42 @@ static void refresh_heartbeat_fact(struct cats_control *ctl)
 
 enum cats_result cats_control_poll(void)
 {
-	static const struct sm_event evt_estop = {CATS_SIG_ESTOP};
 	static const struct sm_event evt_tick = {CATS_SIG_TICK};
+	struct cats_evt evt;
 	sm_state_t before;
 	uint32_t now;
-	int estop;
+	unsigned n;
 
 	if (s_ctl.master == NULL) {
 		return CATS_ERR_STATE;
 	}
 
-	/* 急停优先于一切：别的线程只能置请求标志，真正的迁移在这里做 */
-	pthread_mutex_lock(&s_ctl.lock);
-	estop = s_ctl.estop_req;
-	s_ctl.estop_req = 0;
-	pthread_mutex_unlock(&s_ctl.lock);
-
 	now = now_ms(&s_ctl);
-	if (estop) {
-		/* 从"同步强制迁移"改为"走事件"：由 st_root 统一接管 → ESTOP */
-		sm_hsm_dispatch(&s_ctl.hsm, &evt_estop);
-		s_ctl.state_since_ms = now;
+
+	/*
+	 * 1. 先消费外部事件：停止/急停插在队头，所以这一步永远先于本拍 I/O。
+	 *    每拍最多 CATS_EVTQ_DRAIN_MAX 条，剩下的留给下一拍（不会丢）。
+	 *    dispatch 一律在**锁外**做：内核会间接调 axis_*，不能占着队列锁。
+	 */
+	for (n = 0u; n < CATS_EVTQ_DRAIN_MAX; n++) {
+		if (!cats_evtq_pop(&s_ctl.evtq, &evt)) {
+			break;
+		}
+		before = sm_hsm_state(&s_ctl.hsm);
+		sm_hsm_dispatch(&s_ctl.hsm, &evt.super);
+		if (sm_hsm_state(&s_ctl.hsm) != before) {
+			s_ctl.state_since_ms = now;
+		}
 	}
 
-	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
+	/* 2. 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_ctl.master, now);
 	refresh_heartbeat_fact(&s_ctl);
 
-	/* 各层自管推进：轴（含 402/SDO）每拍走一步；状态机只看事实 */
+	/* 3. 各层自管推进：轴（含 402/SDO）每拍走一步；状态机只看事实 */
 	axis_poll_all(s_ctl.axes, s_ctl.axis_count, now);
 
-	/* 一拍推一次状态机（内部处理一个事件） */
+	/* 4. 一拍一次节拍事件 */
 	before = sm_hsm_state(&s_ctl.hsm);
 	sm_hsm_dispatch(&s_ctl.hsm, &evt_tick);
 	if (sm_hsm_state(&s_ctl.hsm) != before) {
@@ -127,44 +133,49 @@ enum cats_result cats_control_poll(void)
 
 void cats_control_estop(void)
 {
+	struct cats_evt e = {0};
+
 	if (s_ctl.master == NULL) {
 		return;
 	}
 
-	/* 只置请求，不在这里改状态机：任何线程都可安全调用，
-	 * 真正的迁移由控制线程在下一拍（≤ 1 个节拍）执行 */
-	pthread_mutex_lock(&s_ctl.lock);
-	s_ctl.estop_req = 1;
-	pthread_mutex_unlock(&s_ctl.lock);
+	/* 插到队头：优先于已排队的所有命令；队列满时挤掉最旧的那条，永不失败 */
+	e.super.sig = CATS_SIG_ESTOP;
+	cats_evtq_push_front(&s_ctl.evtq, &e);
 }
 
-int cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2)
+enum cats_result cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2)
 {
+	struct cats_evt e = {0};
+
 	if (s_ctl.master == NULL || axis >= s_ctl.axis_count) {
-		return -1;
+		return CATS_ERR_PARAM;
 	}
 	if (s_ctl.axes[axis].pulses_per_rev <= 0 || s_ctl.axes[axis].um_per_rev <= 0) {
-		return -1; /* 换算参数没配：不接受位置指令 */
+		return CATS_ERR_PARAM; /* 换算参数没配：不接受位置指令 */
 	}
 
-	pthread_mutex_lock(&s_ctl.lock);
-	s_ctl.cmd.axis = axis;
-	s_ctl.cmd.um = um;
-	s_ctl.cmd.um_s = um_s;
-	s_ctl.cmd.um_s2 = um_s2;
-	s_ctl.cmd_kind = CATS_CMD_MOVE;
-	pthread_mutex_unlock(&s_ctl.lock);
-	return 0;
+	e.super.sig = CATS_SIG_MOVE;
+	e.u.move.axis = axis;
+	e.u.move.um = um;
+	e.u.move.um_s = um_s;
+	e.u.move.um_s2 = um_s2;
+
+	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
+	return cats_evtq_push(&s_ctl.evtq, &e) ? CATS_OK : CATS_ERR_BUSY;
 }
 
 void cats_control_stop(void)
 {
+	struct cats_evt e = {0};
+
 	if (s_ctl.master == NULL) {
 		return;
 	}
-	pthread_mutex_lock(&s_ctl.lock);
-	s_ctl.cmd_kind = CATS_CMD_STOP;
-	pthread_mutex_unlock(&s_ctl.lock);
+
+	/* 停止也插队：排在已有序命令前面，永不失败 */
+	e.super.sig = CATS_SIG_STOP;
+	cats_evtq_push_front(&s_ctl.evtq, &e);
 }
 
 int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, int32_t um_per_rev)

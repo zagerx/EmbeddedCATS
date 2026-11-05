@@ -11,16 +11,21 @@
 
 sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	(void)me;
+	struct cats_control *ctl = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		/* 无入口动作 */
+		/* 进终态：丢掉还没处理的命令，别让它们留到重启之后 */
+		cats_evtq_clear(&ctl->evtq);
 		break;
 
 	case SM_SIG_EXIT:
 		/* 无出口动作 */
 		break;
+
+	case CATS_SIG_MOVE:
+	case CATS_SIG_STOP:
+		return SM_HANDLED(); /* 终态：命令直接丢弃 */
 
 	case CATS_SIG_TICK:
 		/* 终态吃掉节拍：不往上抛，免得 ROOT 再判一次故障码（自迁移）*/

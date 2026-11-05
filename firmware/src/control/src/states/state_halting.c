@@ -23,10 +23,13 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		}
 		break;
 
+	case CATS_SIG_MOVE:
+	case CATS_SIG_STOP:
+		/* 停车期间的新指令一律丢弃（否则会留在队列里，停稳后被意外执行） */
+		return SM_HANDLED();
+
 	case CATS_SIG_TICK: {
 		enum axis_motion m;
-
-		(void)cats_take_cmd(ctl, NULL); /* 停车期间的新指令一律丢弃 */
 
 		m = axis_take_motion(&ctl->axes[ctl->move.axis]);
 		if (m == AXIS_MOTION_DONE) {

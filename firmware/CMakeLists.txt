@@ -100,10 +100,12 @@ target_link_libraries(cats_axis PUBLIC cia402)
 
 # 应用层：QP 风格层次状态机（HSM）
 #   hsm/          机制层：sm_hsm 内核（层次 + LCA + INIT 下钻）
+#   evt_queue/    多生产者事件队列（外部线程投递 → 控制线程消费）
 #   states/       业务状态：一状态一文件，states.c 是唯一注册点
 #   control.c     装配与对外接口：API → 事件
 add_library(cats_control STATIC
 	src/control/src/control.c
+	src/control/src/evt_queue/evt_queue.c
 	src/control/src/hsm/sm_hsm.c
 	src/control/src/states/states.c
 	src/control/src/states/state_root.c
