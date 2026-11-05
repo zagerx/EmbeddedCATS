@@ -80,6 +80,18 @@ QPushButton:disabled {
 	border-color: @border;
 }
 
+/* 2.1 区域：急停永远是红框，运动是主色框 */
+#btn_estop {
+	color: @fault;
+	border-color: @fault;
+	font-weight: bold;
+}
+
+#btn_move {
+	color: @primary;
+	border-color: @primary;
+}
+
 /* ---- 分组框 ---- */
 
 QGroupBox {
@@ -115,6 +127,10 @@ QDoubleSpinBox:focus {
 #value {
 	color: @fg;
 	font-family: "DejaVu Sans Mono", monospace;
+}
+
+#unitLabel {
+	color: @fgDim;
 }
 
 #axisTitle,

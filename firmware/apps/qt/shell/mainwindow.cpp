@@ -72,17 +72,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
 	auto *top_reserved = new QWidget(top_area);
 	top_reserved->setObjectName(QStringLiteral("topReserved"));
-	auto *reserved_layout = new QHBoxLayout(top_reserved);
-	reserved_layout->setContentsMargins(16, 10, 16, 10);
-	reserved_layout->setSpacing(8);
-
-	start_button_ = new QPushButton(QStringLiteral("启动"), top_reserved);
-	start_button_->setObjectName(QStringLiteral("btn_start"));
-	start_button_->setProperty("role", QStringLiteral("ok"));
-	start_button_->setMinimumWidth(92);
-	reserved_layout->addWidget(start_button_, 0, Qt::AlignTop);
-	reserved_layout->addStretch(1);
-
 	top_layout->addWidget(top_reserved, 1);
 
 	top_area->setMinimumHeight(240); /* 保证 1 号区域约占可用高度的 1/3 */
@@ -98,6 +87,22 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	reserved_area_ = new QWidget(work_area);
 	reserved_area_->setObjectName(QStringLiteral("reservedArea"));
 	reserved_area_->setFixedHeight(64);
+	auto *reserved_layout = new QHBoxLayout(reserved_area_);
+	reserved_layout->setContentsMargins(16, 10, 16, 10);
+	reserved_layout->setSpacing(8);
+
+	auto *btn_estop = new QPushButton(QStringLiteral("急停"), reserved_area_);
+	btn_estop->setObjectName(QStringLiteral("btn_estop"));
+	auto *btn_halt = new QPushButton(QStringLiteral("暂停"), reserved_area_);
+	btn_halt->setObjectName(QStringLiteral("btn_halt"));
+	auto *btn_move = new QPushButton(QStringLiteral("运动"), reserved_area_);
+	btn_move->setObjectName(QStringLiteral("btn_move"));
+	for (QPushButton *button : {btn_estop, btn_halt, btn_move}) {
+		button->setMinimumWidth(92);
+		reserved_layout->addWidget(button, 0, Qt::AlignVCenter);
+	}
+	reserved_layout->addStretch(1);
+
 	work_layout->addWidget(reserved_area_);
 
 	work_layout->addWidget(make_divider(work_area, Qt::Horizontal)); /* 2.1 / 双轴 */

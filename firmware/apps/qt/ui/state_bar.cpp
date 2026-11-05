@@ -14,21 +14,20 @@
 namespace
 {
 struct StateInfo {
-	const char *code;
 	const char *title;
 	const char *hint;
 	StatusLed::State led;
 	int dot_size;
 };
 
-/* 顺序必须与 app 的 cats_state 一致 */
+/* 粗粒度档位表（顺序与 StateBar::State 一致）；状态码本身由外部传入 */
 const StateInfo kStates[] = {
-	{"PREPARING", "准备中", "正在复位节点并等待 boot-up", StatusLed::State::Busy, 12},
-	{"ENABLING", "使能中", "正在让驱动器进入 PP 并使能", StatusLed::State::Busy, 12},
-	{"RUNNING", "运行中", "节点已使能", StatusLed::State::Ok, 12},
-	{"STOPPING", "停止中", "正在退出运行", StatusLed::State::Busy, 12},
-	{"FAULT", "故障", "需复位后重新启动", StatusLed::State::Fault, 12},
-	{"ESTOP", "急停", "需复位后重新启动", StatusLed::State::Fault, 12},
+	{"准备中", "正在复位节点 / 写参数 / 使能", StatusLed::State::Busy, 12},
+	{"使能中", "正在让驱动器进入 PP 并使能", StatusLed::State::Busy, 12},
+	{"已使能", "保持位置，可接受位置指令", StatusLed::State::Ok, 12},
+	{"减速停", "正在减速停在当前位置", StatusLed::State::Busy, 12},
+	{"故障", "已停住，需重启程序", StatusLed::State::Fault, 12},
+	{"急停", "已断使能，需重启程序", StatusLed::State::Fault, 12},
 };
 } // namespace
 
@@ -44,29 +43,28 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	auto *current = new QVBoxLayout();
 	current->setSpacing(2);
 
-	led_ = new StatusLed(QStringLiteral("PREPARING"), this);
+	/* 状态码来自控制层，未接入前先显示占位符 */
+	led_ = new StatusLed(QStringLiteral("—"), this);
 	led_->setObjectName(QStringLiteral("stateLed"));
 	led_->setDotSize(kStates[0].dot_size);
 
-	hint_ = new QLabel(this);
+	hint_ = new QLabel(QStringLiteral("等待控制层状态"), this);
 	hint_->setObjectName(QStringLiteral("stateHint"));
 
 	current->addWidget(led_);
 	current->addWidget(hint_);
 	root->addLayout(current);
 	root->addStretch(1);
-
-	setState(State::Preparing);
 }
 
-void StateBar::setState(State state)
+void StateBar::setState(State state, const QString &code)
 {
 	const int index = static_cast<int>(state);
 	const StateInfo &info = kStates[index];
 
 	led_->setState(info.led);
 	led_->setDotSize(info.dot_size);
-	led_->setText(QString::fromLatin1(info.code));
+	led_->setText(code);
 	hint_->setText(QStringLiteral("%1 · %2").arg(QString::fromUtf8(info.title),
 						     QString::fromUtf8(info.hint)));
 }

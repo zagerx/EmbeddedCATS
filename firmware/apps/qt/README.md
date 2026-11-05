@@ -1,72 +1,98 @@
 # qt/ — 集成层（本机形态：Qt6 桌面界面）
 
-开发机上的**图形壳**。当前阶段**只有界面、没有逻辑**：能编译、能跑、能看到样子，
-按钮点了没反应是预期。
+开发机上的图形壳：把 `control` 层接到界面上，方便没有 orin-agx、没有上位机时手动观察。
 
 - 语言：**C++ / Qt6 Widgets**
-- 与 `lyos_node/` **同级、二选一**：两个壳最终都只依赖 `app/include/app/app.h`
-- 本版**不 include** `canopen` / `cia402` / `axis` / `backends` / `app` 的任何头
+- 与 `apps/lyos_node/` **同级、二选一**：两个壳业务上都只依赖 `control/control.h`
+- 业务头只允许出现在 `bindings/`；`shell/`、`ui/`、`theme/` 不 include 任何
+  `control` / `cia402` / `axis` / `canopen` / `backends` 的头
 
 ## 目录
 
 | 路径 | 内容 |
 |---|---|
-| `main.cpp` | 入口：`QApplication` + `theme::apply()` + 窗口 |
-| `shell/` | 壳层：`MainWindow` 只做区域拼接 |
+| `main.cpp` | 入口：`QApplication` + `theme::apply()` + 建窗口 + `AppBinder::attach()` |
+| `shell/` | 壳层：`MainWindow` 只做区域拼接，不建定时器、不开通道 |
 | `ui/` | 区块控件：`state_bar`、`axis_card`、`log_panel`、`status_led` |
 | `theme/` | 调色板 `theme.h` + 样式表 `app.qss`（`@token` 由 `theme.cpp` 替换） |
 | `res/qt.qrc` | 资源打包（当前只有 `app.qss`） |
-| `bindings/` | **预留·暂空**：将来接 `cats_control_*` 的唯一落点，约定见其 README |
+| `bindings/` | 唯一接缝：`app_binder`（找控件、开通道、刷界面）、`can_thread`（控制线程） |
 
-依赖方向：`main → shell → ui → theme`，**单向**；`ui/` 不知道壳的存在。
+依赖方向：
+
+```
+main → bindings → control（业务头只在这里）
+main → shell → ui → theme（这一支完全不认识业务）
+```
+
+## 线程与时序
+
+- **控制线程**（`can_thread`）：建主站、`cats_control_init()`，按 **1 ms** 绝对节拍调
+  `cats_control_poll()`；总线收发与状态推进都在这条线程里。
+- **界面线程**：`QTimer 50 ms` 读 `cats_control_state()` 刷状态条；`QTimer 5 s` 往日志
+  写一行节拍统计。界面不碰总线。
 
 ## 区域布局
 
-1. **1 号区域**：左右均分。`1.1` = `state_bar`（状态机状态），`1.2` = 一个「启动」按钮；最小高度 240 px（约占 1/3）
-2. **2 号区域**：`2.1` = 空白预留（64 px），`2.2` / `2.3` = `axis_card` ×2 左右等分
-3. **3 号区域**：`log_panel`，日志面板
+1. **1 号区域**（最小高度 240 px，约占 1/3）：`1.1` = 状态条，`1.2` = 空白预留
+2. **2 号区域**：`2.1` = 急停 / 暂停 / 运动 三个按钮（仅界面，尚未绑定 `cats_control_*`），
+   `2.2` / `2.3` = `axis_card` ×2 左右等分
+3. **3 号区域**：日志面板
 
 **视觉层级：大区域靠空间分，内部子区域靠线分。**
 
-- 大区域之间：`root` 布局 10 px 留白，露出最深底色 `@deep`；状态区/日志区用表面色
-  `@surface`，中部工作区用 `@bg`，靠色差再区分。
-- 区域内部：`1.1 / 1.2`、`2.2 / 2.3` 各一条纵向 1 px 分隔条，`2.1 / 双轴` 一条横向 1 px 分隔条。
-  分隔条是固定尺寸的 `QFrame`（`objectName = divider`），颜色 `@divider`，
-  **不使用 QSplitter**（其手柄尺寸受 QSS 影响不稳定，曾导致线条画不出来）。
+- 大区域之间：10 px 留白露出最深底色 `@deep`；状态区/日志区用 `@surface`，工作区用
+  `@bg`，再靠色差区分。
+- 区域内部：`1.1 / 1.2`、`2.2 / 2.3` 各一条纵向 1 px 分隔条，`2.1 / 双轴` 一条横向
+  1 px 分隔条；分隔条是固定尺寸 `QFrame`（`objectName = divider`），颜色 `@divider`，
+  **不使用 QSplitter**（其手柄尺寸受 QSS 影响不稳定）。
 
-要核对效果可直接截图自查：
+## 状态显示
 
-```bash
-QT_QPA_PLATFORM=offscreen ./firmware/build/cats_qt   # 仅冒烟
-```
+状态条的**状态码不在界面里写死**：由 `bindings` 传 `cats_control_state_name()` 的结果，
+保证界面与日志同一套名字（PREPARING / CONFIGURING / ENABLING / HOLDING / MOVING /
+HALTING / FAULT / ESTOP）。
 
-## 状态机状态
+界面只按**粗粒度档位**决定圆点颜色与说明文字：
 
-`StateBar` 的枚举与 `app` 的 `cats_run_state` **一一对应**，但界面侧不 include `app.h`：
-
-| StateBar::State | 状态码 | 中文 | 圆点颜色 |
+| 控制层状态 | 界面档位 | 圆点 | 说明 |
 |---|---|---|---|
-| `Idle` | IDLE | 空闲 | 灰 |
-| `Preparing` | PREPARING | 准备中 | 蓝 |
-| `Running` | RUNNING | 运行中 | 绿 |
-| `Stopping` | STOPPING | 停止中 | 蓝 |
-| `Fault` | FAULT | 故障 | 红 |
-| `EStop` | ESTOP | 急停 | 红 |
+| `PREPARING` | `Preparing` | 蓝 | 正在复位节点 / 写参数 / 使能 |
+| `CONFIGURING`、`ENABLING` | `Enabling` | 蓝 | 正在让驱动器进入 PP 并使能 |
+| `HOLDING`、`MOVING` | `Running` | 绿 | 保持位置，可接受位置指令 |
+| `HALTING` | `Halting` | 蓝 | 正在减速停在当前位置 |
+| `FAULT` | `Fault` | 红 | 已停住，需重启程序 |
+| `ESTOP` | `EStop` | 红 | 已断使能，需重启程序 |
 
-本版固定显示 `Idle`（`StateBar` 构造末尾调用一次 `setState(State::Idle)`），
-接逻辑时由 `bindings/` 把 `cats_control_state()` 映射过来。
+尚未接入控制层时状态码显示占位符 `—`。
+
+## 当前缺口（有意不加功能）
+
+- `axis_card` 的「反馈」四项（实际位置 / 实际速度 / 状态字 / 错误码）是**占位显示**：
+  `control.h` 目前只发布 `state`、`fault_code`、`fault_name`、`axis_abort`。
+- 「目标位置 / 目标速度 / 目标加速度」三项按界面习惯显示 `mm`、`mm/s`、`mm/s²`，而
+  `cats_control_move_to()` 用 µm 体系，且未调 `cats_control_set_axis_scale()` 前一概拒绝。
+- `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
+  入口（2.1 留白就是给它们的）。
+- 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
 
 ## 命名规范
 
 - 文件 / 目录 `snake_case`；类 `CamelCase` 且与文件名一致。
-- 每个控件都有 `objectName`（`btn_estop`、`btn_start`、`targetPosition`、`value`…），
-  QSS 只按 objectName / 自定义属性 `role` / `active` 命中，不依赖控件层级。
-- 颜色只在 `theme/theme.h` 定义；QSS 用 `@bg`、`@ok`、`@fault` 这类占位符，不写死色值。
+- 每个控件都有 `objectName`（`targetPosition`、`value`、`logView`…），QSS 只按
+  objectName 命中，不依赖控件层级。
+- 颜色只在 `theme/theme.h` 定义；QSS 用 `@bg`、`@ok`、`@fault` 占位符，不写死色值。
 
 ## 构建与运行
 
 ```bash
 cmake -S firmware -B firmware/build
 cmake --build firmware/build -j
-./firmware/build/cats_qt
+./firmware/build/cats_qt            # 需要 can0 已 up，否则日志里会提示打不开通道
+```
+
+离屏冒烟（无显示器时确认能构造出界面）：
+
+```bash
+QT_QPA_PLATFORM=offscreen timeout 3 ./firmware/build/cats_qt
 ```

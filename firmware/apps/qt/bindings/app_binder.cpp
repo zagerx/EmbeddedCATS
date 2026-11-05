@@ -19,24 +19,22 @@ constexpr int kRefreshIntervalMs = 50;
 /* 节拍统计：每 5 s 往日志写一行，用来判断节拍稳不稳 */
 constexpr int kStatsIntervalMs = 5000;
 
-/* app 的运行状态 → 顶部状态条。两边枚举刻意一一对应，仍显式写全，免得日后错位 */
+/* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */
 StateBar::State to_bar_state(enum cats_state s)
 {
 	switch (s) {
 	case CATS_STATE_PREPARING:
 		return StateBar::State::Preparing;
-	/* CONFIGURING（写参数）与 ENABLING（使能）在界面上合成一档“正在准备驱动器”：
-	 * 状态条只给粗粒度提示，精确状态看 cats_control_state_name() 的文本。 */
+	/* CONFIGURING（写参数）与 ENABLING（使能）在界面上合成一档“正在准备驱动器” */
 	case CATS_STATE_CONFIGURING:
 	case CATS_STATE_ENABLING:
 		return StateBar::State::Enabling;
-	/* HOLDING 与 MOVING 在界面上合成一档“运行中”：状态条只给粗粒度提示，
-	 * 精确状态看 cats_control_state_name() 的文本（日志/终端）。 */
+	/* HOLDING 与 MOVING 在界面上合成一档“已使能” */
 	case CATS_STATE_HOLDING:
 	case CATS_STATE_MOVING:
 		return StateBar::State::Running;
 	case CATS_STATE_HALTING:
-		return StateBar::State::Stopping;
+		return StateBar::State::Halting;
 	case CATS_STATE_FAULT:
 		return StateBar::State::Fault;
 	case CATS_STATE_ESTOP:
@@ -145,7 +143,8 @@ void AppBinder::publish()
 	last_state_ = state;
 
 	if (state_bar_ != nullptr) {
-		state_bar_->setState(to_bar_state(state));
+		state_bar_->setState(to_bar_state(state),
+				     QString::fromUtf8(cats_control_state_name(state)));
 	}
 	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_control_state_name(state))));
 }

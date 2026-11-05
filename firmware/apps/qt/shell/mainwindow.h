@@ -12,7 +12,6 @@
 #include <QMainWindow>
 
 class LogPanel;
-class QPushButton;
 class QWidget;
 class StateBar;
 
@@ -25,10 +24,9 @@ class MainWindow : public QMainWindow
 	~MainWindow() override;
 
       private:
-	StateBar *state_bar_ = nullptr;       /* 1.1 */
-	QPushButton *start_button_ = nullptr; /* 1.2 */
-	QWidget *reserved_area_ = nullptr;    /* 2.1 */
-	LogPanel *log_panel_ = nullptr;       /* 3 */
+	StateBar *state_bar_ = nullptr;    /* 1.1 */
+	QWidget *reserved_area_ = nullptr; /* 2.1 */
+	LogPanel *log_panel_ = nullptr;    /* 3 */
 };
 
 #endif /* MAINWINDOW_H */

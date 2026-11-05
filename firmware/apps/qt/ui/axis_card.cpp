@@ -4,8 +4,6 @@
 
 #include "axis_card.h"
 
-#include "status_led.h"
-
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -21,14 +19,12 @@ AxisCard::AxisCard(const QString &title, QWidget *parent) : QFrame(parent)
 	root->setContentsMargins(16, 10, 16, 12);
 	root->setSpacing(8);
 
-	/* 标题行：轴名 + 状态灯 */
+	/* 标题行：只有轴名 */
 	auto *header = new QHBoxLayout();
 	title_ = new QLabel(title, this);
 	title_->setObjectName(QStringLiteral("axisTitle"));
-	status_ = new StatusLed(QStringLiteral("未连接"), this);
 	header->addWidget(title_);
 	header->addStretch(1);
-	header->addWidget(status_);
 	root->addLayout(header);
 
 	root->addWidget(build_command_group());
@@ -49,11 +45,44 @@ QGroupBox *AxisCard::build_command_group()
 	target_position_->setDecimals(3);
 	target_position_->setRange(-100000.0, 100000.0);
 	target_position_->setSingleStep(0.5);
-	target_position_->setSuffix(QStringLiteral(" mm"));
 	target_position_->setValue(0.0);
 
-	form->addRow(QStringLiteral("目标位置"), target_position_);
+	target_velocity_ = new QDoubleSpinBox(group);
+	target_velocity_->setObjectName(QStringLiteral("targetVelocity"));
+	target_velocity_->setDecimals(3);
+	target_velocity_->setRange(0.0, 10000.0);
+	target_velocity_->setSingleStep(1.0);
+	target_velocity_->setValue(0.0);
+
+	target_acceleration_ = new QDoubleSpinBox(group);
+	target_acceleration_->setObjectName(QStringLiteral("targetAcceleration"));
+	target_acceleration_->setDecimals(3);
+	target_acceleration_->setRange(0.0, 100000.0);
+	target_acceleration_->setSingleStep(10.0);
+	target_acceleration_->setValue(0.0);
+
+	/* 单位放在框外，括号围起来 */
+	form->addRow(QStringLiteral("目标位置"), make_command_row(target_position_, QStringLiteral("(mm)")));
+	form->addRow(QStringLiteral("目标速度"), make_command_row(target_velocity_, QStringLiteral("(mm/s)")));
+	form->addRow(QStringLiteral("目标加速度"),
+		     make_command_row(target_acceleration_, QStringLiteral("(mm/s²)")));
 	return group;
+}
+
+QWidget *AxisCard::make_command_row(QDoubleSpinBox *spin, const QString &unit)
+{
+	auto *row = new QWidget(this);
+	auto *layout = new QHBoxLayout(row);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->setSpacing(6);
+
+	layout->addWidget(spin, 1);
+
+	auto *unit_label = new QLabel(unit, row);
+	unit_label->setObjectName(QStringLiteral("unitLabel"));
+	layout->addWidget(unit_label, 0, Qt::AlignVCenter);
+
+	return row;
 }
 
 QGroupBox *AxisCard::build_feedback_group()
