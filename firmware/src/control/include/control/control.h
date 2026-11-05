@@ -111,14 +111,14 @@ enum cats_result cats_control_poll(void);
 enum cats_state cats_control_state(void);
 
 /*
- * 位置指令（绝对位置）。业务单位：位置 µm，速度 µm/s，加速度 µm/s²。
+ * 位置指令（绝对位置）。业务单位：位置 mm，速度 mm/s，加速度 mm/s²（float）。
  * 任意线程可调：封装成 CATS_SIG_MOVE 事件排到队尾，多条指令按顺序保留。
- * 返回 CATS_OK = 已入队；CATS_ERR_BUSY = 队列满（本指令被丢弃）；
- *      CATS_ERR_PARAM = 轴号越界 / 换算未配 / 未初始化。
+ * 返回值 CATS_OK = 已入队；CATS_ERR_BUSY = 队列满（本指令被丢弃）；
+ *      CATS_ERR_PARAM = 轴号越界 / 换算未配 / 参数非有限值 / 未初始化。
  * 注意：能否执行由状态机决定（HOLDING 里生效；运动中收到的命令被丢弃），
  *       入队成功不代表已在动。
  */
-enum cats_result cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, int32_t um_s2);
+enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float mm_s2);
 
 /*
  * 停止指令：减速停在当前位置并保持使能（可继续接指令）。任意线程可调。
@@ -127,11 +127,11 @@ enum cats_result cats_control_move_to(uint8_t axis, int32_t um, int32_t um_s, in
 void cats_control_stop(void);
 
 /*
- * 装配层给换算参数：每转多少脉冲（驱动器 6092h）、每转多少微米（丝杠导程）。
- * 未配置时位置指令一律拒绝（宁可不动，也不算错位置）。
+ * 装配层给换算参数：每转多少脉冲（驱动器 6092h）、每转多少毫米（丝杆导程）。
+ * 未配置时位置指令一律拒绕（宁可不动，也不算错位置）。
  * 0 = 成功；-1 = 轴号越界。
  */
-int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, int32_t um_per_rev);
+int cats_control_set_axis_scale(uint8_t axis, int32_t pulses_per_rev, float mm_per_rev);
 
 /* 状态名："PREPARING" / "RUNNING" / …；越界返回 "?"。界面与日志共用同一份，别各写一份 */
 const char *cats_control_state_name(enum cats_state s);

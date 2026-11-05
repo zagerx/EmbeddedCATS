@@ -21,7 +21,7 @@ static int issue_move(struct cats_control *ctl)
 	if (m->axis >= ctl->axis_count) {
 		return -1;
 	}
-	return axis_move_to(&ctl->axes[m->axis], m->um, m->um_s, m->um_s2);
+	return axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2);
 }
 
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)

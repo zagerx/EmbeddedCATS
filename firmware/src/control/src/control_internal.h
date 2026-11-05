@@ -30,7 +30,7 @@ enum cats_sig {
 	CATS_SIG_ESTOP               /* 急停：quick stop → 断使能 */
 };
 
-/* 位置指令的参数（业务单位：µm / µm·s⁻¹ / µm·s⁻²）；定义在 evt_queue.h */
+/* 位置指令的参数（业务单位：mm / mm·s⁻¹ / mm·s⁻²）；定义在 evt_queue.h */
 
 /*
  * 字段顺序刻意分三段：装配期只读 → 控制线程私有 → 跨线程共享（放最后）。

@@ -62,8 +62,10 @@ QGroupBox *AxisCard::build_command_group()
 	target_acceleration_->setValue(0.0);
 
 	/* 单位放在框外，括号围起来 */
-	form->addRow(QStringLiteral("目标位置"), make_command_row(target_position_, QStringLiteral("(mm)")));
-	form->addRow(QStringLiteral("目标速度"), make_command_row(target_velocity_, QStringLiteral("(mm/s)")));
+	form->addRow(QStringLiteral("目标位置"),
+		     make_command_row(target_position_, QStringLiteral("(mm)")));
+	form->addRow(QStringLiteral("目标速度"),
+		     make_command_row(target_velocity_, QStringLiteral("(mm/s)")));
 	form->addRow(QStringLiteral("目标加速度"),
 		     make_command_row(target_acceleration_, QStringLiteral("(mm/s²)")));
 	return group;

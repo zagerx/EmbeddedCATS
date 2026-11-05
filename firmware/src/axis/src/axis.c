@@ -17,40 +17,50 @@ void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id)
 {
 	a->node_id = node_id;
 	a->pulses_per_rev = 0;
-	a->um_per_rev = 0;
+	a->mm_per_rev = 0.0f;
 	cia402_init(&a->drv, m, node_id);
 }
 
-void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, int32_t um_per_rev)
+void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, float mm_per_rev)
 {
 	if (a == NULL) {
 		return;
 	}
 	a->pulses_per_rev = pulses_per_rev;
-	a->um_per_rev = um_per_rev;
+	a->mm_per_rev = mm_per_rev;
 }
 
-/* µm → pulse（中间用 64 位，避免 1 m × 10000 脉冲就溢出） */
-static int32_t scale_um(const struct cats_axis *a, int32_t um)
+/*
+ * mm → pulse。全链路只有这一处取整：
+ *   1. 先升到 double 算（float 乘法会丢位，且 double 在 x86-64/aarch64 上
+ *      都是同一套 IEEE 双精度运算，结果可复现）；
+ *   2. 四舍五入、远离零（加 0.5 再截断，不依赖 libm）；
+ *   3. 饱和到 int32，防越界（1 m × 10000 pulse/rev 用 int32 也装不下）。
+ */
+static int32_t scale_mm(const struct cats_axis *a, float mm)
 {
-	int64_t p = (int64_t)um * (int64_t)a->pulses_per_rev / (int64_t)a->um_per_rev;
+	double p = ((double)mm * (double)a->pulses_per_rev) / (double)a->mm_per_rev;
 
-	if (p > INT32_MAX) {
+	p += (p >= 0.0) ? 0.5 : -0.5;
+	if (p >= 2147483647.0) {
 		return INT32_MAX;
 	}
-	if (p < -INT32_MAX) {
+	if (p <= -2147483647.0) {
 		return -INT32_MAX;
 	}
 	return (int32_t)p;
 }
 
-int axis_move_to(struct cats_axis *a, int32_t um, int32_t um_s, int32_t um_s2)
+int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 {
-	if (a == NULL || a->pulses_per_rev <= 0 || a->um_per_rev <= 0) {
+	if (a == NULL || a->pulses_per_rev <= 0 || a->mm_per_rev <= 0.0f) {
 		return -1; /* 没配机械参数就不接指令：宁可不动，也不算错位置 */
 	}
-	return cia402_pp_start(&a->drv, scale_um(a, um), scale_um(a, um_s), scale_um(a, um_s2),
-			       scale_um(a, um_s2));
+	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
+		return -1; /* NaN：进到整数换算就是未定义行为，这里就拦住 */
+	}
+	return cia402_pp_start(&a->drv, scale_mm(a, mm), scale_mm(a, mm_s), scale_mm(a, mm_s2),
+			       scale_mm(a, mm_s2));
 }
 
 int axis_halt(struct cats_axis *a)

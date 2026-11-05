@@ -29,7 +29,7 @@ axis/
 |---|---|
 | 轴 = 节点 + 402 推进器 + 单位换算 | `include/axis/axis.h` |
 | 轴集合：每轴一条 SDO 通道 ⇒ **并行**使能、互不阻塞 | `src/axis.c` |
-| 单位换算：µm / µm·s⁻¹ / µm·s⁻² → pulse（64 位中间量，防溢出） | `src/axis.c` |
+| 单位换算：mm / mm·s⁻¹ / mm·s⁻² → pulse（全链路唯一取整点，double 中间量 + 四舍五入饱和） | `src/axis.c` |
 | 运动/停止/急停转发与结论汇总 `axis_take_motion()` | `src/axis.c` |
 | 批量动作：`axis_config_all()` / `axis_enable_all()` / `axis_quick_stop_all()` / `axis_poll_all()` | `src/axis.c` |
 | 事实查询：`axis_all_configured()` / `axis_all_enabled()` / `axis_any_failed()` | `src/axis.c` |

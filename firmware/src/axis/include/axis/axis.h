@@ -28,10 +28,10 @@ struct cats_axis {
 
 	/* 换算参数由装配层给定（机械参数不属于协议） */
 	int32_t pulses_per_rev; /* 6092h：每转多少脉冲 */
-	int32_t um_per_rev;     /* 传动：每转多少微米（丝杠导程） */
+	float mm_per_rev;       /* 传动：每转多少毫米（丝杆导程） */
 };
 
-/* 业务单位：位置 µm，速度 µm·s⁻¹，加速度 µm·s⁻² */
+/* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
 /* 运动结论汇总（已从 402 取走，不会重复上报） */
 enum axis_motion {
@@ -43,11 +43,11 @@ enum axis_motion {
 
 void axis_init(struct cats_axis *a, struct co_master *m, uint8_t node_id);
 
-/* 装配层给换算参数；未配置（任一为 0）时运动指令一律拒绝 */
-void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, int32_t um_per_rev);
+/* 装配层给换算参数；未配置（任一 ≤ 0）时运动指令一律拒绕 */
+void axis_set_scale(struct cats_axis *a, int32_t pulses_per_rev, float mm_per_rev);
 
-/* 绝对位置运动（µm / µm·s⁻¹ / µm·s⁻²）。0 = 已受理；1 = 轴上有过程在跑；-1 = 不允许 */
-int axis_move_to(struct cats_axis *a, int32_t um, int32_t um_s, int32_t um_s2);
+/* 绝对位置运动（mm / mm·s⁻¹ / mm·s⁻²）。0 = 已受理；1 = 轴上有过程在跑；-1 = 不允许 */
+int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2);
 
 /* 减速停在当前位置，保持使能。0 = 已受理 */
 int axis_halt(struct cats_axis *a);

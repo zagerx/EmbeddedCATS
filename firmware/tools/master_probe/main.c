@@ -23,72 +23,89 @@
 #define POLL_INTERVAL_MS 20u /* 节拍：够判 750 ms 心跳超时（误差 2.7%） */
 
 /* 可选：到点往 app 注入一条指令，方便在命令行复现运动/停止/急停。
- * 单位：位置 µm、速度 µm/s、加速度 µm/s²；--pulses/--lead 是**测试用**的
- * 换算参数（每转多少脉冲 / 每转多少微米），不是实测机械参数。 */
+ * 单位：位置 mm、速度 mm/s、加速度 mm/s²；--pulses/--lead 是**测试用**的
+ * 换算参数（每转多少脉冲 / 每转多少毫米），不是实测机械参数。 */
 struct probe_cmd {
-	long move_um;
+	double move_mm;
+	double move2_mm;
+	double vel_mm_s;
+	double acc_mm_s2;
+	double mm_per_rev;
 	long move_at_ms;
-	long move2_um;
 	long move2_at_ms;
 	long stop_at_ms;
 	long estop_at_ms;
 	long spam;
 	long spam_at_ms;
-	long vel_um_s;
-	long acc_um_s2;
 	int32_t pulses_per_rev;
-	int32_t um_per_rev;
+	int has_move;
+	int has_move2;
+	int has_stop;
+	int has_estop;
+	int has_spam;
 	int armed;
 };
 
 static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 {
-	struct probe_cmd c = {-1, -1, -1, -1, -1, -1, -1, 0, 10000, 50000, 10000, 0, 0};
+	struct probe_cmd c = {0};
 	int i;
+
+	c.vel_mm_s = 10.0; /* 默认 10 mm/s */
+	c.acc_mm_s2 = 50.0;
+	c.pulses_per_rev = 10000;
+	c.move_at_ms = -1;
+	c.move2_at_ms = -1;
+	c.stop_at_ms = -1;
+	c.estop_at_ms = -1;
+	c.spam = -1;
+	c.spam_at_ms = -1;
 
 	for (i = 3; i + 1 < argc; i += 2) {
 		const char *k = argv[i];
-		long v = strtol(argv[i + 1], NULL, 10);
+		double v = strtod(argv[i + 1], NULL);
 
 		if (strcmp(k, "--move") == 0) {
-			c.move_um = v;
-			c.armed = 1;
+			c.move_mm = v;
+			c.has_move = 1;
 		} else if (strcmp(k, "--move-at") == 0) {
-			c.move_at_ms = v;
+			c.move_at_ms = (long)v;
 		} else if (strcmp(k, "--move2") == 0) {
-			c.move2_um = v;
-			c.armed = 1;
+			c.move2_mm = v;
+			c.has_move2 = 1;
 		} else if (strcmp(k, "--move2-at") == 0) {
-			c.move2_at_ms = v;
+			c.move2_at_ms = (long)v;
 		} else if (strcmp(k, "--stop-at") == 0) {
-			c.stop_at_ms = v;
-			c.armed = 1;
+			c.stop_at_ms = (long)v;
+			c.has_stop = 1;
 		} else if (strcmp(k, "--estop-at") == 0) {
-			c.estop_at_ms = v;
-			c.armed = 1;
+			c.estop_at_ms = (long)v;
+			c.has_estop = 1;
 		} else if (strcmp(k, "--spam") == 0) {
-			c.spam = v;
-			c.armed = 1;
+			c.spam = (long)v;
+			c.has_spam = c.spam > 0;
 		} else if (strcmp(k, "--spam-at") == 0) {
-			c.spam_at_ms = v;
+			c.spam_at_ms = (long)v;
 		} else if (strcmp(k, "--vel") == 0) {
-			c.vel_um_s = v;
+			c.vel_mm_s = v;
 		} else if (strcmp(k, "--acc") == 0) {
-			c.acc_um_s2 = v;
+			c.acc_mm_s2 = v;
 		} else if (strcmp(k, "--pulses") == 0) {
 			c.pulses_per_rev = (int32_t)v;
 		} else if (strcmp(k, "--lead") == 0) {
-			c.um_per_rev = (int32_t)v;
+			c.mm_per_rev = v;
 		}
 	}
-	if (c.move_um >= 0 && c.move_at_ms < 0) {
+
+	c.armed = c.has_move || c.has_move2 || c.has_stop || c.has_estop || c.has_spam;
+	if (c.has_move && c.move_at_ms < 0) {
 		c.move_at_ms = 1500; /* 默认等 ENABLING 结束再发 */
 	}
-	if (c.move2_um >= 0 && c.move2_at_ms < 0) {
-		c.move2_at_ms = (c.move_um >= 0 ? c.move_at_ms : 1500) + 500;
+	if (c.has_move2 && c.move2_at_ms < 0) {
+		c.move2_at_ms = (c.has_move ? c.move_at_ms : 1500) + 500;
 	}
-	if (c.spam > 0 && c.spam_at_ms < 0) {
-		c.spam_at_ms = (c.move_um >= 0 ? c.move_at_ms : 1500) + 200;
+	if (c.has_spam && c.spam_at_ms < 0) {
+		c.spam_at_ms = (c.has_move ? c.move_at_ms : 1500) + 200;
 	}
 	return c;
 }
@@ -156,14 +173,14 @@ int main(int argc, char **argv)
 	s_base_ms = start_ms;
 
 	if (cmd.armed) {
-		if (cmd.um_per_rev <= 0 || cmd.pulses_per_rev <= 0) {
-			fprintf(stderr, "注入指令需要 --lead <µm/rev> 与 --pulses <pulse/rev>\n");
+		if (cmd.mm_per_rev <= 0.0 || cmd.pulses_per_rev <= 0) {
+			fprintf(stderr, "注入指令需要 --lead <mm/rev> 与 --pulses <pulse/rev>\n");
 			can_io_close(&io);
 			return 1;
 		}
-		(void)cats_control_set_axis_scale(0, cmd.pulses_per_rev, cmd.um_per_rev);
-		printf("测试换算：%d pulse/rev，%d µm/rev（测试值，不是实测机械参数）\n",
-		       (int)cmd.pulses_per_rev, (int)cmd.um_per_rev);
+		(void)cats_control_set_axis_scale(0, cmd.pulses_per_rev, (float)cmd.mm_per_rev);
+		printf("测试换算：%d pulse/rev，%.3f mm/rev（测试值，不是实测机械参数）\n",
+		       (int)cmd.pulses_per_rev, cmd.mm_per_rev);
 		fflush(stdout);
 	}
 
@@ -174,37 +191,35 @@ int main(int argc, char **argv)
 		if (cmd.armed) {
 			long t = (long)(now - s_base_ms);
 
-			if (cmd.move_um >= 0 && !moved && t >= cmd.move_at_ms) {
+			if (cmd.has_move && !moved && t >= cmd.move_at_ms) {
 				moved = 1;
-				printf("[%6ld] 指令：move_to %ld µm\n", t, cmd.move_um);
-				if (cats_control_move_to(0, (int32_t)cmd.move_um,
-							 (int32_t)cmd.vel_um_s,
-							 (int32_t)cmd.acc_um_s2) != CATS_OK) {
+				printf("[%6ld] 指令：move_to %.3f mm\n", t, cmd.move_mm);
+				if (cats_control_move_to(0, (float)cmd.move_mm, (float)cmd.vel_mm_s,
+							 (float)cmd.acc_mm_s2) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
 			}
-			if (cmd.move2_um >= 0 && !moved2 && t >= cmd.move2_at_ms) {
+			if (cmd.has_move2 && !moved2 && t >= cmd.move2_at_ms) {
 				moved2 = 1;
-				printf("[%6ld] 指令：move_to %ld µm（第二条）\n", t, cmd.move2_um);
-				if (cats_control_move_to(0, (int32_t)cmd.move2_um,
-							 (int32_t)cmd.vel_um_s,
-							 (int32_t)cmd.acc_um_s2) != CATS_OK) {
+				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
+				if (cats_control_move_to(0, (float)cmd.move2_mm,
+							 (float)cmd.vel_mm_s,
+							 (float)cmd.acc_mm_s2) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
 			}
-			if (cmd.spam > 0 && !spammed && t >= cmd.spam_at_ms) {
+			if (cmd.has_spam && !spammed && t >= cmd.spam_at_ms) {
 				long i;
 				long ok = 0;
 				long busy = 0;
 
 				spammed = 1;
 				for (i = 0; i < cmd.spam; i++) {
-					if (cats_control_move_to(0, (int32_t)(1000 * (i + 1)),
-								 (int32_t)cmd.vel_um_s,
-								 (int32_t)cmd.acc_um_s2) ==
-					    CATS_OK) {
+					if (cats_control_move_to(0, (float)(i + 1),
+								 (float)cmd.vel_mm_s,
+								 (float)cmd.acc_mm_s2) == CATS_OK) {
 						ok++;
 					} else {
 						busy++;
@@ -214,13 +229,13 @@ int main(int argc, char **argv)
 				       ok, busy);
 				fflush(stdout);
 			}
-			if (cmd.stop_at_ms >= 0 && !stopped && t >= cmd.stop_at_ms) {
+			if (cmd.has_stop && !stopped && t >= cmd.stop_at_ms) {
 				stopped = 1;
 				printf("[%6ld] 指令：stop\n", t);
 				cats_control_stop();
 				fflush(stdout);
 			}
-			if (cmd.estop_at_ms >= 0 && !estopped && t >= cmd.estop_at_ms) {
+			if (cmd.has_estop && !estopped && t >= cmd.estop_at_ms) {
 				estopped = 1;
 				printf("[%6ld] 指令：estop\n", t);
 				cats_control_estop();

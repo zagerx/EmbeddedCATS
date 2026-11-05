@@ -23,12 +23,12 @@
 #define CATS_EVTQ_LEN 8u       /* 队列容量 */
 #define CATS_EVTQ_DRAIN_MAX 4u /* 每拍最多消费几条，防把 1 ms 节拍拉长 */
 
-/* 位置指令载荷（对应 cats_control_move_to 的参数；业务单位 µm / µm·s⁻¹ / µm·s⁻²） */
+/* 位置指令载荷（对应 cats_control_move_to 的参数；业务单位 mm / mm·s⁻¹ / mm·s⁻²） */
 struct cats_move_cmd {
 	uint8_t axis;
-	int32_t um;
-	int32_t um_s;
-	int32_t um_s2;
+	float mm;
+	float mm_s;
+	float mm_s2;
 };
 
 /* 队列元素：取最大的一种事件。以后加别的带参事件就往 union 里加成员 */

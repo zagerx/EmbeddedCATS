@@ -70,8 +70,9 @@ HALTING / FAULT / ESTOP）。
 
 - `axis_card` 的「反馈」四项（实际位置 / 实际速度 / 状态字 / 错误码）是**占位显示**：
   `control.h` 目前只发布 `state`、`fault_code`、`fault_name`、`axis_abort`。
-- 「目标位置 / 目标速度 / 目标加速度」三项按界面习惯显示 `mm`、`mm/s`、`mm/s²`，而
-  `cats_control_move_to()` 用 µm 体系，且未调 `cats_control_set_axis_scale()` 前一概拒绝。
+- 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
+  `cats_control_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
+  取整到脉冲只发生在轴层；未调 `cats_control_set_axis_scale()` 前一概拒绕。
 - `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
   入口（2.1 留白就是给它们的）。
 - 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
