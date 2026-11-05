@@ -14,7 +14,9 @@
  * 可能在 750 ms 内被判成心跳丢失。驱动器响应足够快时不会走到这条路。
  *
  * 心跳的事实（hb_ok）由 control.c 每拍算好，本状态只读；掉线 → FAULT 的判定在
- * ONLINE（父状态）统一做。时间用 me->entered_ms 手算（内核不提供定时器）。
+ * ONLINE（父状态）统一做。**本状态不在 ONLINE 下**，所以自己不做心跳判定。
+ *
+ * 时间：内核不提供定时器，用 ctl->state_since_ms（每拍由 cats_control_poll 刷新）。
  */
 
 #include "states.h"
@@ -22,45 +24,38 @@
 #define PREPARE_SETTLE_MS 100u /* 发完 0x82 先静默这么久再判心跳 */
 #define PREPARE_TIMEOUT_MS 3000u /* 从进入本状态算起，这么久还等不到心跳就判失败 */
 
-static int st_preparing_h(struct hsm *me, const struct hsm_event *e);
-const struct hsm_state st_preparing = {
-	.handler = st_preparing_h,
-	.super = &st_root, /* 不在 ONLINE 下：此刻心跳还没有是正常的 */
-	.name = "PREPARING",
-};
-
-static int st_preparing_h(struct hsm *me, const struct hsm_event *e)
+sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cats_control *ctl = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
-	case HSM_SIG_ENTRY:
+	case SM_SIG_ENTRY:
 		/* 0x82 = Reset Communication，站号 0 = 广播；只复位通信，
 		 * 不改动对象字典里的配置 */
 		(void)co_master_nmt(ctl->master, 0, 0x82);
 		break;
 
-	case HSM_SIG_EXIT:
+	case SM_SIG_EXIT:
 		break; /* 无出口动作 */
 
 	case CATS_SIG_TICK: {
-		uint32_t elapsed = now_ms(ctl) - me->entered_ms;
+		uint32_t elapsed = now_ms(ctl) - ctl->state_since_ms;
 
 		if (elapsed < PREPARE_SETTLE_MS) {
-			return HSM_RET_SUPER; /* 静默期：心跳还是复位前的旧数据 */
+			return SM_SUPER(&st_root); /* 静默期：心跳还是复位前的旧数据 */
 		}
 		if (ctl->hb_ok) {
-			HSM_TRAN(&st_configuring); /* 先配参数（模式等），再使能 */
+			return SM_TRAN(&st_configuring); /* 先配参数（模式等），再使能 */
 		}
 		if (elapsed > PREPARE_TIMEOUT_MS) {
 			ctl->fault_code = CATS_FAULT_BOOTUP_TIMEOUT; /* 由 ROOT 迁 FAULT */
 		}
-		return HSM_RET_SUPER;
+		return SM_SUPER(&st_root);
 	}
 
 	default:
-		return HSM_RET_SUPER;
+		return SM_SUPER(&st_root);
 	}
 
-	return HSM_RET_HANDLED;
+	return SM_HANDLED();
 }

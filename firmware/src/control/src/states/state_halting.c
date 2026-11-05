@@ -12,21 +12,14 @@
 
 #include "states.h"
 
-static int st_halting_h(struct hsm *me, const struct hsm_event *e);
-const struct hsm_state st_halting = {
-	.handler = st_halting_h,
-	.super = &st_online,
-	.name = "HALTING",
-};
-
-static int st_halting_h(struct hsm *me, const struct hsm_event *e)
+sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cats_control *ctl = container_of(me, struct cats_control, hsm);
 
 	switch (e->sig) {
-	case HSM_SIG_ENTRY:
+	case SM_SIG_ENTRY:
 		if (axis_halt(&ctl->axes[ctl->move.axis]) != 0) {
-			ctl->fault_code = CATS_FAULT_STOP_FAILED; /* ENTRY 里不迁移，交 ONLINE */
+			ctl->fault_code = CATS_FAULT_STOP_FAILED; /* ENTRY 里不迁移，交 ROOT */
 		}
 		break;
 
@@ -37,20 +30,20 @@ static int st_halting_h(struct hsm *me, const struct hsm_event *e)
 
 		m = axis_take_motion(&ctl->axes[ctl->move.axis]);
 		if (m == AXIS_MOTION_DONE) {
-			HSM_TRAN(&st_holding);
+			return SM_TRAN(&st_holding);
 		}
 		if (m == AXIS_MOTION_FAILED) {
 			ctl->fault_code = CATS_FAULT_STOP_FAILED;
 		}
-		return HSM_RET_SUPER; /* 公共判定交 ONLINE */
+		return SM_SUPER(&st_online); /* 公共判定交 ONLINE */
 	}
 
-	case HSM_SIG_EXIT:
+	case SM_SIG_EXIT:
 		break;
 
 	default:
-		return HSM_RET_SUPER;
+		return SM_SUPER(&st_online);
 	}
 
-	return HSM_RET_HANDLED;
+	return SM_HANDLED();
 }

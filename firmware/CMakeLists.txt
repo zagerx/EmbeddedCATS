@@ -98,13 +98,13 @@ add_library(cats_axis STATIC src/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/axis/include)
 target_link_libraries(cats_axis PUBLIC cia402)
 
-# 应用层：QP 风格状态机
-#   hsm/          机制层：状态即函数指针，dispatch 统一做 EXIT→ENTRY
+# 应用层：QP 风格层次状态机（HSM）
+#   hsm/          机制层：sm_hsm 内核（层次 + LCA + INIT 下钻）
 #   states/       业务状态：一状态一文件，states.c 是唯一注册点
 #   control.c     装配与对外接口：API → 事件
 add_library(cats_control STATIC
 	src/control/src/control.c
-	src/control/src/hsm/hsm.c
+	src/control/src/hsm/sm_hsm.c
 	src/control/src/states/states.c
 	src/control/src/states/state_root.c
 	src/control/src/states/state_online.c
@@ -142,21 +142,3 @@ target_link_libraries(cats_qt PRIVATE cats_control backend_socketcan Qt6::Widget
 add_executable(master_probe tools/master_probe/main.c)
 target_link_libraries(master_probe PRIVATE cats_control backend_socketcan)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)
-
-# 工具：状态机骨架（一状态一文件，main.c 暂空）。
-# 只编 hsm.c，不链 cats_control —— 顺带证明内核零依赖。
-set(HSM_DEMO_SRCS
-	tools/hsm_demo/states.c
-	tools/hsm_demo/state_root.c
-	tools/hsm_demo/state_operational.c
-	tools/hsm_demo/state_idle.c
-	tools/hsm_demo/state_running.c
-	tools/hsm_demo/state_stopping.c
-	tools/hsm_demo/state_fault.c
-	tools/hsm_demo/state_estop.c)
-
-add_executable(hsm_demo tools/hsm_demo/main.c ${HSM_DEMO_SRCS} src/control/src/hsm/hsm.c)
-target_include_directories(hsm_demo PRIVATE
-	${CMAKE_CURRENT_SOURCE_DIR}/src/control/src/hsm
-	${CMAKE_CURRENT_SOURCE_DIR}/tools/hsm_demo)
-target_compile_definitions(hsm_demo PRIVATE _POSIX_C_SOURCE=200809L)

@@ -17,13 +17,14 @@
 
 #include <pthread.h>
 
-#include "hsm/hsm.h"
+#include "hsm/sm_hsm.h"
 
 #define CATS_MAX_AXES 2
 
-/* 业务事件：内核只认 ENTRY/EXIT，业务信号从 HSM_SIG_USER 起编号 */
+/* 业务事件：内核只认 EMPTY/ENTRY/EXIT/INIT，业务信号从 SM_SIG_USER 起编号 */
 enum cats_sig {
-	CATS_SIG_TICK = HSM_SIG_USER /* 周期节拍，cats_control_poll() 每拍投一个 */
+	CATS_SIG_TICK = SM_SIG_USER, /* 周期节拍，cats_control_poll() 每拍投一个 */
+	CATS_SIG_ESTOP               /* 急停请求：由 st_root 统一迁 ESTOP */
 };
 
 /* 指令槽里的指令种类（单槽，后到覆盖先到） */
@@ -54,8 +55,9 @@ struct cats_control {
 	/* ---- 控制线程私有（只有 cats_control_poll 这条链路会读写） ---- */
 	uint8_t hb_ok; /* 本拍所有轴心跳都正常；每拍刷新，状态只读不算 */
 	struct cats_move_cmd move; /* 从指令槽取走后的参数副本 */
-	struct hsm hsm; /* 纯状态机机制（当前状态、迁移目标、进入时刻） */
-	enum cats_fault fault_code; /* 出错原因；非 NONE 时由 ONLINE 统一迁 FAULT */
+	struct sm_hsm hsm; /* 纯状态机机制（当前状态、暂存字段、重入保护） */
+	uint32_t state_since_ms; /* 进入当前状态的时刻；cats_control_poll 每拍刷新 */
+	enum cats_fault fault_code; /* 出错原因；非 NONE 时由 ROOT 统一迁 FAULT */
 
 	/* ---- 跨线程共享：全部由 lock 保护 ----
 	 * 写者：任意线程（指令槽：填好 cmd 再置 cmd_kind；急停：只置 estop_req）
@@ -69,8 +71,8 @@ struct cats_control {
 	int estop_req;            /* 非 0 = 有线程请求急停，控制线程下一拍执行 */
 };
 
-/* states.c 定义的状态表：下标 = enum cats_state，值 = 状态描述符 */
-extern const struct hsm_state *const states[CATS_STATE_COUNT];
+/* states.c 定义的状态表：下标 = enum cats_state，值 = 状态函数 */
+extern const sm_state_t states[CATS_STATE_COUNT];
 
 /* 取当前时刻；未接管主站时返回 0 */
 uint32_t now_ms(struct cats_control *app);

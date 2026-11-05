@@ -7,13 +7,13 @@
 
 #include "states.h"
 
-/* ---- 状态表：下标 = enum cats_state，值 = 状态描述符 ---- */
+/* ---- 状态表：下标 = enum cats_state，值 = 状态函数 ---- */
 
-const struct hsm_state *const states[CATS_STATE_COUNT] = {
-	[CATS_STATE_PREPARING] = &st_preparing, [CATS_STATE_CONFIGURING] = &st_configuring,
-	[CATS_STATE_ENABLING] = &st_enabling,   [CATS_STATE_HOLDING] = &st_holding,
-	[CATS_STATE_MOVING] = &st_moving,       [CATS_STATE_HALTING] = &st_halting,
-	[CATS_STATE_FAULT] = &st_fault,         [CATS_STATE_ESTOP] = &st_estop,
+const sm_state_t states[CATS_STATE_COUNT] = {
+	[CATS_STATE_PREPARING] = st_preparing, [CATS_STATE_CONFIGURING] = st_configuring,
+	[CATS_STATE_ENABLING] = st_enabling,   [CATS_STATE_HOLDING] = st_holding,
+	[CATS_STATE_MOVING] = st_moving,       [CATS_STATE_HALTING] = st_halting,
+	[CATS_STATE_FAULT] = st_fault,         [CATS_STATE_ESTOP] = st_estop,
 };
 
 static const char *const NAMES[CATS_STATE_COUNT] = {
@@ -34,6 +34,16 @@ static const char *const FAULT_NAMES[] = {
 	[CATS_FAULT_MOTION_FAILED] = "MOTION_FAILED",
 	[CATS_FAULT_STOP_FAILED] = "STOP_FAILED",
 };
+
+/* ---- 顶层初始转移 ----
+ * sm_hsm_init() 带着 SM_SIG_INIT 调这里；从 sm_top 出发进 PREPARING，
+ * 内核会把 sm_top -> st_root -> st_preparing 的 ENTRY 链走一遍。
+ */
+sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e)
+{
+	(void)e;
+	return SM_TRAN(&st_preparing);
+}
 
 const char *cats_control_state_name(enum cats_state s)
 {

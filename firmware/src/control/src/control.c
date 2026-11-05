@@ -2,8 +2,8 @@
  * control.c — 控制层装配与对外接口（**不含状态逻辑**）
  *
  * 职责：把对外 API 翻译成状态机事件，其余一概不管。
- *   状态逻辑在 states/state_*.c（一状态一文件），状态机机制在 hsm/hsm.c，
- *   状态注册在 states/states.c，内部对象在 control_internal.h。
+ *   状态逻辑在 states/state_*.c（一状态一文件），状态机机制在 hsm/sm_hsm.c，
+ *   状态注册在 states/states.c，初始转移也在那里，内部对象在 control_internal.h。
  */
 
 #include <control/control.h>
@@ -20,7 +20,7 @@ static void publish_readonly(struct cats_control *app)
 	int i;
 
 	for (i = 0; i < CATS_STATE_COUNT; i++) {
-		if (states[i] == app->hsm.state) {
+		if (states[i] == sm_hsm_state(&app->hsm)) {
 			state = i;
 			break;
 		}
@@ -51,8 +51,10 @@ enum cats_result cats_control_init(struct co_master *master)
 		axis_init(&s_ctl.axes[i], master, master->node_id[i]);
 	}
 
-	/* 初态即准备态：hsm_init 从根一路 ENTRY 到 PREPARING，广播复位从这里发出 */
-	hsm_init(&s_ctl.hsm, &st_preparing, now_ms(&s_ctl));
+	/* 初态：initial() 返回 SM_TRAN(&st_preparing)，内核把 sm_top → ROOT → PREPARING
+	 * 的 ENTRY 链走一遍，广播复位从 PREPARING 的 ENTRY 里发出 */
+	sm_hsm_init(&s_ctl.hsm, &initial);
+	s_ctl.state_since_ms = now_ms(&s_ctl);
 
 	publish_readonly(&s_ctl);
 	return CATS_OK;
@@ -82,6 +84,9 @@ static void refresh_heartbeat_fact(struct cats_control *ctl)
 
 enum cats_result cats_control_poll(void)
 {
+	static const struct sm_event evt_estop = {CATS_SIG_ESTOP};
+	static const struct sm_event evt_tick = {CATS_SIG_TICK};
+	sm_state_t before;
 	uint32_t now;
 	int estop;
 
@@ -94,11 +99,14 @@ enum cats_result cats_control_poll(void)
 	estop = s_ctl.estop_req;
 	s_ctl.estop_req = 0;
 	pthread_mutex_unlock(&s_ctl.lock);
-	if (estop) {
-		hsm_transition(&s_ctl.hsm, &st_estop, now_ms(&s_ctl));
-	}
 
 	now = now_ms(&s_ctl);
+	if (estop) {
+		/* 从"同步强制迁移"改为"走事件"：由 st_root 统一接管 → ESTOP */
+		sm_hsm_dispatch(&s_ctl.hsm, &evt_estop);
+		s_ctl.state_since_ms = now;
+	}
+
 	/* 收帧与运行状态无关：心跳要在任何状态下都记着，这才叫“一直检测” */
 	(void)co_master_poll(s_ctl.master, now);
 	refresh_heartbeat_fact(&s_ctl);
@@ -107,7 +115,11 @@ enum cats_result cats_control_poll(void)
 	axis_poll_all(s_ctl.axes, s_ctl.axis_count, now);
 
 	/* 一拍推一次状态机（内部处理一个事件） */
-	hsm_dispatch(&s_ctl.hsm, CATS_SIG_TICK, 0, now);
+	before = sm_hsm_state(&s_ctl.hsm);
+	sm_hsm_dispatch(&s_ctl.hsm, &evt_tick);
+	if (sm_hsm_state(&s_ctl.hsm) != before) {
+		s_ctl.state_since_ms = now; /* 状态变了：重新计“进入时刻” */
+	}
 
 	publish_readonly(&s_ctl);
 	return CATS_OK;
