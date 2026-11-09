@@ -6,6 +6,9 @@
 |---|---|
 | `master_probe/` | 无界面运行器：自起 I/O（1 ms）与 svc 两线程，主循环 20 ms 推进 `cats_control_poll()` |
 | `fake_drive/` | CANopen 从站模拟器：无驱动器时在两路 PCAN 上模拟双轴节点（NMT + SDO + 心跳） |
+| `canopen_selftest/` | 协议栈单测：SDO 报文编解码 + 事务槽状态机（不碰 CAN） |
+| `ds402_selftest/` | PDS 知识单测：状态字解析 + 起点快进（不碰 CAN） |
+| `layering_check.sh` | 分层边界检查 R1–R10 |
 
 `master_probe` 是命令行版的运行器：日志落在终端，方便 grep 和长时间跑。
 

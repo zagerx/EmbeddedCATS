@@ -114,12 +114,34 @@ void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms)
 static int od_wait(struct od_sdo *s, uint32_t timeout_ms)
 {
 	struct timespec dl;
+	struct timespec now;
 	int rc;
 
 	deadline_after(&dl, timeout_ms + OD_SDO_WAIT_SLACK_MS);
-	while (s->done == 0u) {
-		if (pthread_cond_timedwait(&s->cv, &s->lock, &dl) == ETIMEDOUT) {
+	/* 每一轮重新算剩余时间：abort 可能已经很晚了，不能再用固定的 dl */
+	for (;;) {
+		long ms;
+
+		if (s->done != 0u) {
+			break;
+		}
+		if (s->abort != 0u) {
+			/* 外部打断（安全动作）：这一笔作废，让 I/O 线程关掉事务 */
+			s->abort = 0u;
+			s->cancel = 1u;
+			s->pending = 0u;
+			s->done = 0u;
+			return -1;
+		}
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		ms = (long)(dl.tv_sec - now.tv_sec) * 1000L +
+		     (long)(dl.tv_nsec - now.tv_nsec) / 1000000L;
+		if (ms <= 0) {
 			s->cancel = 1u; /* 让 I/O 线程收尾，通道不占用 */
+			return -1;
+		}
+		if (pthread_cond_timedwait(&s->cv, &s->lock, &dl) == ETIMEDOUT) {
+			s->cancel = 1u;
 			return -1;
 		}
 	}
@@ -187,12 +209,30 @@ static uint32_t od_last_error(void *ctx)
 	return s->last_code;
 }
 
+/* 任意线程：打断在途事务（等待方立刻返回，事务由 I/O 线程关掉） */
+void od_sdo_abort(struct od_sdo *s)
+{
+	if (s == NULL) {
+		return;
+	}
+	pthread_mutex_lock(&s->lock);
+	s->abort = 1u;
+	pthread_cond_broadcast(&s->cv);
+	pthread_mutex_unlock(&s->lock);
+}
+
+static void od_abort(void *ctx)
+{
+	od_sdo_abort((struct od_sdo *)ctx);
+}
+
 struct od_access od_sdo_iface(struct od_sdo *s)
 {
 	struct od_access a;
 
 	a.read = od_read;
 	a.write = od_write;
+	a.abort = od_abort;
 	a.now_ms = od_now_ms;
 	a.last_error = od_last_error;
 	a.ctx = s;

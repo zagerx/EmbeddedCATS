@@ -1,25 +1,24 @@
 /*
- * drive.h — 一个 DS 402 从站实例的运行期
+ * drive.h — 一个 402 从站的运行期（对外契约）
  *
- * 一个 drive = 一对 0x600/0x580 = 一个轴（物理双轴驱动器 = 2 个 drive）。
+ * 一个 drive = 一个从站 = 一对 0x600/0x580 = 一个轴。
  *
- * 分工：
- *   请求（任意线程）：drive_request_* 只往请求槽里放一件事，立即返回
- *   执行（服务线程）：drive_service() 取请求、跑阻塞序列（run_to 等）
- *   事实（任意线程读）：is_configured / is_enabled / failed / feedback_*
+ * 模型：**意图投递 + 服务线程同步执行**
+ *   任意线程   投递意图（drive_request_enable / drive_pp_start / drive_halt …）
+ *              只写槽位，不阻塞；
+ *   服务线程   drive_service() 取出意图，**同步跑完整条流程**（发帧、等状态字），
+ *              期间阻塞在对象读写上（condvar 睡眠，让出 CPU）；
+ *   任意线程   读事实（is_enabled / feedback）、取结论（take_result）；
+ *   安全动作   drive_cancel() 打断在途流程 —— 等待点立刻返回，不空转。
  *
- * 本层不知道：CAN 帧、COB-ID、业务状态机、mm。
- * 传输（SDO/PDO）藏在 od_access 后面。
+ * 本层不知道：CAN 帧与 COB-ID（master/canopen）、业务状态机（statemachine）、
+ * 单位 mm（axis）。
  */
 
 #ifndef DRIVE_DRIVE_H
 #define DRIVE_DRIVE_H
 
-#include <drive/mode.h>
 #include <drive/od_access.h>
-
-#include <ds402/types.h>
-#include <ds402/state_machine.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -38,21 +37,21 @@ enum drive_cfg_state {
 	DRIVE_CFG_FAILED
 };
 
-/* 使能结论 */
+/* 使能结论（事实，不是流程） */
 enum drive_en_state {
 	DRIVE_EN_NOT_ENABLED = 0,
 	DRIVE_EN_ENABLED,
 	DRIVE_EN_FAILED
 };
 
-/* 上一个过程的结论；被 take_result() 取走后回 NONE */
+/* 上一次流程的结论；take_result() 取走后回 NONE。被取消的流程不留结论 */
 enum drive_result {
 	DRIVE_RESULT_NONE = 0,
 	DRIVE_RESULT_DONE,
 	DRIVE_RESULT_FAILED
 };
 
-/* 请求槽：一次只受理一件事 */
+/* 请求槽：一次只受理一件事（安全动作可抢占） */
 enum drive_req {
 	DRIVE_REQ_NONE = 0,
 	DRIVE_REQ_CONFIG,
@@ -75,63 +74,61 @@ struct drive {
 	/* ---- 装配期写入，之后只读 ---- */
 	struct co_sdo *sdo; /* 该从站的对象访问通道（主站提供） */
 	const struct od_access *od;
-	const struct mode_ops *mode; /* 当前操作模式的插件表（按 6060 选） */
 	uint8_t node_id;
 
 	/* ---- 请求槽（任意线程写，服务线程取） ---- */
 	pthread_mutex_t lock;
-	enum drive_req req;
-	enum drive_req active; /* 服务线程当前在执行哪一件 */
-	uint8_t busy;          /* 有请求在执行 */
-	int32_t pp_target, pp_vel, pp_acc, pp_dec;
+	enum drive_req req;         /* 待执行 */
+	enum drive_req running;     /* 服务线程正在执行哪一件 */
+	uint8_t cancel;             /* 打断在途流程（安全动作） */
+	int32_t tgt, vel, acc, dec; /* 只有 PP 用 */
 
-	/* ---- 服务线程私有（同样在 lock 下发布，便于上层读） ---- */
+	/* ---- 事实与结论（lock 下发布） ---- */
 	enum drive_cfg_state cfg_state;
 	enum drive_en_state en_state;
 	uint8_t failed;
 	enum drive_result result;
 	uint32_t abort_code;
-	uint16_t controlword;
+	uint16_t controlword; /* 最近一次写进 6040 的值（bit4/bit7/bit8 按位改） */
 
-	/* 反馈事实 */
 	uint16_t statusword;
 	int32_t position;
 	int32_t velocity;
 	uint16_t error_code;
 	uint8_t fb_valid;
 
-	/* PP 在途（等 bit10） */
-	uint8_t pp_wait;
-	uint8_t pp_seen_low;
-	uint32_t pp_since_ms;
-	int32_t pp_goal;
-
-	/* 反馈轮转（服务线程空闲时读） */
+	/* ---- 反馈轮转（服务线程空闲时读） ---- */
 	uint8_t mon_slot;
-	uint8_t mon_done_slot;
 	uint32_t mon_last_ms;
 };
 
 void drive_init(struct drive *d, struct co_sdo *sdo, const struct od_access *od, uint8_t node_id);
 
-/* ---- 请求：0 = 已受理；1 = 有别的请求在跑；-1 = 参数/装配错误 ---- */
+/* ---- 意图：0 = 已受理；1 = 有别的请求在跑；-1 = 参数/装配错误 ---- */
 int drive_request_config(struct drive *d);
 int drive_request_enable(struct drive *d);
 int drive_request_disable(struct drive *d);
 int drive_pp_start(struct drive *d, int32_t target, int32_t vel, int32_t acc, int32_t dec);
-int drive_halt(struct drive *d);
-int drive_quick_stop(struct drive *d);
+int drive_halt(struct drive *d);       /* PP 的 bit8 减速停，保持使能 */
+int drive_quick_stop(struct drive *d); /* 急停第一阶段：0x02 → 等无输出 → 0x00 */
 
-/* ---- 服务线程每拍调用：取请求并执行（可能阻塞），然后刷新反馈 ---- */
+/*
+ * 打断在途流程：正在等的对象事务立刻返回失败，服务线程尽快退出当前流程。
+ * 只给安全动作用（halt / 急停），不要拿来"重试"。
+ */
+void drive_cancel(struct drive *d);
+
+/* ---- 服务线程：取出意图并同步执行完（每拍调一次） ---- */
 void drive_service(struct drive *d, uint32_t now_ms);
 
-/* ---- 事实 ---- */
+/* ---- 事实（任意线程） ---- */
 int drive_is_configured(const struct drive *d);
 int drive_is_enabled(const struct drive *d);
 int drive_failed(const struct drive *d);
 int drive_busy(const struct drive *d);
 enum drive_result drive_take_result(struct drive *d);
 uint32_t drive_abort_code(const struct drive *d);
+
 uint16_t drive_feedback_statusword(const struct drive *d);
 int32_t drive_feedback_position(const struct drive *d);
 int32_t drive_feedback_velocity(const struct drive *d);

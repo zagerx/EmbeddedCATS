@@ -28,8 +28,9 @@ firmware/
 
 ```bash
 cmake -S . -B build && cmake --build build -j4     # 期望 0 error / 0 warning
-./build/canopen_selftest                           # 编解码与事务单测
-apps/tools/layering_check.sh                       # R1–R8 边界检查
+./build/canopen_selftest                           # 协议栈：编解码与事务槽
+./build/ds402_selftest                             # PDS：状态字解析与起点快进
+apps/tools/layering_check.sh                       # R1–R10 边界检查
 ```
 
 端到端（can0 主站 / can1 模拟从站，两路需先起好）：

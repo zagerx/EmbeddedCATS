@@ -59,20 +59,24 @@ target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/contro
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
 target_link_libraries(cats_master PUBLIC canopen_stack bus_socketcan)
 
-# DS 402 标准知识（纯函数，零依赖）：状态机 / 对象号 / 位定义
-# 谁都能链它；它自己不链任何东西
-add_library(ds402 STATIC controller/ds402/src/state_machine.c)
+# DS 402 标准知识（纯函数，零依赖）：PDS 状态解析 / 序列表 / 对象号 / 位定义
+# 谁都能链它；它自己不链任何东西，也没有循环与 I/O
+add_library(ds402 STATIC controller/ds402/src/pds.c)
 target_include_directories(ds402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/ds402/include)
 
-# 设备运行期：一个 402 从站（od_access 抽象 + 状态机推进 + 模式）
-#   drive.c      请求受理 / 服务执行 / 反馈刷新
-#   drive_sm.c   run_to(目标状态)：唯一一处"发命令 + 等状态字"
-#   mode_pp.c    PP 运动的参数下发与到位判定
-#   backends/    od_access 的 SDO 实现（阻塞式，服务线程用）
+# 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
+add_executable(ds402_selftest apps/tools/ds402_selftest/main.c)
+target_link_libraries(ds402_selftest PRIVATE ds402)
+
+# 设备运行期：一个 402 从站（od_access 抽象 + 序列表推进 + PP）
+#   drive.c      意图受理 / 服务执行 / 反馈刷新
+#   drive_seq.c  402 流程：唯一一处"写控制字 + 等状态字"（序列表来自 ds402）
+#   drive_pp.c   PP 运动的参数下发与到位判定
+#   backends/    od_access 的 SDO 实现（阻塞式，condvar 让出 CPU）
 add_library(drive STATIC
 	controller/drive/src/drive.c
-	controller/drive/src/drive_sm.c
-	controller/drive/src/mode_pp.c
+	controller/drive/src/drive_seq.c
+	controller/drive/src/drive_pp.c
 	controller/drive/src/backends/od_sdo.c)
 target_include_directories(drive PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/include)
 target_include_directories(drive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/src)

@@ -3,8 +3,9 @@
  *
  * 这一层不认识总线、时间、线程、单位；只有标准里写着的东西。
  *
- * 注意 enum ds402_state 的**顺序有意义**：从"无输出"到"可操作"单调递增，
- * state_machine.c 的推进/回退逻辑依赖这个顺序，不要重排。
+ * enum ds402_state 是**从站（驱动器）PDS 状态**的投影：主站不维护自己的
+ * 迁移，只看 6041 解析出来的事实。主机的业务状态在 statemachine/。
+ * 顺序有意义（从 "无输出" 到 "可操作" 单调递增），序列表依赖这个顺序。
  */
 
 #ifndef DS402_TYPES_H
@@ -23,17 +24,6 @@ enum ds402_state {
 	DS402_OP_ENABLED,         /* 可操作   0x0027 */
 	DS402_FAULT,              /* 故障     (sw & 0x4F) == 0x08 / 0x0F */
 	DS402_STATE_UNKNOWN       /* 不匹配任何已知组合 */
-};
-
-/* 状态机命令（映射到控制字 6040） */
-enum ds402_cmd {
-	DS402_CMD_NONE = 0,        /* 无需动作 */
-	DS402_CMD_SHUTDOWN,        /* → READY */
-	DS402_CMD_SWITCH_ON,       /* → SWITCHED_ON */
-	DS402_CMD_ENABLE_OP,       /* → OP_ENABLED */
-	DS402_CMD_DISABLE_VOLTAGE, /* → SWITCH_ON_DISABLED */
-	DS402_CMD_QUICK_STOP,      /* → 快速停止 */
-	DS402_CMD_FAULT_RESET      /* → 复位故障 */
 };
 
 /* 控制字 6040 的命令值（DS 402 表 13） */

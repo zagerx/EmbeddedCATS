@@ -34,6 +34,7 @@ struct od_sdo {
 	uint8_t busy;    /* 已交给 canopen，等应答 */
 	uint8_t done;    /* 结果就绪 */
 	uint8_t cancel;  /* 调用方放弃：I/O 线程负责关掉在途事务 */
+	uint8_t abort;   /* 外部打断：等待方立刻返回（安全动作） */
 	uint8_t is_write;
 	uint16_t index;
 	uint8_t sub;
@@ -54,6 +55,9 @@ void od_sdo_init(struct od_sdo *s, struct co_sdo *sdo);
 
 /* I/O 线程每拍调用 */
 void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms);
+
+/* 任意线程：打断在途事务（等待方立刻返回 -1，I/O 线程负责关掉事务） */
+void od_sdo_abort(struct od_sdo *s);
 
 /* 拿一组 od_access 函数指针（ctx = s） */
 struct od_access od_sdo_iface(struct od_sdo *s);

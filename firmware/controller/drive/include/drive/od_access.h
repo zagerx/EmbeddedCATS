@@ -22,6 +22,11 @@ struct od_access {
 		    uint32_t timeout_ms);
 	int (*write)(void *ctx, uint16_t index, uint8_t sub, uint32_t value, uint8_t size,
 		     uint32_t timeout_ms);
+	/*
+	 * 打断在途事务：正在等结果的调用立刻返回 -1，并作废这一笔。
+	 * 安全动作用（急停/halt 抢在途运动），不要拿来重试。
+	 */
+	void (*abort)(void *ctx);
 	/* 单调毫秒：drive 自己不碰平台时钟 */
 	uint32_t (*now_ms)(void *ctx);
 	/* 最近一次失败的原因（SDO abort code；0 = 超时/取消/总线错） */
