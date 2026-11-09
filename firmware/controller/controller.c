@@ -69,9 +69,9 @@ enum cats_result cats_control_init(struct master *master)
 		CO_SDOclient_t *sdo = master_sdo(master, node_id);
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
-		od_sdo_init(&s_ctl.sdo[i], sdo);
-		s_ctl.od[i] = od_sdo_iface(&s_ctl.sdo[i]);
-		cia402_device_init(&s_ctl.axes[i].dev, &s_ctl.od[i], node_id);
+		sdo_client_init(&s_ctl.sdo[i], sdo);
+		s_ctl.access[i] = sdo_client_iface(&s_ctl.sdo[i]);
+		cia402_device_init(&s_ctl.axes[i].dev, &s_ctl.access[i], node_id);
 		axis_init(&s_ctl.axes[i], node_id);
 	}
 
@@ -108,11 +108,11 @@ void cats_control_io_poll(void)
 
 	/* 一拍三件事，顺序有意义：
 	 *   ① 收：应答落到各从站的事务槽里
-	 *   ② 搬：服务线程的请求提交给协议 / 结果搬回 od_sdo
+	 *   ② 搬：服务线程的请求提交给协议 / 结果搬回 sdo_client
 	 *   ③ 发：该发的帧当拍发出去（放在 ② 之后，请求不用多等一拍） */
 	master_recv_step(ctl->master, now);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		od_sdo_io_step(&ctl->sdo[i], now);
+		sdo_client_io_step(&ctl->sdo[i], now);
 	}
 	master_send_step(ctl->master, now);
 }

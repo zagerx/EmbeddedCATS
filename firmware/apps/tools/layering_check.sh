@@ -53,7 +53,7 @@ if [ -z "$viol" ]; then ok; else bad "$viol"; fi
 
 # R4：控制入口与业务状态机不调用阻塞服务
 section "R4  控制线程无阻塞调用"
-out=$(grep -rnE 'cia402_device_service|cia402_device_pp_move|od_sdo_write|od_sdo_read|nanosleep|usleep|pthread_cond_wait' \
+out=$(grep -rnE 'cia402_device_service|cia402_device_pp_move|sdo_client_write|sdo_client_read|nanosleep|usleep|pthread_cond_wait' \
 	"$SRC/control_api.c" "$SRC/statemachine" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 

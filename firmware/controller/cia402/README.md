@@ -3,7 +3,7 @@
 统一包含 DS402 标准知识和单个从站的运行控制，但内部保持两条边界：
 
 - `pds.c`：纯函数，不访问总线、不读取时钟、不创建线程。
-- `device*.c`：请求、超时、取消、同步流程和反馈，只依赖 `transport/od_access.h`。
+- `device*.c`：请求、超时、取消、同步流程和反馈，只依赖 `transport/object_access.h`。
 
 一个 `struct cia402_device` 对应一个从站。双轴驱动器呈现为两个 CANopen 节点，因此创建两个实例。
 
@@ -41,7 +41,7 @@ cia402_device_request_* / cia402_device_pp_start
                 ↓
 cia402_device_service（服务线程）
                 ↓
-od_access.read/write（阻塞等待）
+object_access.read/write（阻塞等待）
 ```
 
 普通请求一次只执行一个；Halt 和 Quick Stop 会取消在途流程并优先占用请求槽。反馈轮转只在设备空闲时读取，避免与业务流程争用同一通道。
@@ -49,11 +49,11 @@ od_access.read/write（阻塞等待）
 ## 依赖边界
 
 ```text
-cia402/device → od_access ← transport/od_sdo → CANopenNode
+cia402/device → object_access ← transport/sdo_client → CANopenNode
 cia402/pds    → 无依赖
 ```
 
-本模块不认识 CAN 帧、COB-ID、毫米单位或整机业务状态机。`od_sdo` 不属于 CiA 402 核心，因为同一设备层也可以使用其他对象字典传输实现。
+本模块不认识 CAN 帧、COB-ID、毫米单位或整机业务状态机。`sdo_client` 不属于 CiA 402 核心，因为同一设备层也可以使用其他对象字典传输实现。
 
 ## 自测
 

@@ -1,8 +1,8 @@
 /*
- * od_sdo.h — od_access 的 SDO 实现（用 CANopenNode 的 SDO 客户端）
+ * sdo_client.h — object_access 的 SDO 实现（用 CANopenNode 的 SDO 客户端）
  *
  * 两个上下文各做一半：
- *   I/O 线程：od_sdo_io_step() —— 调 CO_SDOclient_* 推进事务、收结果、唤醒等待者
+ *   I/O 线程：sdo_client_io_step() —— 调 CO_SDOclient_* 推进事务、收结果、唤醒等待者
  *   服务线程：read/write（阻塞）—— 投递请求 + 等条件变量
  *
  * CANopenNode 的 SDO 客户端是**步进式**的（`CO_SDOclientDownload()` 每次返回
@@ -10,10 +10,10 @@
  * 不需要任何锁（本文件的 lock 只保护自己的字段）。
  */
 
-#ifndef TRANSPORT_OD_SDO_H
-#define TRANSPORT_OD_SDO_H
+#ifndef TRANSPORT_SDO_CLIENT_H
+#define TRANSPORT_SDO_CLIENT_H
 
-#include <transport/od_access.h>
+#include <transport/object_access.h>
 
 #include "CANopen.h" /* CO_SDOclient_t */
 
@@ -24,8 +24,8 @@
 extern "C" {
 #endif
 
-struct od_sdo {
-	CO_SDOclient_t *client; /* 该从站的 SDO 客户端（主站提供） */
+struct sdo_client {
+	CO_SDOclient_t *co; /* 该从站的 SDO 客户端（主站提供） */
 
 	pthread_mutex_t lock;
 	pthread_cond_t cv;
@@ -48,26 +48,26 @@ struct od_sdo {
 	uint32_t data;
 	uint8_t len;
 
-	/* 最近一次失败原因（给 od_access.last_error 用） */
+	/* 最近一次失败原因（给 object_access.last_error 用） */
 	uint32_t last_code;
 
 	/* 上一拍的微秒时刻：CO_SDOclient_* 需要 timeDifference_us */
 	uint32_t last_us;
 };
 
-void od_sdo_init(struct od_sdo *s, CO_SDOclient_t *client);
+void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client);
 
 /* I/O 线程每拍调用：投递请求 / 推进事务 / 收取结果 / 处理放弃 */
-void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms);
+void sdo_client_io_step(struct sdo_client *s, uint32_t now_ms);
 
 /* 任意线程：打断在途事务（等待方立刻返回 -1，I/O 线程负责关掉事务） */
-void od_sdo_abort(struct od_sdo *s);
+void sdo_client_abort(struct sdo_client *s);
 
-/* 拿一组 od_access 函数指针（ctx = s） */
-struct od_access od_sdo_iface(struct od_sdo *s);
+/* 拿一组 object_access 函数指针（ctx = s） */
+struct object_access sdo_client_iface(struct sdo_client *s);
 
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
 
-#endif /* TRANSPORT_OD_SDO_H */
+#endif /* TRANSPORT_SDO_CLIENT_H */

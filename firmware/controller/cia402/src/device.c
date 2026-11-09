@@ -20,11 +20,11 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms);
 
 /* ---- 装配 ---- */
 
-void cia402_device_init(struct cia402_device *d, const struct od_access *od, uint8_t node_id)
+void cia402_device_init(struct cia402_device *d, const struct object_access *access, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
 	pthread_mutex_init(&d->lock, NULL);
-	d->od = od;
+	d->access = access;
 	d->node_id = node_id;
 	d->cfg_state = CIA402_DEVICE_CFG_PENDING;
 	d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
@@ -38,7 +38,7 @@ static int submit(struct cia402_device *d, enum cia402_device_req req)
 {
 	int rc;
 
-	if (d == NULL || d->od == NULL) {
+	if (d == NULL || d->access == NULL) {
 		return -1;
 	}
 	pthread_mutex_lock(&d->lock);
@@ -59,11 +59,11 @@ static int submit(struct cia402_device *d, enum cia402_device_req req)
  */
 static int submit_urgent(struct cia402_device *d, enum cia402_device_req req)
 {
-	if (d == NULL || d->od == NULL) {
+	if (d == NULL || d->access == NULL) {
 		return -1;
 	}
-	if (d->od->abort != NULL) {
-		d->od->abort(d->od->ctx); /* 先让阻塞的等待醒来 */
+	if (d->access->abort != NULL) {
+		d->access->abort(d->access->ctx); /* 先让阻塞的等待醒来 */
 	}
 	pthread_mutex_lock(&d->lock);
 	if (d->running != CIA402_DEVICE_REQ_NONE) {
@@ -143,8 +143,8 @@ void cia402_device_cancel(struct cia402_device *d)
 	if (d == NULL) {
 		return;
 	}
-	if (d->od != NULL && d->od->abort != NULL) {
-		d->od->abort(d->od->ctx);
+	if (d->access != NULL && d->access->abort != NULL) {
+		d->access->abort(d->access->ctx);
 	}
 	pthread_mutex_lock(&d->lock);
 	d->cancel = 1u;
@@ -168,8 +168,8 @@ static void finish_request(struct cia402_device *d, int ok)
 		return;
 	}
 	if (ok != 0) {
-		d->abort_code = (d->od != NULL && d->od->last_error != NULL)
-					? d->od->last_error(d->od->ctx)
+		d->abort_code = (d->access != NULL && d->access->last_error != NULL)
+					? d->access->last_error(d->access->ctx)
 					: 0u;
 		d->failed = 1u;
 	}
@@ -200,7 +200,7 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 	int32_t t, v, a, dc;
 	int running;
 
-	if (d == NULL || d->od == NULL) {
+	if (d == NULL || d->access == NULL) {
 		return;
 	}
 
@@ -269,7 +269,7 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 		return; /* 都读到过了：按间隔刷新 */
 	}
 	d->mon_last_ms = now_ms;
-	if (d->od->read(d->od->ctx, kIndex[slot], 0u, &v, &len, CIA402_DEVICE_MON_TIMEOUT_MS) != 0) {
+	if (d->access->read(d->access->ctx, kIndex[slot], 0u, &v, &len, CIA402_DEVICE_MON_TIMEOUT_MS) != 0) {
 		d->mon_slot = (uint8_t)((slot + 1u) % 4u); /* 读失败保留旧值 */
 		return;
 	}

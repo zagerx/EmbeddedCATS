@@ -33,7 +33,7 @@ master_sdo(&m, 1);                                     /* 该从站的 CO_SDOcli
 | `CO_USE_GLOBALS=1` | 栈用静态实例，零 malloc，和项目风格一致 |
 | 站号 0 登记顺序必须与 OD 通道顺序一致 | 栈按 `ENTRY_H1280` **连续取** `CNT_SDO_CLI` 条 |
 | 主站自己的站号 `MASTER_NODE_ID=0x7F` | CANopenNode 在节点号未配置时 `CO_process()` 直接返回 |
-| **栈只在 I/O 线程里被调用** | 栈是单线程设计：收发 + SDO 步进都在 `master_*_step` 和 `od_sdo_io_step` 里 |
+| **栈只在 I/O 线程里被调用** | 栈是单线程设计：收发 + SDO 步进都在 `master_*_step` 和 `sdo_client_io_step` 里 |
 | 心跳超时来自 OD `0x1016`（本项目 750 ms） | CANopenNode 的模型：策略写在对象字典里 |
 
 ## 本层不知道

@@ -11,23 +11,23 @@
 
 int cia402_device_od_write(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value, uint8_t size)
 {
-	if (d->od == NULL || d->od->write == NULL) {
+	if (d->access == NULL || d->access->write == NULL) {
 		return -1;
 	}
-	return d->od->write(d->od->ctx, index, sub, value, size, CIA402_DEVICE_SDO_TIMEOUT_MS);
+	return d->access->write(d->access->ctx, index, sub, value, size, CIA402_DEVICE_SDO_TIMEOUT_MS);
 }
 
 int cia402_device_od_read(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t *value, uint8_t *len)
 {
-	if (d->od == NULL || d->od->read == NULL) {
+	if (d->access == NULL || d->access->read == NULL) {
 		return -1;
 	}
-	return d->od->read(d->od->ctx, index, sub, value, len, CIA402_DEVICE_SDO_TIMEOUT_MS);
+	return d->access->read(d->access->ctx, index, sub, value, len, CIA402_DEVICE_SDO_TIMEOUT_MS);
 }
 
 uint32_t cia402_device_now_ms(struct cia402_device *d)
 {
-	return (d->od != NULL && d->od->now_ms != NULL) ? d->od->now_ms(d->od->ctx) : 0u;
+	return (d->access != NULL && d->access->now_ms != NULL) ? d->access->now_ms(d->access->ctx) : 0u;
 }
 
 int cia402_device_cancelled(struct cia402_device *d)

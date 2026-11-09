@@ -3,8 +3,8 @@
  * 实现可以是 CANopen SDO，也可以是其他支持对象字典的传输方式。
  */
 
-#ifndef TRANSPORT_OD_ACCESS_H
-#define TRANSPORT_OD_ACCESS_H
+#ifndef TRANSPORT_OBJECT_ACCESS_H
+#define TRANSPORT_OBJECT_ACCESS_H
 
 #include <stdint.h>
 
@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-struct od_access {
+struct object_access {
 	/* 0 = 成功；-1 = 超时、abort 或总线错误。 */
 	int (*read)(void *ctx, uint16_t index, uint8_t sub, uint32_t *value, uint8_t *len,
 		    uint32_t timeout_ms);
@@ -30,4 +30,4 @@ struct od_access {
 }
 #endif
 
-#endif /* TRANSPORT_OD_ACCESS_H */
+#endif /* TRANSPORT_OBJECT_ACCESS_H */
