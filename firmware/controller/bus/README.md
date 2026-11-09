@@ -51,5 +51,5 @@ socketcan_open(&io, &dev, "can0");   /* 填好 io.ops / io.ctx */
 
 ## 谁调用它
 
-只有 `canopen/`（经 `struct can_io`）与组合根 `root.c`（装配时调工厂函数）。
+只有 `canopen/`（经 `struct can_io`）与组合根 `controller.c`（装配时调工厂函数）。
 **收帧的所有权必须是唯一的**——见 `docs/01_设计文档/分层与线程模型.md`。

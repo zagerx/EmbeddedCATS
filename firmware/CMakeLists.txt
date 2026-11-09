@@ -120,7 +120,9 @@ target_include_directories(cats_statemachine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(cats_statemachine PUBLIC cats_hsm cats_axis)
 
 # 组合根：装配 + 推进步骤 + 发布（唯一知道全部的地方；不创建线程）
-add_library(cats_control STATIC controller/root.c)
+add_library(cats_control STATIC
+	controller/controller.c
+	controller/control_api.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
 target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 # Threads 仅用于同步原语（drive/backends/od_sdo 的 mutex/cond）；本库不创建线程

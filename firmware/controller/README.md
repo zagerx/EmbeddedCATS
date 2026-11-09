@@ -16,13 +16,14 @@ controller/
 ├── hsm/            通用层次状态机内核（零业务依赖）
 ├── config/         机械参数与 PDO 配置
 ├── include/control/control.h    对外契约
-├── root.c                       组合根（唯一装配点）
-└── root_internal.h              组合根私有上下文
+├── controller.c                 组合根：装配 + 三个推进步骤
+├── control_api.c                状态机侧：对外 API 翻译 + 事实 + 发布
+└── controller_internal.h        控制层私有上下文
 ```
 
 ## 职责
 
-- 装配：所有对象的创建与注入只在 `root.c` 一处
+- 装配：所有对象的创建与注入只在 `controller.c` 一处
 - 对外只给三个"推进一步"的接口、指令入口、故障读值
 - 故障策略（通信超时、驱动器报警 → 系统动作）
 - 不创建线程、不决定节拍（见下节）

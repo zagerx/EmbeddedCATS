@@ -1,9 +1,8 @@
 /*
- * root_internal.h — 组合根私有上下文（**不对外发布**）
+ * controller_internal.h — 控制层私有上下文（**不对外发布**）
  *
- * 组合根的私有对象：
- *   struct cats_control 主站 + 每轴驱动 + 每轴对象访问通道 + 业务状态机 + 发布值
- *   now_ms()            取当前时刻（I/O 与服务线程用）
+ * controller.c（组合根：装配 + 三个推进步骤）与 control_api.c（状态机侧：
+ * 对外 API 翻译 + 事实 + 发布）共用这一份结构。
  *
  * 业务状态机在 statemachine/；通用状态机内核在 hsm/。
  */
@@ -52,5 +51,11 @@ struct cats_control {
 
 /* 取当前时刻；未接管主站时返回 0（I/O/服务线程用） */
 uint32_t now_ms(struct cats_control *app);
+
+/* 控制层单例（由 controller.c 创建；同层另一文件通过它拿上下文） */
+struct cats_control *control_ctx(void);
+
+/* 把"其他线程可以看"的值发布出去（只在控制线程里调，见 control_api.c） */
+void cats_control_publish(void);
 
 #endif /* CONTROL_INTERNAL_H */
