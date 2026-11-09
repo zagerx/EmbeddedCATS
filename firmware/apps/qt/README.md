@@ -5,7 +5,7 @@
 - 语言：**C++ / Qt6 Widgets**
 - 与 `apps/lyos_node/` **同级、二选一**：两个壳业务上都只依赖 `control/control.h`
 - 业务头只允许出现在 `bindings/`；`shell/`、`ui/`、`theme/` 不 include 任何
-  `control` / `statemachine` / `axis` / `drive` / `canopen` / `bus` 的头
+  `control` / `statemachine` / `axis` / `cia402` / `transport` / `canopen` / `bus` 的头
 
 ## 目录
 
@@ -68,7 +68,7 @@ HALTING / FAULT / ESTOP）。
 
 ## 实时反馈（轴卡片下半部分）
 
-数据源是 drive 的 **50 ms 反馈轮转**：每 50 ms 轮转读一个对象
+数据源是 CiA 402 设备层的反馈轮转：每 50 ms 读取一个对象
 （`6041` 状态字 → `6064` 实际位置 → `606C` 实际速度 → `603F` 驱动器错误码），
 与状态机串行共用同一条 SDO 通道（流程优先，监控读让路；超时 100 ms，失败保留上一次有效值）。
 

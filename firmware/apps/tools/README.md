@@ -4,18 +4,11 @@
 
 | 子目录 | 说明 |
 |---|---|
-| `master_probe/` | 无界面运行器：自起 I/O（1 ms）与 svc 两线程，主循环 20 ms 推进 `cats_control_poll()` |
-| `fake_drive/` | CANopen 从站模拟器：无驱动器时在两路 PCAN 上模拟双轴节点（NMT + SDO + 心跳） |
-| `ds402_selftest/` | PDS 知识单测：状态字解析 + 起点快进（不碰 CAN） |
+| `master_probe/` | 无界面宿主：I/O 与服务各一线程，主循环按 20 ms 推进状态机 |
+| `fake_drive/` | CANopen 从站模拟器：NMT、加速 SDO、心跳和最小 402/PP 模型 |
+| `cia402_selftest/` | PDS 状态解析与起点快进纯逻辑自测 |
 | `layering_check.sh` | 分层边界检查 R1–R10 |
 
-`master_probe` 是命令行版的运行器：日志落在终端，方便 grep 和长时间跑。
+`master_probe` 将日志输出到终端，便于检索和长时间回归。`fake_drive` 可在两路 CAN 对连时替代真实驱动器，也提供基于 python-can virtual 接口的无硬件自测。
 
-`fake_drive` 是测试装置：用 PCAN 两个通道对连（`can0` 主站 / `can1` 从站）替代真实驱动器，
-让主站在没有硬件时也能跑真实 CAN 报文；它的对象字典只是标准占位值。
-`fake_drive` 只认 CAN 帧，不引用 `controller/` 下任何模块；`master_probe` 是宿主，只调 `control/control.h` 的接口。
-
-## 尚未实现
-
-只读对象字典扫描（遍历索引/子索引、记录存在性与 abort 码、导出 CSV）：**还没写**，
-需要时另建目录。
+对象字典扫描工具尚未实现，需要时另建目录。

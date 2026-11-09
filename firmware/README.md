@@ -28,7 +28,7 @@ firmware/
 
 ```bash
 cmake -S . -B build && cmake --build build -j4     # 期望 0 error / 0 warning
-./build/ds402_selftest                             # PDS：状态字解析与起点快进
+./build/cia402_selftest                            # PDS：状态字解析与起点快进
 apps/tools/layering_check.sh                       # R1–R10 边界检查
 ```
 

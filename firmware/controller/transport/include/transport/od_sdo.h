@@ -10,10 +10,10 @@
  * 不需要任何锁（本文件的 lock 只保护自己的字段）。
  */
 
-#ifndef DRIVE_BACKENDS_OD_SDO_H
-#define DRIVE_BACKENDS_OD_SDO_H
+#ifndef TRANSPORT_OD_SDO_H
+#define TRANSPORT_OD_SDO_H
 
-#include <drive/od_access.h>
+#include <transport/od_access.h>
 
 #include "CANopen.h" /* CO_SDOclient_t */
 
@@ -70,4 +70,4 @@ struct od_access od_sdo_iface(struct od_sdo *s);
 } /* extern "C" */
 #endif
 
-#endif /* DRIVE_BACKENDS_OD_SDO_H */
+#endif /* TRANSPORT_OD_SDO_H */

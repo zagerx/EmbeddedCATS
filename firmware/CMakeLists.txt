@@ -81,37 +81,35 @@ target_compile_definitions(canopen_node PUBLIC
 # 第三方代码：按配置裁剪后会留下"未使用参数"，只对本 target 关掉这条告警
 target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
 
-# DS 402 标准知识（纯函数，零依赖）：PDS 状态解析 / 序列表 / 对象号 / 位定义
-# 谁都能链它；它自己不链任何东西，也没有循环与 I/O
-add_library(ds402 STATIC controller/ds402/src/pds.c)
-target_include_directories(ds402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/ds402/include)
+# 对象访问契约与 CANopen SDO 后端。契约不认识具体协议，后端不实现 DS402 语义。
+add_library(od_access INTERFACE)
+target_include_directories(od_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
+
+add_library(canopen_sdo STATIC controller/transport/src/od_sdo.c)
+target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
+target_link_libraries(canopen_sdo PUBLIC od_access canopen_node Threads::Threads)
+target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
+
+# CiA 402：pds.c 为纯标准知识；device*.c 为请求、同步流程和反馈。
+# 本模块只依赖 od_access 契约，不依赖 CANopenNode。
+add_library(cia402 STATIC
+	controller/cia402/src/pds.c
+	controller/cia402/src/device.c
+	controller/cia402/src/device_seq.c
+	controller/cia402/src/device_pp.c)
+target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
+target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
+target_link_libraries(cia402 PUBLIC od_access Threads::Threads)
 
 # 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
-add_executable(ds402_selftest apps/tools/ds402_selftest/main.c)
-target_link_libraries(ds402_selftest PRIVATE ds402)
+add_executable(cia402_selftest apps/tools/cia402_selftest/main.c)
+target_link_libraries(cia402_selftest PRIVATE cia402)
 
-# 设备运行期：一个 402 从站（od_access 抽象 + 序列表推进 + PP）
-#   drive.c      意图受理 / 服务执行 / 反馈刷新
-#   drive_seq.c  402 流程：唯一一处"写控制字 + 等状态字"（序列表来自 ds402）
-#   drive_pp.c   PP 运动的参数下发与到位判定
-#   backends/    od_access 的 SDO 实现（阻塞式，condvar 让出 CPU）
-add_library(drive STATIC
-	controller/drive/src/drive.c
-	controller/drive/src/drive_seq.c
-	controller/drive/src/drive_pp.c
-	controller/drive/src/backends/od_sdo.c)
-target_include_directories(drive PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/include)
-target_include_directories(drive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/src)
-target_link_libraries(drive PUBLIC ds402 canopen_node Threads::Threads)
-# pthread_cond_timedwait / clock_gettime / clock_nanosleep 属 POSIX 2008
-target_compile_definitions(drive PRIVATE _POSIX_C_SOURCE=200809L)
-
-# 轴层：单位换算与多轴请求转发；每节点使用独立 SDO 通道
+# 轴层：单位换算与多轴请求转发；每节点使用独立对象访问通道
 add_library(cats_axis STATIC controller/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
-# 机械换算常量（cats_mech.h）属于整机配置，只给轴层用
 target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-target_link_libraries(cats_axis PUBLIC drive)
+target_link_libraries(cats_axis PUBLIC cia402)
 
 # 应用层：QP 风格层次状态机（HSM）
 #   hsm/          机制层：sm_hsm 内核（层次 + LCA + INIT 下钻）
@@ -147,8 +145,8 @@ add_library(cats_control STATIC
 	controller/control_api.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
 target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-# Threads 仅用于同步原语（drive/backends/od_sdo 的 mutex/cond）；本库不创建线程
-target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis drive cats_master
+# 本库只装配并调用各层，不创建线程
+target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis cia402 canopen_sdo cats_master
 	Threads::Threads)
 target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
 

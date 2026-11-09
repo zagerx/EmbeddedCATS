@@ -1,6 +1,6 @@
-/* DS402 PDS 状态解析及使能/断使能序列表。 */
+/* CiA 402 PDS 状态解析及使能/断使能序列表。 */
 
-#include <ds402/pds.h>
+#include <cia402/pds.h>
 
 #include <stddef.h>
 
@@ -8,43 +8,43 @@
 #define SW_OPERATION_MASK 0x006Fu /* bit0..3 + bit5 + bit6 */
 #define SW_SWITCH_ON_DISABLED_MASK 0x004Fu
 
-enum ds402_state ds402_parse(uint16_t statusword)
+enum cia402_state cia402_parse(uint16_t statusword)
 {
 	if ((statusword & SW_FAULT_MASK) == 0x0008u || (statusword & SW_FAULT_MASK) == 0x000Fu) {
-		return DS402_FAULT;
+		return CIA402_FAULT;
 	}
 	if ((statusword & SW_FAULT_MASK) == 0x0040u) {
-		return DS402_SWITCH_ON_DISABLED;
+		return CIA402_SWITCH_ON_DISABLED;
 	}
 	if ((statusword & SW_FAULT_MASK) == 0x0000u) {
-		return DS402_NOT_READY;
+		return CIA402_NOT_READY;
 	}
 	if ((statusword & SW_OPERATION_MASK) == 0x0021u) {
-		return DS402_READY;
+		return CIA402_READY;
 	}
 	if ((statusword & SW_OPERATION_MASK) == 0x0023u) {
-		return DS402_SWITCHED_ON;
+		return CIA402_SWITCHED_ON;
 	}
 	if ((statusword & SW_OPERATION_MASK) == 0x0027u) {
-		return DS402_OP_ENABLED;
+		return CIA402_OP_ENABLED;
 	}
-	return DS402_STATE_UNKNOWN;
+	return CIA402_STATE_UNKNOWN;
 }
 
-const char *ds402_state_name(enum ds402_state s)
+const char *cia402_state_name(enum cia402_state s)
 {
 	switch (s) {
-	case DS402_NOT_READY:
+	case CIA402_NOT_READY:
 		return "NOT_READY";
-	case DS402_SWITCH_ON_DISABLED:
+	case CIA402_SWITCH_ON_DISABLED:
 		return "SWITCH_ON_DISABLED";
-	case DS402_READY:
+	case CIA402_READY:
 		return "READY";
-	case DS402_SWITCHED_ON:
+	case CIA402_SWITCHED_ON:
 		return "SWITCHED_ON";
-	case DS402_OP_ENABLED:
+	case CIA402_OP_ENABLED:
 		return "OP_ENABLED";
-	case DS402_FAULT:
+	case CIA402_FAULT:
 		return "FAULT";
 	default:
 		return "UNKNOWN";
@@ -53,17 +53,17 @@ const char *ds402_state_name(enum ds402_state s)
 
 /* ---- 序列表：单调，从"无输出"到"可操作" ---- */
 
-static const struct ds402_seq_step k_seq_enable[] = {
-	{DS402_CW_SHUTDOWN, SW_OPERATION_MASK, 0x0021u},  /* 06 → Ready to switch on */
-	{DS402_CW_SWITCH_ON, SW_OPERATION_MASK, 0x0023u}, /* 07 → Switched on */
-	{DS402_CW_ENABLE_OP, SW_OPERATION_MASK, 0x0027u}, /* 0F → Operation enabled */
+static const struct cia402_seq_step k_seq_enable[] = {
+	{CIA402_CW_SHUTDOWN, SW_OPERATION_MASK, 0x0021u},  /* 06 → Ready to switch on */
+	{CIA402_CW_SWITCH_ON, SW_OPERATION_MASK, 0x0023u}, /* 07 → Switched on */
+	{CIA402_CW_ENABLE_OP, SW_OPERATION_MASK, 0x0027u}, /* 0F → Operation enabled */
 };
 
-static const struct ds402_seq_step k_seq_disable[] = {
-	{DS402_CW_DISABLE, SW_SWITCH_ON_DISABLED_MASK, 0x0040u}, /* 00 → Switch on disabled */
+static const struct cia402_seq_step k_seq_disable[] = {
+	{CIA402_CW_DISABLE, SW_SWITCH_ON_DISABLED_MASK, 0x0040u}, /* 00 → Switch on disabled */
 };
 
-const struct ds402_seq_step *ds402_seq_enable(uint8_t *count)
+const struct cia402_seq_step *cia402_seq_enable(uint8_t *count)
 {
 	if (count != NULL) {
 		*count = (uint8_t)(sizeof(k_seq_enable) / sizeof(k_seq_enable[0]));
@@ -71,7 +71,7 @@ const struct ds402_seq_step *ds402_seq_enable(uint8_t *count)
 	return k_seq_enable;
 }
 
-const struct ds402_seq_step *ds402_seq_disable(uint8_t *count)
+const struct cia402_seq_step *cia402_seq_disable(uint8_t *count)
 {
 	if (count != NULL) {
 		*count = (uint8_t)(sizeof(k_seq_disable) / sizeof(k_seq_disable[0]));
@@ -79,7 +79,7 @@ const struct ds402_seq_step *ds402_seq_disable(uint8_t *count)
 	return k_seq_disable;
 }
 
-uint8_t ds402_seq_skip(uint16_t statusword, const struct ds402_seq_step *seq, uint8_t count)
+uint8_t cia402_seq_skip(uint16_t statusword, const struct cia402_seq_step *seq, uint8_t count)
 {
 	int j;
 

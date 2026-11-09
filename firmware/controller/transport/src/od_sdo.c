@@ -2,7 +2,7 @@
  * od_access 的 SDO 实现：服务线程等待条件变量，I/O 线程步进协议栈。
  */
 
-#include <drive/od_sdo.h>
+#include <transport/od_sdo.h>
 
 #include <errno.h>
 #include <string.h>

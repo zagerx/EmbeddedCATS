@@ -1,12 +1,12 @@
 /*
  * 轴层：一个轴对应一个节点，负责 mm ↔ pulse 换算和动作请求。
- * 402 流程由 drive 实现，业务状态由 statemachine 管理。
+ * 402 流程由 cia402 实现，业务状态由 statemachine 管理。
  */
 
 #ifndef AXIS_AXIS_H
 #define AXIS_AXIS_H
 
-#include <drive/drive.h>
+#include <cia402/device.h>
 
 #include <stdint.h>
 
@@ -18,13 +18,12 @@ extern "C" {
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct cats_axis {
 	uint8_t node_id;
-	struct drive drv; /* 协议知识全在里面，本层只问它结果 */
+	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
-/* 实时反馈样本：由 drive 的反馈轮转读数换算而来。
- * valid 的位见 drive.h 的 DRIVE_FB_*；位为 0 时对应值无意义。 */
+/* 反馈由 cia402 设备层读取；valid 位为 0 时对应值无意义。 */
 struct axis_sample {
 	float position_mm;
 	float velocity_mm_s;
@@ -41,7 +40,7 @@ enum axis_motion {
 	AXIS_MOTION_FAILED    /* 超时 / abort / 驱动器故障 */
 };
 
-/* 驱动对象由组合根装配（drive_init）后再交给轴层；轴层只记站号 */
+/* 驱动对象由组合根装配（cia402_device_init）后再交给轴层；轴层只记站号 */
 void axis_init(struct cats_axis *a, uint8_t node_id);
 
 /* 机械换算（每转脉冲数 / 每转毫米）见 config/cats_mech.h，编译期固定 */

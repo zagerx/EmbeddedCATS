@@ -1,5 +1,5 @@
 /*
- * drive.c — 意图受理、服务执行、反馈刷新
+ * device.c — 意图受理、服务执行、反馈刷新
  *
  * 三条规则：
  *   1. 意图只往槽里放（不阻塞调用者），由服务线程取；
@@ -8,33 +8,33 @@
  *   3. 反馈轮转只在"没有流程在跑"时进行，避免和业务事务抢同一条通道。
  */
 
-#include "drive_internal.h"
+#include "device_internal.h"
 
-#include <ds402/od.h>
-#include <ds402/pds.h>
+#include <cia402/od.h>
+#include <cia402/pds.h>
 
 #include <stddef.h>
 #include <string.h>
 
-static void monitor_step(struct drive *d, uint32_t now_ms);
+static void monitor_step(struct cia402_device *d, uint32_t now_ms);
 
 /* ---- 装配 ---- */
 
-void drive_init(struct drive *d, const struct od_access *od, uint8_t node_id)
+void cia402_device_init(struct cia402_device *d, const struct od_access *od, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
 	pthread_mutex_init(&d->lock, NULL);
 	d->od = od;
 	d->node_id = node_id;
-	d->cfg_state = DRIVE_CFG_PENDING;
-	d->en_state = DRIVE_EN_NOT_ENABLED;
-	d->result = DRIVE_RESULT_NONE;
-	d->controlword = DS402_CW_DISABLE;
+	d->cfg_state = CIA402_DEVICE_CFG_PENDING;
+	d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
+	d->result = CIA402_DEVICE_RESULT_NONE;
+	d->controlword = CIA402_CW_DISABLE;
 }
 
 /* ---- 意图 ---- */
 
-static int submit(struct drive *d, enum drive_req req)
+static int submit(struct cia402_device *d, enum cia402_device_req req)
 {
 	int rc;
 
@@ -42,7 +42,7 @@ static int submit(struct drive *d, enum drive_req req)
 		return -1;
 	}
 	pthread_mutex_lock(&d->lock);
-	if (d->running != DRIVE_REQ_NONE || d->req != DRIVE_REQ_NONE) {
+	if (d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE) {
 		rc = 1; /* 有一件在处理：调用方自己决定何时重试 */
 	} else {
 		d->req = req;
@@ -57,7 +57,7 @@ static int submit(struct drive *d, enum drive_req req)
  * 先把在途流程 cancel 掉（在等的对象事务立刻返回），再把请求覆盖进槽位；
  * 服务线程退出当前流程后会立刻取新的这一件。
  */
-static int submit_urgent(struct drive *d, enum drive_req req)
+static int submit_urgent(struct cia402_device *d, enum cia402_device_req req)
 {
 	if (d == NULL || d->od == NULL) {
 		return -1;
@@ -66,7 +66,7 @@ static int submit_urgent(struct drive *d, enum drive_req req)
 		d->od->abort(d->od->ctx); /* 先让阻塞的等待醒来 */
 	}
 	pthread_mutex_lock(&d->lock);
-	if (d->running != DRIVE_REQ_NONE) {
+	if (d->running != CIA402_DEVICE_REQ_NONE) {
 		d->cancel = 1u; /* 当前流程尽快退出（结论作废） */
 	}
 	d->req = req;
@@ -74,38 +74,38 @@ static int submit_urgent(struct drive *d, enum drive_req req)
 	return 0;
 }
 
-int drive_request_config(struct drive *d)
+int cia402_device_request_config(struct cia402_device *d)
 {
 	if (d != NULL) {
 		pthread_mutex_lock(&d->lock);
-		if (d->cfg_state != DRIVE_CFG_PENDING) {
+		if (d->cfg_state != CIA402_DEVICE_CFG_PENDING) {
 			pthread_mutex_unlock(&d->lock);
 			return 1; /* 已经配过 / 已失败过，不重复发起 */
 		}
 		pthread_mutex_unlock(&d->lock);
 	}
-	return submit(d, DRIVE_REQ_CONFIG);
+	return submit(d, CIA402_DEVICE_REQ_CONFIG);
 }
 
-int drive_request_enable(struct drive *d)
+int cia402_device_request_enable(struct cia402_device *d)
 {
 	if (d != NULL) {
 		pthread_mutex_lock(&d->lock);
-		if (d->en_state != DRIVE_EN_NOT_ENABLED) {
+		if (d->en_state != CIA402_DEVICE_EN_NOT_ENABLED) {
 			pthread_mutex_unlock(&d->lock);
 			return 1;
 		}
 		pthread_mutex_unlock(&d->lock);
 	}
-	return submit(d, DRIVE_REQ_ENABLE);
+	return submit(d, CIA402_DEVICE_REQ_ENABLE);
 }
 
-int drive_request_disable(struct drive *d)
+int cia402_device_request_disable(struct cia402_device *d)
 {
-	return submit(d, DRIVE_REQ_DISABLE);
+	return submit(d, CIA402_DEVICE_REQ_DISABLE);
 }
 
-int drive_pp_start(struct drive *d, int32_t target, int32_t vel, int32_t acc, int32_t dec)
+int cia402_device_pp_start(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc, int32_t dec)
 {
 	int rc;
 
@@ -113,7 +113,7 @@ int drive_pp_start(struct drive *d, int32_t target, int32_t vel, int32_t acc, in
 		return -1;
 	}
 	pthread_mutex_lock(&d->lock);
-	if (d->en_state != DRIVE_EN_ENABLED) {
+	if (d->en_state != CIA402_DEVICE_EN_ENABLED) {
 		pthread_mutex_unlock(&d->lock);
 		return -1; /* 没使能就不接受运动指令 */
 	}
@@ -124,21 +124,21 @@ int drive_pp_start(struct drive *d, int32_t target, int32_t vel, int32_t acc, in
 	d->failed = 0u; /* 新过程开始：上次的失败事实作废 */
 	pthread_mutex_unlock(&d->lock);
 
-	rc = submit(d, DRIVE_REQ_PP);
+	rc = submit(d, CIA402_DEVICE_REQ_PP);
 	return rc;
 }
 
-int drive_halt(struct drive *d)
+int cia402_device_halt(struct cia402_device *d)
 {
-	return submit_urgent(d, DRIVE_REQ_HALT);
+	return submit_urgent(d, CIA402_DEVICE_REQ_HALT);
 }
 
-int drive_quick_stop(struct drive *d)
+int cia402_device_quick_stop(struct cia402_device *d)
 {
-	return submit_urgent(d, DRIVE_REQ_QUICK_STOP);
+	return submit_urgent(d, CIA402_DEVICE_REQ_QUICK_STOP);
 }
 
-void drive_cancel(struct drive *d)
+void cia402_device_cancel(struct cia402_device *d)
 {
 	if (d == NULL) {
 		return;
@@ -154,7 +154,7 @@ void drive_cancel(struct drive *d)
 /* ---- 服务执行 ---- */
 
 /* 收尾：把结论写进事实；被取消的流程不留结论（调用方已转走） */
-static void finish_request(struct drive *d, int ok)
+static void finish_request(struct cia402_device *d, int ok)
 {
 	int cancelled;
 
@@ -162,8 +162,8 @@ static void finish_request(struct drive *d, int ok)
 	cancelled = d->cancel != 0u;
 	d->cancel = 0u;
 	if (cancelled != 0) {
-		d->result = DRIVE_RESULT_NONE;
-		d->running = DRIVE_REQ_NONE;
+		d->result = CIA402_DEVICE_RESULT_NONE;
+		d->running = CIA402_DEVICE_REQ_NONE;
 		pthread_mutex_unlock(&d->lock);
 		return;
 	}
@@ -174,29 +174,29 @@ static void finish_request(struct drive *d, int ok)
 		d->failed = 1u;
 	}
 	switch (d->running) {
-	case DRIVE_REQ_CONFIG:
-		d->cfg_state = (ok == 0) ? DRIVE_CFG_CONFIGURED : DRIVE_CFG_FAILED;
+	case CIA402_DEVICE_REQ_CONFIG:
+		d->cfg_state = (ok == 0) ? CIA402_DEVICE_CFG_CONFIGURED : CIA402_DEVICE_CFG_FAILED;
 		break;
-	case DRIVE_REQ_ENABLE:
-		d->en_state = (ok == 0) ? DRIVE_EN_ENABLED : DRIVE_EN_FAILED;
+	case CIA402_DEVICE_REQ_ENABLE:
+		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_ENABLED : CIA402_DEVICE_EN_FAILED;
 		break;
-	case DRIVE_REQ_DISABLE:
-		d->en_state = DRIVE_EN_NOT_ENABLED;
+	case CIA402_DEVICE_REQ_DISABLE:
+		d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
 		break;
-	case DRIVE_REQ_QUICK_STOP:
-		d->en_state = (ok == 0) ? DRIVE_EN_NOT_ENABLED : DRIVE_EN_FAILED;
+	case CIA402_DEVICE_REQ_QUICK_STOP:
+		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_NOT_ENABLED : CIA402_DEVICE_EN_FAILED;
 		break;
 	default:
 		break;
 	}
-	d->result = (ok == 0) ? DRIVE_RESULT_DONE : DRIVE_RESULT_FAILED;
-	d->running = DRIVE_REQ_NONE;
+	d->result = (ok == 0) ? CIA402_DEVICE_RESULT_DONE : CIA402_DEVICE_RESULT_FAILED;
+	d->running = CIA402_DEVICE_REQ_NONE;
 	pthread_mutex_unlock(&d->lock);
 }
 
-void drive_service(struct drive *d, uint32_t now_ms)
+void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 {
-	enum drive_req req;
+	enum cia402_device_req req;
 	int32_t t, v, a, dc;
 	int running;
 
@@ -206,8 +206,8 @@ void drive_service(struct drive *d, uint32_t now_ms)
 
 	pthread_mutex_lock(&d->lock);
 	req = d->req;
-	if (req != DRIVE_REQ_NONE) {
-		d->req = DRIVE_REQ_NONE;
+	if (req != CIA402_DEVICE_REQ_NONE) {
+		d->req = CIA402_DEVICE_REQ_NONE;
 		d->running = req;
 		d->cancel = 0u;
 	}
@@ -215,31 +215,31 @@ void drive_service(struct drive *d, uint32_t now_ms)
 	v = d->vel;
 	a = d->acc;
 	dc = d->dec;
-	running = d->running != DRIVE_REQ_NONE;
+	running = d->running != CIA402_DEVICE_REQ_NONE;
 	pthread_mutex_unlock(&d->lock);
 
-	if (req != DRIVE_REQ_NONE) {
+	if (req != CIA402_DEVICE_REQ_NONE) {
 		int ok = -1;
 
 		/* 下面这些调用会阻塞（等状态字/等应答），但都是睡眠不是空转 */
 		switch (req) {
-		case DRIVE_REQ_CONFIG:
-			ok = drive_do_config(d);
+		case CIA402_DEVICE_REQ_CONFIG:
+			ok = cia402_device_do_config(d);
 			break;
-		case DRIVE_REQ_ENABLE:
-			ok = drive_do_enable(d);
+		case CIA402_DEVICE_REQ_ENABLE:
+			ok = cia402_device_do_enable(d);
 			break;
-		case DRIVE_REQ_DISABLE:
-			ok = drive_do_disable(d);
+		case CIA402_DEVICE_REQ_DISABLE:
+			ok = cia402_device_do_disable(d);
 			break;
-		case DRIVE_REQ_PP:
-			ok = drive_pp_move(d, t, v, a, dc);
+		case CIA402_DEVICE_REQ_PP:
+			ok = cia402_device_pp_move(d, t, v, a, dc);
 			break;
-		case DRIVE_REQ_HALT:
-			ok = drive_do_halt(d);
+		case CIA402_DEVICE_REQ_HALT:
+			ok = cia402_device_do_halt(d);
 			break;
-		case DRIVE_REQ_QUICK_STOP:
-			ok = drive_do_quick_stop(d);
+		case CIA402_DEVICE_REQ_QUICK_STOP:
+			ok = cia402_device_do_quick_stop(d);
 			break;
 		default:
 			break;
@@ -256,20 +256,20 @@ void drive_service(struct drive *d, uint32_t now_ms)
 
 /* ---- 反馈轮转：每 50 ms 读一个对象 ---- */
 
-static void monitor_step(struct drive *d, uint32_t now_ms)
+static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 {
-	static const uint16_t kIndex[4] = {DS402_OD_STATUSWORD, DS402_OD_POSITION_ACTUAL,
-					   DS402_OD_VELOCITY_ACTUAL, DS402_OD_ERROR_CODE};
+	static const uint16_t kIndex[4] = {CIA402_OD_STATUSWORD, CIA402_OD_POSITION_ACTUAL,
+					   CIA402_OD_VELOCITY_ACTUAL, CIA402_OD_ERROR_CODE};
 	uint32_t v = 0u;
 	uint8_t len = 0u;
 	uint8_t slot = d->mon_slot;
 
 	if (d->fb_valid == (uint8_t)0x0Fu &&
-	    (uint32_t)(now_ms - d->mon_last_ms) < DRIVE_MON_INTERVAL_MS) {
+	    (uint32_t)(now_ms - d->mon_last_ms) < CIA402_DEVICE_MON_INTERVAL_MS) {
 		return; /* 都读到过了：按间隔刷新 */
 	}
 	d->mon_last_ms = now_ms;
-	if (d->od->read(d->od->ctx, kIndex[slot], 0u, &v, &len, DRIVE_MON_TIMEOUT_MS) != 0) {
+	if (d->od->read(d->od->ctx, kIndex[slot], 0u, &v, &len, CIA402_DEVICE_MON_TIMEOUT_MS) != 0) {
 		d->mon_slot = (uint8_t)((slot + 1u) % 4u); /* 读失败保留旧值 */
 		return;
 	}
@@ -278,19 +278,19 @@ static void monitor_step(struct drive *d, uint32_t now_ms)
 	switch (slot) {
 	case 0:
 		d->statusword = (uint16_t)(v & 0xFFFFu);
-		d->fb_valid |= DRIVE_FB_STATUSWORD;
+		d->fb_valid |= CIA402_DEVICE_FB_STATUSWORD;
 		break;
 	case 1:
 		d->position = (int32_t)v;
-		d->fb_valid |= DRIVE_FB_POSITION;
+		d->fb_valid |= CIA402_DEVICE_FB_POSITION;
 		break;
 	case 2:
 		d->velocity = (int32_t)v;
-		d->fb_valid |= DRIVE_FB_VELOCITY;
+		d->fb_valid |= CIA402_DEVICE_FB_VELOCITY;
 		break;
 	default:
 		d->error_code = (uint16_t)(v & 0xFFFFu);
-		d->fb_valid |= DRIVE_FB_ERROR_CODE;
+		d->fb_valid |= CIA402_DEVICE_FB_ERROR_CODE;
 		break;
 	}
 	d->mon_slot = (uint8_t)((slot + 1u) % 4u);
@@ -299,69 +299,69 @@ static void monitor_step(struct drive *d, uint32_t now_ms)
 
 /* ---- 事实 ---- */
 
-int drive_is_configured(const struct drive *d)
+int cia402_device_is_configured(const struct cia402_device *d)
 {
-	return d != NULL && d->cfg_state == DRIVE_CFG_CONFIGURED;
+	return d != NULL && d->cfg_state == CIA402_DEVICE_CFG_CONFIGURED;
 }
 
-int drive_is_enabled(const struct drive *d)
+int cia402_device_is_enabled(const struct cia402_device *d)
 {
-	return d != NULL && d->en_state == DRIVE_EN_ENABLED;
+	return d != NULL && d->en_state == CIA402_DEVICE_EN_ENABLED;
 }
 
-int drive_failed(const struct drive *d)
+int cia402_device_failed(const struct cia402_device *d)
 {
 	return d != NULL && d->failed != 0u;
 }
 
-int drive_busy(const struct drive *d)
+int cia402_device_busy(const struct cia402_device *d)
 {
 	if (d == NULL) {
 		return 1;
 	}
-	return d->running != DRIVE_REQ_NONE || d->req != DRIVE_REQ_NONE;
+	return d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE;
 }
 
-enum drive_result drive_take_result(struct drive *d)
+enum cia402_device_result cia402_device_take_result(struct cia402_device *d)
 {
-	enum drive_result r;
+	enum cia402_device_result r;
 
 	if (d == NULL) {
-		return DRIVE_RESULT_NONE;
+		return CIA402_DEVICE_RESULT_NONE;
 	}
 	pthread_mutex_lock(&d->lock);
 	r = d->result;
-	d->result = DRIVE_RESULT_NONE;
+	d->result = CIA402_DEVICE_RESULT_NONE;
 	pthread_mutex_unlock(&d->lock);
 	return r;
 }
 
-uint32_t drive_abort_code(const struct drive *d)
+uint32_t cia402_device_abort_code(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0u : d->abort_code;
 }
 
-uint16_t drive_feedback_statusword(const struct drive *d)
+uint16_t cia402_device_feedback_statusword(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0u : d->statusword;
 }
 
-int32_t drive_feedback_position(const struct drive *d)
+int32_t cia402_device_feedback_position(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0 : d->position;
 }
 
-int32_t drive_feedback_velocity(const struct drive *d)
+int32_t cia402_device_feedback_velocity(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0 : d->velocity;
 }
 
-uint16_t drive_feedback_error_code(const struct drive *d)
+uint16_t cia402_device_feedback_error_code(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0u : d->error_code;
 }
 
-uint8_t drive_feedback_valid(const struct drive *d)
+uint8_t cia402_device_feedback_valid(const struct cia402_device *d)
 {
 	return (d == NULL) ? 0u : d->fb_valid;
 }

@@ -2,7 +2,7 @@
  * controller.c — 组合根：把各层装配起来，并提供三个"推进一步"的入口
  *
  * 只做两件事：
- *   1. 装配：主站 → 每轴对象访问通道 → 驱动 → 轴 → 业务状态机（唯一装配点）；
+ *   1. 装配：主站 → 每轴对象访问通道 → CiA 402 设备 → 轴 → 业务状态机；
  *   2. 推进：io_poll（收/搬/发）、svc_poll（跑同步流程）。
  *
  * 状态机相关的对外 API（指令、状态、故障、样本）在 control_api.c。
@@ -71,7 +71,7 @@ enum cats_result cats_control_init(struct master *master)
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
 		od_sdo_init(&s_ctl.sdo[i], sdo);
 		s_ctl.od[i] = od_sdo_iface(&s_ctl.sdo[i]);
-		drive_init(&s_ctl.axes[i].drv, &s_ctl.od[i], node_id);
+		cia402_device_init(&s_ctl.axes[i].dev, &s_ctl.od[i], node_id);
 		axis_init(&s_ctl.axes[i], node_id);
 	}
 
@@ -128,6 +128,6 @@ void cats_control_svc_poll(void)
 	}
 	now = now_ms(ctl);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		drive_service(&ctl->axes[i].drv, now);
+		cia402_device_service(&ctl->axes[i].dev, now);
 	}
 }

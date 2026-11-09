@@ -1,6 +1,6 @@
 # hsm/ — 通用层次状态机内核
 
-**零业务依赖**：不 include `axis/`、`drive/`、`statemachine/`，代码里不出现
+**零业务依赖**：不 include `axis/`、`cia402/`、`statemachine/`，代码里不出现
 `cats_` / `stm_` 这类业务前缀（R7 边界检查会验）。
 
 QP 风格的层次状态机：状态是函数，`SM_SUPER(&父状态)` 自动上抛，迁移由内核

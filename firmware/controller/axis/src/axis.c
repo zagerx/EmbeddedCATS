@@ -42,18 +42,18 @@ int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
 		return -1; /* NaN：进到整数换算就是未定义行为，这里就拦住 */
 	}
-	return drive_pp_start(&a->drv, scale_mm(mm), scale_mm(mm_s), scale_mm(mm_s2),
+	return cia402_device_pp_start(&a->dev, scale_mm(mm), scale_mm(mm_s), scale_mm(mm_s2),
 			       scale_mm(mm_s2));
 }
 
 int axis_halt(struct cats_axis *a)
 {
-	return (a == NULL) ? -1 : drive_halt(&a->drv);
+	return (a == NULL) ? -1 : cia402_device_halt(&a->dev);
 }
 
 uint32_t axis_abort_code(const struct cats_axis *a)
 {
-	return (a == NULL) ? 0U : drive_abort_code(&a->drv);
+	return (a == NULL) ? 0U : cia402_device_abort_code(&a->dev);
 }
 
 /* pulse → mm，与 scale_mm() 方向相反；同样用 double 算，结果可复现 */
@@ -79,40 +79,40 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 		return;
 	}
 
-	valid = drive_feedback_valid(&a->drv);
-	out->statusword = drive_feedback_statusword(&a->drv);
-	if ((valid & DRIVE_FB_STATUSWORD) != 0U) {
-		out->valid |= DRIVE_FB_STATUSWORD;
+	valid = cia402_device_feedback_valid(&a->dev);
+	out->statusword = cia402_device_feedback_statusword(&a->dev);
+	if ((valid & CIA402_DEVICE_FB_STATUSWORD) != 0U) {
+		out->valid |= CIA402_DEVICE_FB_STATUSWORD;
 	}
-	if ((valid & DRIVE_FB_POSITION) != 0U) {
-		out->position_mm = unscale_mm(drive_feedback_position(&a->drv));
-		out->valid |= DRIVE_FB_POSITION;
+	if ((valid & CIA402_DEVICE_FB_POSITION) != 0U) {
+		out->position_mm = unscale_mm(cia402_device_feedback_position(&a->dev));
+		out->valid |= CIA402_DEVICE_FB_POSITION;
 	}
-	if ((valid & DRIVE_FB_VELOCITY) != 0U) {
-		out->velocity_mm_s = unscale_mm(drive_feedback_velocity(&a->drv));
-		out->valid |= DRIVE_FB_VELOCITY;
+	if ((valid & CIA402_DEVICE_FB_VELOCITY) != 0U) {
+		out->velocity_mm_s = unscale_mm(cia402_device_feedback_velocity(&a->dev));
+		out->valid |= CIA402_DEVICE_FB_VELOCITY;
 	}
-	out->error_code = drive_feedback_error_code(&a->drv);
-	if ((valid & DRIVE_FB_ERROR_CODE) != 0U) {
-		out->valid |= DRIVE_FB_ERROR_CODE;
+	out->error_code = cia402_device_feedback_error_code(&a->dev);
+	if ((valid & CIA402_DEVICE_FB_ERROR_CODE) != 0U) {
+		out->valid |= CIA402_DEVICE_FB_ERROR_CODE;
 	}
 }
 
 enum axis_motion axis_take_motion(struct cats_axis *a)
 {
-	enum drive_result r;
+	enum cia402_device_result r;
 
 	if (a == NULL) {
 		return AXIS_MOTION_NONE;
 	}
-	r = drive_take_result(&a->drv);
-	if (r == DRIVE_RESULT_DONE) {
+	r = cia402_device_take_result(&a->dev);
+	if (r == CIA402_DEVICE_RESULT_DONE) {
 		return AXIS_MOTION_DONE;
 	}
-	if (r == DRIVE_RESULT_FAILED) {
+	if (r == CIA402_DEVICE_RESULT_FAILED) {
 		return AXIS_MOTION_FAILED;
 	}
-	return drive_busy(&a->drv) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
+	return cia402_device_busy(&a->dev) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
 }
 
 /* ---- 批量动作：一组轴 = 数组 + 条数 ---- */
@@ -126,7 +126,7 @@ int axis_config_all(struct cats_axis *axes, uint8_t count)
 	}
 	for (i = 0; i < count; i++) {
 		/* 1 = 已经配过（不重复发起），不算错 */
-		(void)drive_request_config(&axes[i].drv);
+		(void)cia402_device_request_config(&axes[i].dev);
 	}
 	return 0;
 }
@@ -140,7 +140,7 @@ int axis_enable_all(struct cats_axis *axes, uint8_t count)
 	}
 	for (i = 0; i < count; i++) {
 		/* 1 = 已经要求过（不重复发起），不算错 */
-		(void)drive_request_enable(&axes[i].drv);
+		(void)cia402_device_request_enable(&axes[i].dev);
 	}
 	return 0;
 }
@@ -153,7 +153,7 @@ void axis_quick_stop_all(struct cats_axis *axes, uint8_t count)
 		return;
 	}
 	for (i = 0; i < count; i++) {
-		(void)drive_quick_stop(&axes[i].drv);
+		(void)cia402_device_quick_stop(&axes[i].dev);
 	}
 }
 
@@ -165,7 +165,7 @@ int axis_all_configured(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (!drive_is_configured(&axes[i].drv)) {
+		if (!cia402_device_is_configured(&axes[i].dev)) {
 			return 0;
 		}
 	}
@@ -180,7 +180,7 @@ int axis_all_enabled(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (!drive_is_enabled(&axes[i].drv)) {
+		if (!cia402_device_is_enabled(&axes[i].dev)) {
 			return 0;
 		}
 	}
@@ -195,7 +195,7 @@ int axis_any_failed(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (drive_failed(&axes[i].drv)) {
+		if (cia402_device_failed(&axes[i].dev)) {
 			return 1;
 		}
 	}
