@@ -14,15 +14,14 @@ cd "$(dirname "$0")/../.." || exit 1
 SRC=controller
 INC='--include=*.c --include=*.h'
 
-# 迁移期债务白名单：阶段 5 删除 src/cia402/ 时，同步删掉这一行
-DEBT_ALLOW='^controller/cia402/'
-
 FAILS=0
-DEBT_LINES=""
 
 section() { printf '\n=== %s ===\n' "$1"; }
 ok()      { printf '  ok\n'; }
 bad()     { printf '%s\n' "$1"; FAILS=$((FAILS + 1)); }
+
+# 只保代码、扔掉纯注释行：注释里解释"本层不知道 402"不算依赖
+code_only() { grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|/\*|//)' || true; }
 
 # ---------------------------------------------------------------- R1
 # ds402 是纯标准知识：不许出现传输相关的东西
@@ -39,26 +38,23 @@ fi
 # canopen 是 DS 301：不许出现 402 的对象号与词汇
 section "R2  canopen/ 不认识 402"
 out=$(grep -rnE '0x60(40|41|3[Ff])|0x606[014cC]|0x607[Aa]|ds402|cia402' \
-	"$SRC/canopen" $INC 2>/dev/null || true)
+	"$SRC/canopen" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # ---------------------------------------------------------------- R3
-# 只有 drive/backends 与 control 可以 include <canopen/...>
-section "R3  只有 drive/backends 与 control 碰 <canopen/...>"
+# 只有 master/、drive/backends 与组合根可以 include <canopen/...>
+section "R3  只有 master/、drive/backends 与组合根碰 <canopen/...>"
 inc_list=$(grep -rl '<canopen/' "$SRC" $INC 2>/dev/null || true)
 viol=""
 while IFS= read -r f; do
 	[ -z "$f" ] && continue
 	case "$f" in
 	controller/canopen/*) continue ;;
+	controller/master/*) continue ;;
 	controller/drive/backends/* | controller/drive/src/backends/*) continue ;;
 	controller/include/* | controller/*.c) continue ;;
 	esac
-	if [[ "$f" =~ $DEBT_ALLOW ]]; then
-		DEBT_LINES+="  $f"$'\n'
-	else
-		viol+="$f"$'\n'
-	fi
+	viol+="$f"$'\n'
 done <<<"$inc_list"
 if [ -z "$viol" ]; then ok; else bad "$viol"; fi
 
@@ -116,11 +112,21 @@ section "R8  controller/ 不创建线程"
 out=$(grep -rnE 'pthread_create|std::thread' "$SRC" $INC --include=*.cpp 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
-# ---------------------------------------------------------------- 汇总
-if [ -n "$DEBT_LINES" ]; then
-	printf '\n=== [debt] 迁移期白名单（不算失败）===\n%s' "$DEBT_LINES"
-fi
+# ---------------------------------------------------------------- R9
+# canopen 是协议栈：不知道有几个从站，也不认识主站的站号表
+section "R9  canopen/ 不认识主站"
+out=$(grep -rnE '\bmaster_[a-z_]*\(|node_count|MASTER_HB_TIMEOUT|<master/' \
+	"$SRC/canopen" $INC 2>/dev/null | code_only)
+if [ -z "$out" ]; then ok; else bad "$out"; fi
 
+# ---------------------------------------------------------------- R10
+# master 只建"谁收发给谁"：不认识 402、轴、业务状态
+section "R10  master/ 不认识 402 与业务"
+out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcats_|\bstm_|\baxis_|<drive/|<statemachine/' \
+	"$SRC/master" $INC 2>/dev/null | code_only)
+if [ -z "$out" ]; then ok; else bad "$out"; fi
+
+# ---------------------------------------------------------------- 汇总
 if [ "$FAILS" -eq 0 ]; then
 	printf '\n分层检查：通过\n'
 	exit 0

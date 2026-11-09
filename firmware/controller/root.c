@@ -20,21 +20,22 @@ static void nmt_start_cb(void *ctx)
 {
 	struct cats_control *ctl = ctx;
 
-	(void)co_master_set_state(ctl->master, CO_MASTER_ALL_NODES, CO_MASTER_START);
+	(void)master_set_state(ctl->master, CO_NMT_ALL_NODES, CO_NMT_START);
 }
 
 static void nmt_reset_cb(void *ctx)
 {
 	struct cats_control *ctl = ctx;
 
-	(void)co_master_set_state(ctl->master, CO_MASTER_ALL_NODES, CO_MASTER_RESET_COMMUNICATION);
+	(void)master_set_state(ctl->master, CO_NMT_ALL_NODES, CO_NMT_RESET_COMMUNICATION);
 }
 
 static uint32_t now_ms_cb(void *ctx)
 {
 	struct cats_control *ctl = ctx;
+	struct can_io *bus = master_bus(ctl->master);
 
-	return ctl->master != NULL ? can_io_now_ms(ctl->master->bus) : 0u;
+	return bus != NULL ? can_io_now_ms(bus) : 0u;
 }
 
 uint32_t now_ms(struct cats_control *ctl)
@@ -82,7 +83,7 @@ static void publish_readonly(struct cats_control *app)
 
 /* ---- 对外接口 ---- */
 
-enum cats_result cats_control_init(struct co_master *master)
+enum cats_result cats_control_init(struct master *master)
 {
 	uint8_t i;
 
@@ -94,16 +95,18 @@ enum cats_result cats_control_init(struct co_master *master)
 	}
 
 	s_ctl.master = master;
-	/* 轴 = 主站上已登记的节点，站点号只在装配层声明一次，这里读回来 */
-	s_ctl.axis_count = master->node_count < CATS_MAX_AXES ? master->node_count : CATS_MAX_AXES;
+	/* 轴 = 主站上已登记的从站，站点号只在装配层声明一次，这里读回来 */
+	s_ctl.axis_count = master_node_count(master) < CATS_MAX_AXES ? master_node_count(master)
+								     : CATS_MAX_AXES;
 	for (i = 0; i < s_ctl.axis_count; i++) {
-		struct co_node *node = co_master_node(master, master->node_id[i]);
+		uint8_t node_id = master_node_id(master, i);
+		struct co_sdo *sdo = master_sdo(master, node_id);
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
-		od_sdo_init(&s_ctl.sdo[i], master, node);
+		od_sdo_init(&s_ctl.sdo[i], sdo);
 		s_ctl.od[i] = od_sdo_iface(&s_ctl.sdo[i]);
-		drive_init(&s_ctl.axes[i].drv, master, node, &s_ctl.od[i], master->node_id[i]);
-		axis_init(&s_ctl.axes[i], master->node_id[i]);
+		drive_init(&s_ctl.axes[i].drv, sdo, &s_ctl.od[i], node_id);
+		axis_init(&s_ctl.axes[i], node_id);
 	}
 
 	/* 初态：initial() 返回 SM_TRAN(&st_preparing)，内核把 sm_top → ROOT → PREPARING
@@ -139,7 +142,7 @@ static uint8_t heartbeat_fact(const struct cats_control *ctl)
 
 	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
 	for (i = 0; i < ctl->axis_count; i++) {
-		if (co_master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
+		if (master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
 			ok = 0u;
 			break;
 		}
@@ -252,7 +255,7 @@ void cats_control_io_poll(void)
 		return;
 	}
 	now = now_ms(&s_ctl);
-	co_master_poll(s_ctl.master, now);
+	master_poll(s_ctl.master, now);
 	for (i = 0u; i < s_ctl.axis_count; i++) {
 		od_sdo_io_step(&s_ctl.sdo[i], now);
 	}

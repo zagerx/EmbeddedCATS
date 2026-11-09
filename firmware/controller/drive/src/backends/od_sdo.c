@@ -4,13 +4,13 @@
  * 关键点：**阻塞的是服务线程，不是 I/O 线程**。
  * 服务线程等条件变量（睡眠，不占 CPU）；I/O 线程负责真正的收发与超时。
  *
- * 调用方超时后置 cancel，由 I/O 线程调 co_node_close() 放弃在途事务，
+ * 调用方超时后置 cancel，由 I/O 线程调 co_sdo_close() 放弃在途事务，
  * 通道可以立刻复用，不会卡住。
  */
 
 #include <drive/od_sdo.h>
 
-#include <canopen/node.h>
+#include <canopen/sdo.h>
 
 #include <errno.h>
 #include <string.h>
@@ -31,7 +31,7 @@ static void deadline_after(struct timespec *ts, uint32_t ms)
 	}
 }
 
-void od_sdo_init(struct od_sdo *s, struct co_master *master, struct co_node *node)
+void od_sdo_init(struct od_sdo *s, struct co_sdo *sdo)
 {
 	pthread_condattr_t ca;
 
@@ -44,8 +44,7 @@ void od_sdo_init(struct od_sdo *s, struct co_master *master, struct co_node *nod
 	pthread_cond_init(&s->cv, &ca);
 	pthread_condattr_destroy(&ca);
 
-	s->master = master;
-	s->node = node;
+	s->sdo = sdo;
 	s->status = -1;
 }
 
@@ -67,15 +66,15 @@ void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms)
 		s->busy = 0u;
 		s->done = 0u;
 		pthread_mutex_unlock(&s->lock);
-		co_node_close(s->node);
+		co_sdo_close(s->sdo);
 		return;
 	}
 
 	if (s->pending != 0u && s->busy == 0u && s->done == 0u) {
 		if (s->is_write != 0u) {
-			r = co_node_write(s->node, s->index, s->sub, s->value, s->size, s->txn_ms);
+			r = co_sdo_write(s->sdo, s->index, s->sub, s->value, s->size, s->txn_ms);
 		} else {
-			r = co_node_read(s->node, s->index, s->sub, (uint16_t)s->txn_ms);
+			r = co_sdo_read(s->sdo, s->index, s->sub, (uint16_t)s->txn_ms);
 		}
 		if (r == 0) {
 			s->pending = 0u;
@@ -91,12 +90,12 @@ void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms)
 	}
 
 	if (s->busy != 0u) {
-		r = co_node_result(s->node, data, &len);
+		r = co_sdo_result(s->sdo, data, &len);
 		if (r != 0) {
 			s->busy = 0u;
 			s->done = 1u;
 			s->status = (r > 0) ? 0 : -1;
-			s->code = (r > 0) ? 0u : co_node_abort_code(s->node);
+			s->code = (r > 0) ? 0u : co_sdo_abort_code(s->sdo);
 			s->last_code = s->code;
 			if (r > 0) {
 				s->data = (uint32_t)data[0] | ((uint32_t)data[1] << 8) |
@@ -136,7 +135,7 @@ static int od_do(struct od_sdo *s, int is_write, uint16_t index, uint8_t sub, ui
 	int rc;
 
 	pthread_mutex_lock(&s->lock);
-	if (s->node == NULL || s->pending != 0u || s->busy != 0u || s->done != 0u) {
+	if (s->sdo == NULL || s->pending != 0u || s->busy != 0u || s->done != 0u) {
 		pthread_mutex_unlock(&s->lock);
 		return -1; /* 通道忙：一笔没结束 */
 	}

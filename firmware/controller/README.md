@@ -7,7 +7,8 @@
 ```text
 controller/
 ├── bus/            帧契约 + SocketCAN 后端（不认协议）
-├── canopen/        DS 301 子集：节点、主站、SDO 事务槽、心跳
+├── canopen/        协议栈：DS 301 子集（COB-ID / NMT / 心跳 / SDO 客户端）
+├── master/         主站实体：一条总线 + 登记的从站（站号表 / 收发分派）
 ├── ds402/          CiA 402 状态知识（零依赖）
 ├── drive/          从站运行期：请求槽、状态迁移、模式插件、对象访问后端
 ├── axis/           单位换算与指令流
@@ -28,7 +29,7 @@ controller/
 
 ## 边界
 
-- 只依赖各层的公共头：`axis`、`drive`、`canopen`、`bus`；
+- 只依赖各层的公共头：`axis`、`drive`、`master`、`canopen`、`bus`；
 - 不直接操作 PDO 字节、不直接调用平台 CAN 接口；
 - 具体 backend 由集成层传入，本层不 `#include` 任何 backend 实现。
 

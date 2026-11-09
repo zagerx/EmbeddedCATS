@@ -17,7 +17,8 @@ find_package(Threads REQUIRED)
 
 # ---------------------------------------------------------------
 # 一层一个 target。依赖方向在链接关系里也要立得住：
-#   exe(qt) → control → canopen ；backend 只实现 can_io.h，被 exe 注入
+#   exe(qt) → control → master → canopen → bus
+#   协议栈（canopen）不知道有几个从站；站号表与收发在 master
 # ---------------------------------------------------------------
 
 # 内核层：平台无关，只认识自己定义的 can_io.h / master.h
@@ -29,27 +30,34 @@ target_include_directories(bus_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cont
 target_include_directories(bus_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
 target_compile_definitions(bus_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
 
-# 内核层：CANopen 主站（本层自己实现的 DS 301 子集）
-#   master.c       装配、NMT、收帧分派、每拍推进、发帧出口
-#   node.c         节点句柄：把事务槽接到总线上（受理 / 取消 / 每拍发帧）
+# 协议栈层：CANopen 客户端服务（DS 301 子集），不知道有几个从站
+#   cob.c          COB-ID 算式与反判（纯函数）
+#   nmt.c          NMT 命令 → 0x000 帧（纯函数）
+#   hb.c           心跳状态（纯时间戳，超时时长由调用方给）
+#   sdo_client.c   SDO 客户端：站号 + 事务槽 + 注入的 tx 回调
 #   sdo_channel.c  一次 SDO 事务的纯状态机（零 I/O、零锁，可离线单测）
 #   sdo_frame.c    SDO 报文编解码（纯函数，可单测）
-#   heartbeat.c    心跳/boot-up 判定
-add_library(canopen_kernel STATIC
-	controller/canopen/src/master.c
-	controller/canopen/src/node.c
+add_library(canopen_stack STATIC
+	controller/canopen/src/cob.c
+	controller/canopen/src/nmt.c
+	controller/canopen/src/hb.c
+	controller/canopen/src/sdo_client.c
 	controller/canopen/src/sdo_channel.c
-	controller/canopen/src/sdo_frame.c
-	controller/canopen/src/heartbeat.c)
-target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/include)
-# master.h 要用 <bus/can_io.h>：bus 是 canopen 的下层，路径向上下游都可见
-target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
-target_include_directories(canopen_kernel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
+	controller/canopen/src/sdo_frame.c)
+target_include_directories(canopen_stack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/include)
+target_include_directories(canopen_stack PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
 
 # 纯逻辑单测：SDO 报文编解码（不需要 CAN，不碰硬件）
 add_executable(canopen_selftest apps/tools/canopen_selftest/main.c)
 target_include_directories(canopen_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
-target_link_libraries(canopen_selftest PRIVATE canopen_kernel)
+target_link_libraries(canopen_selftest PRIVATE canopen_stack)
+
+# 主站层：一条总线 + 登记的从站（站号表 / 收发分派 / 心跳超时）
+add_library(cats_master STATIC controller/master/src/master.c)
+target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/master/include)
+# master.h 要用 <bus/can_io.h>：bus 是它的下层，路径向上游都可见
+target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
+target_link_libraries(cats_master PUBLIC canopen_stack bus_socketcan)
 
 # DS 402 标准知识（纯函数，零依赖）：状态机 / 对象号 / 位定义
 # 谁都能链它；它自己不链任何东西
@@ -68,7 +76,7 @@ add_library(drive STATIC
 	controller/drive/src/backends/od_sdo.c)
 target_include_directories(drive PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/include)
 target_include_directories(drive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/src)
-target_link_libraries(drive PUBLIC ds402 canopen_kernel Threads::Threads)
+target_link_libraries(drive PUBLIC ds402 canopen_stack Threads::Threads)
 # pthread_cond_timedwait / clock_gettime / clock_nanosleep 属 POSIX 2008
 target_compile_definitions(drive PRIVATE _POSIX_C_SOURCE=200809L)
 
@@ -112,7 +120,8 @@ add_library(cats_control STATIC controller/root.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
 target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 # Threads 仅用于同步原语（drive/backends/od_sdo 的 mutex/cond）；本库不创建线程
-target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis drive Threads::Threads)
+target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis drive cats_master
+	Threads::Threads)
 target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
 
 # 集成层：本机 Qt 壳（在 apps/ 下，与 controller/ 的库层分开：这一层产出可执行程序）

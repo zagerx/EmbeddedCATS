@@ -16,7 +16,7 @@
 #ifndef BINDINGS_CAN_THREAD_H
 #define BINDINGS_CAN_THREAD_H
 
-#include <canopen/master.h>
+#include <master/master.h>
 
 #include <QString>
 #include <atomic>
@@ -55,7 +55,7 @@ class CanThread
 	void run_svc(); /* ③ 服务线程：跑会阻塞的 402 流程 */
 
 	struct can_io *bus_ = nullptr;
-	struct co_master master_ {
+	struct master master_ {
 	};
 	std::thread thread_;
 	std::thread svc_thread_; /* ③ 服务线程（会阻塞，独立一线程） */

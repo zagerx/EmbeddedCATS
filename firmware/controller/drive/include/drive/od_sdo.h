@@ -5,7 +5,7 @@
  *   I/O 线程：od_sdo_io_step() —— 把 pending 请求交给 canopen，收结果、唤醒等待者
  *   服务线程：read/write（阻塞）—— 投递请求 + 等完成条件变量
  *
- * 只有 I/O 线程碰 co_node，所以 canopen 层不需要任何锁。
+ * 只有 I/O 线程碰 SDO 客户端，所以 canopen 层不需要任何锁。
  */
 
 #ifndef DRIVE_BACKENDS_OD_SDO_H
@@ -21,12 +21,10 @@ extern "C" {
 #endif
 
 /* 只借用指针：本头文件不 include canopen，避免把"传输"漏到上层 */
-struct co_master;
-struct co_node;
+struct co_sdo;
 
 struct od_sdo {
-	struct co_master *master;
-	struct co_node *node;
+	struct co_sdo *sdo;
 
 	pthread_mutex_t lock;
 	pthread_cond_t cv;
@@ -52,7 +50,7 @@ struct od_sdo {
 	uint32_t last_code;
 };
 
-void od_sdo_init(struct od_sdo *s, struct co_master *master, struct co_node *node);
+void od_sdo_init(struct od_sdo *s, struct co_sdo *sdo);
 
 /* I/O 线程每拍调用 */
 void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms);

@@ -2,7 +2,7 @@
 
 ```text
 firmware/
-├── controller/   控制主体：七层 + 组合根，不创建线程
+├── controller/   控制主体：七个层 + 主站 + 组合根，不创建线程
 ├── apps/         宿主：谁起线程、怎么装配、界面/命令行
 ├── cmake/        构建辅助
 └── CMakeLists.txt

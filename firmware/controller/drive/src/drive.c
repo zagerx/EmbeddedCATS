@@ -16,13 +16,11 @@
 
 /* ---- 装配 ---- */
 
-void drive_init(struct drive *d, struct co_master *master, struct co_node *node,
-		const struct od_access *od, uint8_t node_id)
+void drive_init(struct drive *d, struct co_sdo *sdo, const struct od_access *od, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
 	pthread_mutex_init(&d->lock, NULL);
-	d->master = master;
-	d->node = node;
+	d->sdo = sdo;
 	d->od = od;
 	d->node_id = node_id;
 	d->cfg_state = DRIVE_CFG_PENDING;

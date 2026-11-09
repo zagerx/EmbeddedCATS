@@ -118,9 +118,9 @@ void CanThread::run_svc()
 void CanThread::run(std::promise<bool> init_done)
 {
 	/* 建主站：站号 1 / 2 只在这里声明一次；app 从 node_count/node_id[] 读回轴 */
-	co_master_init(&master_, bus_);
-	(void)co_master_add_node(&master_, 1);
-	(void)co_master_add_node(&master_, 2);
+	master_init(&master_, bus_);
+	(void)master_add_node(&master_, 1);
+	(void)master_add_node(&master_, 2);
 
 	const bool ok = cats_control_init(&master_) == CATS_OK;
 	init_done.set_value(ok);

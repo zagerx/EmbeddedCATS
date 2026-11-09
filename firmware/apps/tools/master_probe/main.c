@@ -169,7 +169,7 @@ static void sleep_ms(uint32_t ms)
 int main(int argc, char **argv)
 {
 	static struct socketcan_dev dev; /* 静态：全程不用 malloc */
-	static struct co_master master;
+	static struct master master;
 
 	struct can_io io;
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
@@ -192,9 +192,9 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, on_sigint);
 
-	co_master_init(&master, &io);
-	(void)co_master_add_node(&master, 1);
-	(void)co_master_add_node(&master, 2);
+	master_init(&master, &io);
+	(void)master_add_node(&master, 1);
+	(void)master_add_node(&master, 2);
 
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);

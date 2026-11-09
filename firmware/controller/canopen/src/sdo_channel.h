@@ -17,7 +17,7 @@
 #ifndef CANOPEN_SDO_CHANNEL_H
 #define CANOPEN_SDO_CHANNEL_H
 
-#include <canopen/node.h>
+#include <canopen/sdo.h>
 
 #include <stdint.h>
 

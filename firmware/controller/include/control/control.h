@@ -36,11 +36,11 @@
  * 也不把内部结构（sdo 客户端、节点表…）暴露到墙外。
  *
  * 所有权：CAN 通道由**壳**创建与关闭（壳才知道自己跑在哪个平台）。
- * 主站 struct co_master 也由壳持有，app 只借用指针；app 不负责 open/close。
+ * 主站 struct master 也由壳持有，app 只借用指针；app 不负责 open/close。
  * 因此移植到 orin-agx 时，app 一行不改。
  *
  * 命名（方案 A，**不用 typedef**）：
- *   struct co_master     内核层 = 协议意义上的主站（总线 + 节点 + NMT 状态）
+ *   struct master        主站层 = 一条总线 + 登记的从站（站号表 / SDO / 心跳）
  *   struct cats_control  应用层 = 整机控制主体（主站 + 轴 + 状态机 + 指令槽）
  *   enum cats_state      它的运行状态（PREPARING / ENABLING / READY / …）
  */
@@ -51,7 +51,7 @@
 #include <stdint.h>
 
 #include <statemachine/state_types.h>
-#include <canopen/master.h>
+#include <master/master.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -79,7 +79,7 @@ extern "C" {
  */
 /* 故障码：进 FAULT 时确定，之后不再变；界面与现场排查用它分辨原因 */
 /* 初始化：绑定主站并建状态机。建完即处于 PREPARING，之后由 poll 自行推进 */
-enum cats_result cats_control_init(struct co_master *master);
+enum cats_result cats_control_init(struct master *master);
 
 /*
  * 推进一次：收帧 + 推进状态机。控制线程按 1 ms 调用，节拍由壳掌握，

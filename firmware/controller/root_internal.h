@@ -31,7 +31,7 @@
  */
 struct cats_control {
 	/* ---- 装配期写入，之后所有线程只读（不需要锁） ---- */
-	struct co_master *master; /* 内核层主站，只借用；不归本层拥有 */
+	struct master *master; /* 主站层：一条总线 + 登记的从站；只借用，不归本层拥有 */
 	struct cats_axis axes[CATS_MAX_AXES];
 	struct od_sdo sdo[CATS_MAX_AXES]; /* 每轴一条 SDO 通道（服务线程 ↔ I/O 线程） */
 	struct od_access od[CATS_MAX_AXES]; /* 每轴的 od_access 实体（drive 只存指针） */
