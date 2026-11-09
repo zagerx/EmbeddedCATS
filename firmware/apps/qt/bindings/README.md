@@ -14,7 +14,7 @@
 
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
-| `QTimer` 节拍 | `cats_control_poll()` |
+| 控制节拍（`CanThread`，1 ms） | `cats_control_poll()` |
 | 顶部状态条 | `cats_control_state()` / `cats_control_state_name()` |
 | 故障原因 | `cats_control_fault_code()` / `cats_control_fault_name()` |
 | 通道开/关 | `socketcan_open()` / `can_io_close()`（选后端只在集成层） |

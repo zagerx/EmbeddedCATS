@@ -5,7 +5,7 @@
 - 语言：**C++ / Qt6 Widgets**
 - 与 `apps/lyos_node/` **同级、二选一**：两个壳业务上都只依赖 `control/control.h`
 - 业务头只允许出现在 `bindings/`；`shell/`、`ui/`、`theme/` 不 include 任何
-  `control` / `cia402` / `axis` / `canopen` / `backends` 的头
+  `control` / `statemachine` / `axis` / `drive` / `canopen` / `bus` 的头
 
 ## 目录
 
@@ -68,11 +68,11 @@ HALTING / FAULT / ESTOP）。
 
 ## 实时反馈（轴卡片下半部分）
 
-数据源是 cia402 的 **50 ms 后台监控读**：每 50 ms 轮转读一个对象
+数据源是 drive 的 **50 ms 反馈轮转**：每 50 ms 轮转读一个对象
 （`6041` 状态字 → `6064` 实际位置 → `606C` 实际速度 → `603F` 驱动器错误码），
-与状态机串行共用同一条 SDO 通道（流程优先，监控读让路；超时 20 ms，失败保留上一次有效值）。
+与状态机串行共用同一条 SDO 通道（流程优先，监控读让路；超时 100 ms，失败保留上一次有效值）。
 
-- 位置 / 速度在轴层按 `config/cats_mech.h` 的编译期常量换算成 `mm`、`mm/s`
+- 位置 / 速度在轴层按 `controller/config/cats_mech.h` 的编译期常量换算成 `mm`、`mm/s`
   （当前临时值：1000 pulse/rev、5 mm/rev）；读到过才有值，没读到显示 `—`。
 - 状态字显示成 `0x001F` 形式。
 - 「错误码」**只显示驱动器自己报的 `603F`**（`0x0000` = 驱动器无错误）；
@@ -83,7 +83,7 @@ HALTING / FAULT / ESTOP）。
 
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
   `cats_control_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
-  取整到脉冲只发生在轴层，机械换算参数是编译期常量（`config/cats_mech.h`）。
+  取整到脉冲只发生在轴层，机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
 - `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
   入口（2.1 的三个按钮已摆好，但未绑定）。
 - 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。

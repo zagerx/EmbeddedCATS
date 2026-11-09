@@ -23,108 +23,99 @@ find_package(Threads REQUIRED)
 # 内核层：平台无关，只认识自己定义的 can_io.h / master.h
 # （具体定义见下方 canopen_node / canopen_kernel）
 
-# 边界层：can_io.h 的本机实现；只拿内核的“头”，不链它的实现
-add_library(backend_socketcan STATIC src/backends/socketcan/src/can_io_socketcan.c)
-target_include_directories(backend_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/backends/socketcan/include)
-target_include_directories(backend_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
-target_compile_definitions(backend_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
+# 边界层：一帧 CAN 的收发能力（契约 + 平台实现）。不认识任何协议
+add_library(bus_socketcan STATIC controller/bus/socketcan/src/can_io_socketcan.c)
+target_include_directories(bus_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/socketcan/include)
+target_include_directories(bus_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
+target_compile_definitions(bus_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
 
-# 第三方：CANopenNode 301 协议栈（子模块，只读）
-#   - 头文件用 "301/CO_xxx.h" 风格，所以把仓库根放进 include 路径
-#   - CO_driver_target.h 由本工程提供：config/canopen_node/
-add_library(canopen_node STATIC
-	src/third_party/CANopenNode/CANopen.c
-	src/third_party/CANopenNode/301/CO_Emergency.c
-	src/third_party/CANopenNode/301/CO_HBconsumer.c
-	src/third_party/CANopenNode/301/CO_NMT_Heartbeat.c
-	src/third_party/CANopenNode/301/CO_ODinterface.c
-	src/third_party/CANopenNode/301/CO_PDO.c
-	src/third_party/CANopenNode/301/CO_SDOclient.c
-	src/third_party/CANopenNode/301/CO_SDOserver.c
-	src/third_party/CANopenNode/301/CO_SYNC.c
-	src/third_party/CANopenNode/301/CO_TIME.c
-	src/third_party/CANopenNode/301/CO_fifo.c
-	src/third_party/CANopenNode/301/crc16-ccitt.c
-	# 照抄自上游 example/ 的对象字典（生成于 DS301_profile.xpd）
-	${CMAKE_CURRENT_SOURCE_DIR}/config/canopen_node/OD.c)
-target_include_directories(canopen_node PUBLIC
-	${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/CANopenNode
-	${CMAKE_CURRENT_SOURCE_DIR}/config/canopen_node)
-# 这些 CO_CONFIG_* 在 301/CO_config.h 里只有文档、真实值由编译参数给；
-# 用 PUBLIC：链接本库的源文件也必须看到，否则对应头文件整段被预处理掉。
-# 注意：CMake 不接受 "(MACRO)" 这种函数式写法，必须给字面量。
-target_compile_definitions(canopen_node PUBLIC
-	CO_CONFIG_SDO_CLI=1
-	CO_CONFIG_FIFO=1  # SDO client 依赖 FIFO 缓冲
-	# NMT：CO_CONFIG_NMT_MASTER(0x02) —— 主站要能发 NMT 命令
-	CO_CONFIG_NMT=2
-	# 心跳消费：ENABLE(0x01) | QUERY_FUNCT(0x08) —— QUERY_FUNCT 才有
-	#   getState()，本层只靠它回答"某个节点还活着吗"，不需要按节点的回调
-	CO_CONFIG_HB_CONS=9
-	# 静态分配：CO_new() 返回指向 static 对象的指针，全程不用 malloc
-	CO_USE_GLOBALS
-	# 用不到的功能关掉，省代码也省链接（站号是写死的，不做 LSS；没有 LED）
-	CO_CONFIG_LSS=0
-	CO_CONFIG_LEDS=0)
-# 上游在"未启用的可选功能"下会报 unused parameter，属上游代码，不修；
-# 只在本目标内静音，避免刷我们自己的构建日志。
-target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
-
-# 内核层：主站对外接口（master.h）+ 用 can_io 实现的 CO_CANmodule
-#   master.c        CANopenNode 的薄封装（主站语义）
-#   node/           驱动适配层：收帧分派、发送、rx/tx 槽管理
+# 内核层：CANopen 主站（本层自己实现的 DS 301 子集）
+#   master.c       装配、NMT、收帧分派、每拍推进、发帧出口
+#   node.c         节点句柄：把事务槽接到总线上（受理 / 取消 / 每拍发帧）
+#   sdo_channel.c  一次 SDO 事务的纯状态机（零 I/O、零锁，可离线单测）
+#   sdo_frame.c    SDO 报文编解码（纯函数，可单测）
+#   heartbeat.c    心跳/boot-up 判定
 add_library(canopen_kernel STATIC
-	src/canopen/src/master.c
-	src/canopen/src/node/co_driver_cats.c)
-target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/include)
-target_include_directories(canopen_kernel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/canopen/src/node)
-target_link_libraries(canopen_kernel PUBLIC canopen_node)
+	controller/canopen/src/master.c
+	controller/canopen/src/node.c
+	controller/canopen/src/sdo_channel.c
+	controller/canopen/src/sdo_frame.c
+	controller/canopen/src/heartbeat.c)
+target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/include)
+# master.h 要用 <bus/can_io.h>：bus 是 canopen 的下层，路径向上下游都可见
+target_include_directories(canopen_kernel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
+target_include_directories(canopen_kernel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
 
-# 设备层：CiA 402（驱动器语义）。控制字/状态字/使能序列只在这一层
-#   用上游的 SDO 客户端原语驱动（canopen/sdo_client.h 只交出对象，不封装动作）
-add_library(cia402 STATIC
-	src/cia402/src/cia402.c
-	src/cia402/src/cia402_config.c
-	src/cia402/src/cia402_enable.c
-	src/cia402/src/cia402_monitor.c
-	src/cia402/src/cia402_pp.c
-	src/cia402/src/cia402_sdo.c
-	src/cia402/src/cia402_state.c
-	src/cia402/src/cia402_stop.c)
-target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/cia402/include)
-target_link_libraries(cia402 PUBLIC canopen_kernel)
+# 纯逻辑单测：SDO 报文编解码（不需要 CAN，不碰硬件）
+add_executable(canopen_selftest apps/tools/canopen_selftest/main.c)
+target_include_directories(canopen_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
+target_link_libraries(canopen_selftest PRIVATE canopen_kernel)
+
+# DS 402 标准知识（纯函数，零依赖）：状态机 / 对象号 / 位定义
+# 谁都能链它；它自己不链任何东西
+add_library(ds402 STATIC controller/ds402/src/state_machine.c)
+target_include_directories(ds402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/ds402/include)
+
+# 设备运行期：一个 402 从站（od_access 抽象 + 状态机推进 + 模式）
+#   drive.c      请求受理 / 服务执行 / 反馈刷新
+#   drive_sm.c   run_to(目标状态)：唯一一处"发命令 + 等状态字"
+#   mode_pp.c    PP 运动的参数下发与到位判定
+#   backends/    od_access 的 SDO 实现（阻塞式，服务线程用）
+add_library(drive STATIC
+	controller/drive/src/drive.c
+	controller/drive/src/drive_sm.c
+	controller/drive/src/mode_pp.c
+	controller/drive/src/backends/od_sdo.c)
+target_include_directories(drive PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/include)
+target_include_directories(drive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/src)
+target_link_libraries(drive PUBLIC ds402 canopen_kernel Threads::Threads)
+# pthread_cond_timedwait / clock_gettime / clock_nanosleep 属 POSIX 2008
+target_compile_definitions(drive PRIVATE _POSIX_C_SOURCE=200809L)
 
 # 轴层：轴集合（每节点一条 SDO 通道 ⇒ 各轴并行使能、互不阻塞）
-add_library(cats_axis STATIC src/axis/src/axis.c)
-target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/axis/include)
+add_library(cats_axis STATIC controller/axis/src/axis.c)
+target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
 # 机械换算常量（cats_mech.h）属于整机配置，只给轴层用
-target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
-target_link_libraries(cats_axis PUBLIC cia402)
+target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+target_link_libraries(cats_axis PUBLIC drive)
 
 # 应用层：QP 风格层次状态机（HSM）
 #   hsm/          机制层：sm_hsm 内核（层次 + LCA + INIT 下钻）
 #   evt_queue/    多生产者事件队列（外部线程投递 → 控制线程消费）
 #   states/       业务状态：一状态一文件，states.c 是唯一注册点
 #   control.c     装配与对外接口：API → 事件
-add_library(cats_control STATIC
-	src/control/src/control.c
-	src/control/src/evt_queue/evt_queue.c
-	src/control/src/hsm/sm_hsm.c
-	src/control/src/states/states.c
-	src/control/src/states/state_root.c
-	src/control/src/states/state_online.c
-	src/control/src/states/state_preparing.c
-	src/control/src/states/state_configuring.c
-	src/control/src/states/state_enabling.c
-	src/control/src/states/state_holding.c
-	src/control/src/states/state_moving.c
-	src/control/src/states/state_halting.c
-	src/control/src/states/state_fault.c
-	src/control/src/states/state_estop.c)
-target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/control/include)
-target_link_libraries(cats_control PUBLIC cats_axis Threads::Threads)
+# 通用层次状态机内核：零业务依赖，谁都能链（可单独单测）
+add_library(cats_hsm STATIC controller/hsm/src/sm_hsm.c)
+target_include_directories(cats_hsm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/hsm/include)
 
-# 集成层：本机 Qt 壳（在 apps/ 下，与 src/ 的库层分开：这一层产出可执行程序）
+# 业务状态机：本机的状态图 + 事件队列（只拿轴的事实，不认识 canopen）
+add_library(cats_statemachine STATIC
+	controller/statemachine/src/statemachine.c
+	controller/statemachine/src/evt_queue/evt_queue.c
+	controller/statemachine/src/states/states.c
+	controller/statemachine/src/states/state_root.c
+	controller/statemachine/src/states/state_online.c
+	controller/statemachine/src/states/state_preparing.c
+	controller/statemachine/src/states/state_configuring.c
+	controller/statemachine/src/states/state_enabling.c
+	controller/statemachine/src/states/state_holding.c
+	controller/statemachine/src/states/state_moving.c
+	controller/statemachine/src/states/state_halting.c
+	controller/statemachine/src/states/state_fault.c
+	controller/statemachine/src/states/state_estop.c)
+target_include_directories(cats_statemachine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/statemachine/include)
+target_include_directories(cats_statemachine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/statemachine/src ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+target_link_libraries(cats_statemachine PUBLIC cats_hsm cats_axis)
+
+# 组合根：装配 + 推进步骤 + 发布（唯一知道全部的地方；不创建线程）
+add_library(cats_control STATIC controller/root.c)
+target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
+target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+# Threads 仅用于同步原语（drive/backends/od_sdo 的 mutex/cond）；本库不创建线程
+target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis drive Threads::Threads)
+target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
+
+# 集成层：本机 Qt 壳（在 apps/ 下，与 controller/ 的库层分开：这一层产出可执行程序）
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 # 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
@@ -140,11 +131,11 @@ add_executable(cats_qt
 	apps/qt/theme/theme.cpp
 	apps/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
-# cats_control / backend_socketcan 保留在链接里，逻辑接回时直接可用
-target_link_libraries(cats_qt PRIVATE cats_control backend_socketcan Qt6::Widgets Threads::Threads)
+# cats_control / bus_socketcan 保留在链接里，逻辑接回时直接可用
+target_link_libraries(cats_qt PRIVATE cats_control bus_socketcan Qt6::Widgets Threads::Threads)
 
-# 工具：无界面运行器。20 ms 推进 cats_control_poll()，用来在没有界面时验证逻辑
-add_executable(master_probe tools/master_probe/main.c)
-target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
-target_link_libraries(master_probe PRIVATE cats_control backend_socketcan)
+# 工具：无界面运行器。按固定节拍推进 cats_control_poll()，用来在没有界面时验证逻辑
+add_executable(master_probe apps/tools/master_probe/main.c)
+target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+target_link_libraries(master_probe PRIVATE cats_control bus_socketcan)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)

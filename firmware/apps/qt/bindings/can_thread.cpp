@@ -12,6 +12,8 @@
 
 #include <control/control.h>
 
+#include <chrono>
+
 #include <time.h>
 #include <utility>
 
@@ -72,6 +74,8 @@ bool CanThread::start(struct can_io *bus, QString *err)
 		[this, done = std::move(init_done)]() mutable { run(std::move(done)); });
 
 	if (init_result.get()) {
+		/* 宿主职责：服务线程跑会阻塞的 402 流程 */
+		svc_thread_ = std::thread([this]() { run_svc(); });
 		return true;
 	}
 
@@ -85,6 +89,9 @@ bool CanThread::start(struct can_io *bus, QString *err)
 void CanThread::stop()
 {
 	stop_.store(true, std::memory_order_relaxed);
+	if (svc_thread_.joinable()) {
+		svc_thread_.join();
+	}
 	if (thread_.joinable()) {
 		thread_.join(); /* 线程最多卡在 clock_nanosleep 里一拍 */
 	}
@@ -94,6 +101,16 @@ CanThread::Stats CanThread::stats() const
 {
 	return {ticks_.load(std::memory_order_relaxed), max_gap_us_.load(std::memory_order_relaxed),
 		late_ticks_.load(std::memory_order_relaxed)};
+}
+
+/* ---- 服务线程本体 ---- */
+
+void CanThread::run_svc()
+{
+	while (!stop_.load(std::memory_order_relaxed)) {
+		cats_control_svc_poll(); /* 会阻塞：最长一个 SDO 超时 */
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
 }
 
 /* ---- 控制线程本体 ---- */

@@ -9,7 +9,7 @@ main → lyos::init("cats_driver") → 解析 --etc → 读 yaml
 
 - 语言：**C++**
 - 对外只做 topic 映射（订阅控制指令、发布反馈与健康状态）
-- 内核层、设备层、轴层**不改一行**；只需完成本目录 + `backends/orin_agx/`
+- 内核层、设备层、轴层**不改一行**；只需完成本目录 + `controller/bus/orin_agx/`
 
 平台框架、进程模型与 topic 约定见 [`../../../docs/01_设计文档/orin-agx平台框架说明.md`](../../../docs/01_设计文档/orin-agx平台框架说明.md)。
 
