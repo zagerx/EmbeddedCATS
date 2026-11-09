@@ -1,12 +1,6 @@
 #!/usr/bin/env bash
-# layering_check.sh — 分层边界检查（本地与 CI 都能跑）
-#
-# 用法：apps/tools/layering_check.sh（在 firmware/ 下执行，或用绝对路径）
-# 退出码：0 = 无违规；1 = 有违规
-#
-# 规则来源：docs/01_设计文档/分层与线程模型.md
-# 注意：脚本自身在 firmware/apps/tools/，源码根在它上两级的 controller/
-#   分层的价值靠"能一条命令检查"来保证；只写在文档里的约定一定会漂。
+# 分层边界检查；规则见 docs/01_设计文档/分层与线程模型.md。
+# 可在任意目录执行；0 = 通过，1 = 存在违规。
 
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1

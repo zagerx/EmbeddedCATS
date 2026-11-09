@@ -1,7 +1,3 @@
-/*
- * log_panel.cpp — 标题行 + 只读文本框
- */
-
 #include "log_panel.h"
 
 #include <QHBoxLayout>

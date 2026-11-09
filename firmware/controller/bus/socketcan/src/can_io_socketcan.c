@@ -1,10 +1,4 @@
-/*
- * can_io_socketcan.c — can_io.h 的 Linux SocketCAN 实现
- *
- * 四个动作就四件事：write 发、poll+read 收、close 关、clock_gettime 取时间。
- * 平台的"脏东西"（linux/can.h、errno、poll）全部关在本文件里，
- * 出去只有 can_io.h 定义的 4 个返回码。
- */
+/* can_io 的 Linux SocketCAN 实现。 */
 
 #include <socketcan/can_io_socketcan.h>
 

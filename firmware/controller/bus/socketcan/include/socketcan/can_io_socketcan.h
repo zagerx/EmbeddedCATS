@@ -1,19 +1,4 @@
-/*
- * can_io_socketcan.h — can_io.h 的 Linux SocketCAN 实现（边界层）
- *
- * 这是**唯一允许出现 linux/can.h 的模块**。内核只认识 can_io.h，
- * 装配时由集成层调用 socketcan_open() 把实现塞进 struct can_io。
- *
- * 用法（存储由调用方提供，全程不用 malloc）：
- *
- *     static struct socketcan_dev dev;
- *     struct can_io io;
- *     if (socketcan_open(&io, &dev, "can0") != CAN_IO_OK) { ... }
- *     ... 把 &io 交给内核 ...
- *     can_io_close(&io);
- *
- * 编译注意：需要 -D_POSIX_C_SOURCE=200809L（clock_gettime / poll）。
- */
+/* Linux SocketCAN 后端；调用方提供通道与句柄存储。 */
 
 #ifndef SOCKETCAN_CAN_IO_SOCKETCAN_H
 #define SOCKETCAN_CAN_IO_SOCKETCAN_H

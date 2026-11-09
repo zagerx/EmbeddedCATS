@@ -1,11 +1,6 @@
 /*
- * can_thread.cpp — 控制线程的实现（全部节拍逻辑就在这一个文件里）
- *
- * 只有两件事值得记住：
- *   1. 节拍用**绝对时刻**（CLOCK_MONOTONIC + TIMER_ABSTIME），误差不累积；
- *      绝不用"睡 1 ms"那种相对写法，那会越跑越偏。
- *   2. 线程起来后先初始化再循环；初始化结果用 promise 同步给调用方，
- *      这样界面能立刻知道"通道能不能用"。
+ * 控制线程以 CLOCK_MONOTONIC 绝对时刻运行，避免累计节拍误差；
+ * promise 向调用方返回初始化结果。
  */
 
 #include "can_thread.h"
@@ -145,7 +140,7 @@ void CanThread::run(std::promise<bool> init_done)
 			late_ticks_.fetch_add(1u, std::memory_order_relaxed);
 		}
 
-		(void)cats_control_poll(); /* 收帧 + 推进状态机；非阻塞 */
+		(void)cats_control_poll();
 		ticks_.fetch_add(1u, std::memory_order_relaxed);
 
 		sleep_until(next);

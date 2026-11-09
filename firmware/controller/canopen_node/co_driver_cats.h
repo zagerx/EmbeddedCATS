@@ -1,13 +1,6 @@
 /*
- * co_driver_cats.h — CANopenNode 的移植层（本机实现）
- *
- * CANopenNode 通过 CO_driver.h 要求平台提供"发一帧 / 收一帧"的能力。
- * 本机没有中断式驱动作业面，所以：
- *   - 发：CO_CANsend() 直接调 bus 的 can_io_send（同步发）
- *   - 收：I/O 线程每拍把收到的帧交给 co_cats_can_receive()，
- *         由它按 ident/mask 匹配 rxArray 并调栈的回调
- *
- * 栈本身仍是单线程轮询（CO_process），不需要任何锁。
+ * CANopenNode 移植层：同步发送，接收帧按 ident/mask 分派。
+ * 协议栈只由 I/O 线程推进。
  */
 
 #ifndef CO_DRIVER_CATS_H

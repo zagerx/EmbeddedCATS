@@ -1,10 +1,4 @@
-"""单个 CANopen 从站在总线上的行为（NMT + SDO 加速传输 + 心跳）。
-
-视野：Node 只知道“自己是哪个站号”，一帧进来先看是不是发给自己的；总线上的
-其它节点、事件循环、命令行都不属于这里（在 fake_drive.py）。
-
-对象字典的数据归 od.py，本文件只做 CAN 帧的编解码、NMT 状态与心跳时基。
-"""
+"""单个 CANopen 从站：NMT、加速 SDO、心跳和最小 402/PP 行为。"""
 
 from __future__ import annotations
 
@@ -152,7 +146,7 @@ class Node:
     def _start_move(self, now: float) -> None:
         """6040 bit4 上升沿：把 607A 当目标，按 6081 匀速走完。"""
         self.target = self.od.read(0x607A, 0)[0]
-        if self.target >= 0x80000000:  # 16/32 位有符号回绕
+        if self.target >= 0x80000000:  # 转为 32 位有符号位置
             self.target -= 0x100000000
         self.velocity = self.od.read(0x6081, 0)[0]
         self._move_from = self.position
@@ -313,7 +307,7 @@ class Node:
         elif index == 0x6081:
             pass  # 速度同上
 
-    # ---- CiA 402（只做使能这条路径）---------------------------------
+    # ---- CiA 402 使能与 PP 触发 ---------------------------------------
     def apply_controlword(self, cw: int) -> None:
         """控制字 → 402 迁移 + PP 触发（bit4 上升沿 / bit8 停顿）。"""
         prev = self.controlword

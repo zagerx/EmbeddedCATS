@@ -1,16 +1,6 @@
 /*
- * state_configuring.c — 配置中
- *
- * 进入：请求各轴写参数（模式 = PP 等，并发，互不阻塞）。
- * 每拍：只看两个事实——都配好了 → ENABLING；有轴失败 / 超时 → 置故障码，
- *       由 ROOT 统一迁 FAULT。
- *
- * 本状态不推进任何步骤：轴的推进在 axis_poll_all() 里（组合根每拍调一次），
- * 这里只读 axis_all_configured() / axis_any_failed() 的结论。
- *
- * 位置：排在 PREPARING（等心跳）之后、ENABLING（NMT 启动 + 使能）之前。
- * 此刻节点还在 pre-operational，SDO 可用而 PDO 未开，是改参数最安全的时机；
- * 也使 6060 的写入满足"驱动器未使能才能改模式"这条 CiA 402 约束。
+ * 配置中：在 pre-operational 状态请求各轴进入 PP 模式。
+ * 全部完成则转 ENABLING；失败或超时由 ROOT 转 FAULT。
  */
 
 #include "states.h"

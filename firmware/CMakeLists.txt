@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON) # Q_OBJECT 需要 moc
 set(CMAKE_AUTORCC ON) # qt.qrc 需要 rcc
 add_compile_options(-Wall -Wextra)
 
-# 跨线程同步（control 的指令槽/发布值用 pthread mutex）、控制线程（std::thread）
+# pthread 同步原语与宿主线程
 find_package(Threads REQUIRED)
 
 # ---------------------------------------------------------------
@@ -106,7 +106,7 @@ target_link_libraries(drive PUBLIC ds402 canopen_node Threads::Threads)
 # pthread_cond_timedwait / clock_gettime / clock_nanosleep 属 POSIX 2008
 target_compile_definitions(drive PRIVATE _POSIX_C_SOURCE=200809L)
 
-# 轴层：轴集合（每节点一条 SDO 通道 ⇒ 各轴并行使能、互不阻塞）
+# 轴层：单位换算与多轴请求转发；每节点使用独立 SDO 通道
 add_library(cats_axis STATIC controller/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
 # 机械换算常量（cats_mech.h）属于整机配置，只给轴层用
@@ -168,7 +168,7 @@ add_executable(cats_qt
 	apps/qt/theme/theme.cpp
 	apps/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
-# cats_control / bus_socketcan 保留在链接里，逻辑接回时直接可用
+# Qt 宿主链接完整控制栈与 SocketCAN 后端
 target_link_libraries(cats_qt PRIVATE cats_control bus_socketcan Qt6::Widgets Threads::Threads)
 
 # 工具：无界面运行器。按固定节拍推进 cats_control_poll()，用来在没有界面时验证逻辑

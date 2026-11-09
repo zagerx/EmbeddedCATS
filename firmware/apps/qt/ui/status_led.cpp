@@ -1,7 +1,3 @@
-/*
- * status_led.cpp — 自绘圆点（颜色取调色板），文字用 QLabel
- */
-
 #include "status_led.h"
 
 #include "theme/theme.h"

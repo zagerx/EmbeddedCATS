@@ -1,15 +1,6 @@
 /*
- * drive_pp.c — PP（Profile Position）绝对位置运动
- *
- *   6081 速度 → 6083 加速 → 6084 减速 → 607A 目标 → 6040 bit4 上升沿（再落沿）
- *   → 等 bit10（target reached）
- *
- * 两个位不是一回事：
- *   bit12 = set-point acknowledge（驱动器收到新目标的握手）
- *   bit10 = target reached（真的走到了）← 到位判据用这个
- *
- * 插补在驱动器内部做，主站只在"下发"和"等结论"两点出现。
- * 本函数同步阻塞到最后（服务线程），期间可被 drive_cancel() 打断。
+ * PP 绝对位置运动：写运动参数和目标，以 6040 bit4 上升沿触发。
+ * 等待 6041 bit10 到位；同步执行并可被取消。
  */
 
 #include "drive_internal.h"

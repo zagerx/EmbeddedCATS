@@ -1,7 +1,3 @@
-/*
- * state_bar.cpp — 纯展示：当前状态圆点 + 状态码 + 中文说明
- */
-
 #include "state_bar.h"
 
 #include "theme/theme.h"

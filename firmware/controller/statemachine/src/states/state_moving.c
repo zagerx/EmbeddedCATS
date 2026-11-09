@@ -1,15 +1,4 @@
-/*
- * state_moving.c — 运动中：一条 PP 运动在途
- *
- * 进入：把目标下发给该轴的 402 推进器；受理失败只置故障码（ENTRY 里不能迁移，
- *       由 ROOT 在下一拍统一迁 FAULT）。
- * 每拍：先看有没有新指令——
- *         位置指令 → 覆盖目标（PP 允许运动中改目标，重新触发 bit4）；
- *         停止指令 → 迁 HALTING（发 Halt 的动作在 HALTING 的 ENTRY 里）；
- *       再看该轴的运动结论：DONE → HOLDING；FAILED → 置 MOTION_FAILED。
- *
- * 插补在驱动器内部，本状态**不每拍发帧**，只等结论。
- */
+/* 运动中：下发一条 PP 运动并等待结论；新位置指令丢弃，STOP 转 HALTING。 */
 
 #include "states.h"
 

@@ -1,13 +1,6 @@
 /*
- * axis.h — 轴层：轴集合 + 业务语义
- *
- * 一个"轴"在本项目里就是协议上的一个节点（双轴驱动器 = 两个节点）。
- * 本层负责：
- *   - 把轴组织成集合，每拍让每个轴各自推进（每轴一个驱动对象，互不阻塞）；
- *   - 业务单位与协议单位之间的换算（mm ↔ pulse，参数在 config/cats_mech.h）。
- *
- * 本层不知道：控制字序列、状态位含义、对象访问通道（都在 drive）；
- *             应用状态机 PREPARING / RUNNING（在 statemachine）。
+ * 轴层：一个轴对应一个节点，负责 mm ↔ pulse 换算和动作请求。
+ * 402 流程由 drive 实现，业务状态由 statemachine 管理。
  */
 
 #ifndef AXIS_AXIS_H
@@ -65,10 +58,10 @@ enum axis_motion axis_take_motion(struct cats_axis *a);
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
 uint32_t axis_abort_code(const struct cats_axis *a);
 
-/* 取实时反馈样本（不触发传输，只搬运 50 ms 监测到的值） */
+/* 读取最近一次反馈快照，不触发总线传输。 */
 void axis_sample(const struct cats_axis *a, struct axis_sample *out);
 
-/* ---- 批量动作：对一组轴逐个施加（每轴有自己的 SDO 通道，互不阻塞） ---- */
+/* ---- 批量动作 ---- */
 
 /* 请求所有轴写参数（上电一次：模式等）：0 = 已受理；-1 = 没有轴或参数不对 */
 int axis_config_all(struct cats_axis *axes, uint8_t count);

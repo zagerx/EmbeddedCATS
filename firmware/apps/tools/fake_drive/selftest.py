@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
-"""虚拟总线自测：不需要 CAN 硬件。
-
-    python3 firmware/apps/tools/fake_drive/selftest.py
-
-用 python-can 的 virtual 接口在同一进程里开“主站口”和“从站口”，
-把 fake_drive.Drive 挂在从站口上，逐帧断言应答。
-
-这里是回归基线：以后每加一项功能（心跳、402、运动模型），先在这里补用例，
-再上真实 CAN 口对连复验。
-"""
+"""基于 python-can virtual 接口的 Fake Drive 无硬件自测。"""
 
 from __future__ import annotations
 

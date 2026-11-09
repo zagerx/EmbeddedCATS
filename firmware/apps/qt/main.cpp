@@ -1,8 +1,4 @@
-/*
- * main.cpp — 集成层（Qt 壳）的进程入口
- *
- * 只做四件事：建 QApplication、套主题、建窗口、把业务接缝挂上去。
- */
+/* Qt 应用入口。 */
 
 #include "bindings/app_binder.h"
 #include "shell/mainwindow.h"

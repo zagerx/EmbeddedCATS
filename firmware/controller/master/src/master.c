@@ -1,12 +1,4 @@
-/*
- * master.c — 主站实体：站号表 + 每拍两段（收 / 发）
- *
- * 协议本身全在 CANopenNode 里（NMT、心跳消费、SDO 客户端）；
- * 本文件只负责：
- *   1. 把总线接到 CO_driver 的移植层（co_driver_cats.c）；
- *   2. 登记从站（第 i 个 ⇒ 第 i 条 SDO 客户端通道，对应 OD 0x1280/0x1281）；
- *   3. 每拍：抽帧交给栈 → CO_process 推进（含超时与发帧）。
- */
+/* 主站节点表及 CANopenNode 收发推进。 */
 
 #include <master/master.h>
 

@@ -1,14 +1,4 @@
-/*
- * master.h — 主站实体：一条总线 + 若干从站
- *
- * 心脏是 CANopenNode（third_party/CANopenNode）：NMT、心跳消费、SDO 客户端都由
- * 它提供。本层只做三件"本机才有的事"：
- *   1. 持有总线（CO_driver 的移植层，收发都在这里）；
- *   2. 站号表：这台机器上登记了哪几个从站，站号 ↔ SDO 客户端通道；
- *   3. 每拍两段：收（recv_step）/ 发（send_step，内含 CO_process）。
- *
- * 它不认识 402、对象语义、"轴"这些业务词。
- */
+/* 主站：一条总线、节点表及 CANopenNode 的收发推进。 */
 
 #ifndef MASTER_MASTER_H
 #define MASTER_MASTER_H

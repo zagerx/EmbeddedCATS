@@ -1,19 +1,6 @@
 /*
- * app_binder.h — 界面与 app 的唯一接缝
- *
- * 职责（只做"搬运"，不含任何业务判断）：
- *   CanThread            → 建主站、cats_control_init、1 ms 节拍调 cats_control_poll()
- *   QTimer 50 ms         → 读状态刷界面（不跟着 1 ms 节拍跑）
- *   QTimer 5 s           → 打一行节拍统计
- *
- * 不绑定任何按钮：启动流程由状态机自己推进。
- *
- * 所有权：CAN 通道由本层（集成层）打开与关闭；主站对象在 CanThread 里，
- * 只在控制线程访问。界面控件用 objectName 取（findChild），不向 shell/ui
- * 暴露任何业务头。
- *
- * 时序：**两个线程**。控制线程只跑节拍，界面线程只跑界面；两者之间只有
- * control 层发布的只读值（见 control.h「线程约定」），本层不共享别的数据。
+ * Qt 与控制的绑定层：管理 CAN 通道、工作线程、界面刷新和日志。
+ * 控件按 objectName 查找，shell/ui 不依赖业务头。
  */
 
 #ifndef BINDINGS_APP_BINDER_H

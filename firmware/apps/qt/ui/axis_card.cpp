@@ -1,7 +1,3 @@
-/*
- * axis_card.cpp — 纯展示：标题 + 状态灯 + 命令组 + 反馈组
- */
-
 #include "axis_card.h"
 
 #include <QDoubleSpinBox>

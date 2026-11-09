@@ -1,28 +1,8 @@
 #!/usr/bin/env python3
-"""CANopen 从站模拟器（假的伺服驱动器）。
+"""CANopen 伺服从站模拟器。
 
-本机只有 PCAN-USB Pro FD（两个通道），没有真实驱动器。把两口对连：
-
-    can0 = 主站口（CATS 跑这一侧）
-    can1 = 从站口（本程序跑这一侧）
-
-模拟对象：一台双轴驱动器 = 同一根 CAN 上的**两个独立节点**（站号 1、2）。
-两个节点的对象字典完全相同，只有站号不同（手册 3.11 / 3.12）。
-
-当前范围（刻意保持极小）：
-  - NMT（0x000）：start / stop / enter pre-operational / reset node / reset communication
-  - SDO 加速传输（0x600+id 请求 → 0x580+id 响应）：读写对象字典
-  - 心跳生产者（0x1017）：boot-up 之后按出厂周期自动开跑（默认 500 ms），
-    内容 = 当前 NMT 状态；主站写 0x1017 可改周期，写 0 停发
-  - 每个节点各自一份对象字典：写节点 1 不影响节点 2
-
-不做的（按拍板顺序推进）：PDO / SYNC / EMCY / 分段 SDO /
-CiA 402 状态机与运动模型。经典 CAN（≤8 字节），不做 CAN FD。
-
-对象字典数据在 od_data.json（带出处），通信对象按 DS 301 标准值、
-402 对象按手册 5.1.3 / 5.3；真机到货后用 tools/od_scan 的实读结果覆盖。
-
-本程序只认 CAN 帧，不 import firmware/controller 下任何模块：它是测试装置，不是固件。
+每个节点持有独立对象字典，支持 NMT、加速 SDO、心跳以及最小 402/PP 模型。
+PP 只模拟匀速运动，不模拟加减速；不支持 PDO、SYNC、EMCY、分段 SDO 或 CAN FD。
 """
 
 from __future__ import annotations
@@ -123,7 +103,7 @@ def parse_nodes(text: str) -> list[int]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="CANopen 从站模拟器（当前只支持 NMT + SDO 加速读写）"
+        description="CANopen 从站模拟器（NMT + 加速 SDO + 心跳 + 最小 402/PP）"
     )
     ap.add_argument("-i", "--interface", default="can1", help="CAN 通道（默认 can1）")
     ap.add_argument(

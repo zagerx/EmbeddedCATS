@@ -1,14 +1,6 @@
 /*
- * master_probe — 无界面运行器：开通道 → 建主站 → 按 20 ms 推进 app 状态机
- *
- * 为什么需要它：不用开界面就能看状态机日志、复现问题、跑长时间回归；
- * 界面层（apps/qt/bindings）虽然也能跑同样的东西，但它给不了可 grep 的终端输出。
- *
- * 用法：
- *     master_probe [CAN 接口] [运行秒数，0 = 一直跑]
- *     master_probe can0 30
- *
- * 退出：Ctrl-C 或到时。
+ * 无界面验证器：20 ms 推进业务状态机，独立线程负责 I/O 与阻塞服务。
+ * 用法：master_probe [CAN 接口] [运行秒数，0 = 一直跑] [指令参数...]
  */
 
 #include <control/control.h>

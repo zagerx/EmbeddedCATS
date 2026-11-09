@@ -16,7 +16,7 @@ extern "C" {
 
 enum cats_result {
 	CATS_OK = 0,
-	CATS_ERR_STATE, /* 状态不允许：重复 start / 没 start 就 poll */
+	CATS_ERR_STATE, /* 未初始化或重复初始化 */
 	CATS_ERR_PARAM, /* 参数不合法：通道名为空 / 轴号越界 */
 	CATS_ERR_BUSY   /* 事件队列已满：这条指令没进队，请稍后重试 */
 };

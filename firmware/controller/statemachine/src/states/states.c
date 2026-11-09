@@ -1,9 +1,4 @@
-/*
- * states.c — 状态表与状态名映射（**唯一的注册点**）
- *
- * 新增状态时：写好 state_xxx.c → 在 states.h 加声明 → 在本表加一行。
- * 下标与 enum cats_state 一一对应，靠 static_assert 保证不会错位。
- */
+/* 状态表与名称映射；数组下标与 enum cats_state 一一对应。 */
 
 #include "states.h"
 

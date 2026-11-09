@@ -1,8 +1,4 @@
-/*
- * log_panel.h — 底部只读日志面板
- *
- * 只有「追加一行 / 清空」两个纯显示动作，不产生任何日志内容。
- */
+/* 只读日志面板。 */
 
 #ifndef LOG_PANEL_H
 #define LOG_PANEL_H

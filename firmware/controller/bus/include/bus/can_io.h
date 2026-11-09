@@ -1,17 +1,6 @@
 /*
- * can_io.h — CAN 收发能力契约（bus 层定义，平台实现填充）
- *
- * 为什么在这里：canopen 要发帧、收帧，但它不许认识 linux/can、socket、
- * 线程、系统时钟。所以本层只声明"我需要什么能力"，由 bus/ 下的平台实现
- * 去满足 —— 这就是依赖倒置。换平台只换实现，本文件一个字不改。
- *
- * 谁实现：bus/socketcan（本机）、bus/loopback（无硬件自测）、
- *         bus/orin_agx（平台占位）。
- *
- * 三条硬规则：
- *   1. 只用固定大小的结构，**不动态分配内存**；
- *   2. 帧一律是 11 位标准帧、最多 8 字节（经典 CAN 2.0；CAN FD 后置）；
- *   3. 失败一律翻译成 enum can_io_status，不向上抛 errno。
+ * CAN 收发抽象：固定存储、11 位标准帧、最多 8 字节。
+ * 平台错误统一映射为 enum can_io_status。
  */
 
 #ifndef BUS_CAN_IO_H

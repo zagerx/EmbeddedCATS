@@ -1,6 +1,4 @@
-/*
- * theme.cpp — 载入 app.qss 并把 @token 换成调色板里的色值
- */
+/* 加载 QSS 并展开调色板占位符。 */
 
 #include "theme.h"
 

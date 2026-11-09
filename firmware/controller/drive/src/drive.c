@@ -254,7 +254,7 @@ void drive_service(struct drive *d, uint32_t now_ms)
 	}
 }
 
-/* ---- 反馈轮转：4 个对象轮流读，50 ms 一轮 ---- */
+/* ---- 反馈轮转：每 50 ms 读一个对象 ---- */
 
 static void monitor_step(struct drive *d, uint32_t now_ms)
 {

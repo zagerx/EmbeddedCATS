@@ -1,13 +1,4 @@
-/*
- * co_driver_cats.c — CANopenNode 的 CO_driver 在本机的实现
- *
- * 平台相关的东西只有两件：
- *   发：把 CO_CANtx_t（ident + DLC + data[8]）交给 bus 的 can_io_send；
- *   收：把 bus 收到的帧按 ident/mask 匹配到 rxArray，调栈注册的回调。
- *
- * 没有 TX 中断、没有硬件过滤：栈配 useCANrxFilters = false（软件匹配）。
- * 因此 CO_LOCK_CAN_SEND / CO_UNLOCK_CAN_SEND 是空宏（见 CO_driver_target.h）。
- */
+/* CANopenNode CO_driver 的 bus 实现，使用同步发送和软件接收匹配。 */
 
 #include "co_driver_cats.h"
 

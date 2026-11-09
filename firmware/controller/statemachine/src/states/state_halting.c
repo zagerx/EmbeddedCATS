@@ -1,13 +1,6 @@
 /*
- * state_halting.c — 减速停在途（Halt，保持使能）
- *
- * 进入：给该轴发 Halt（6040 bit8）——不停使能，轴还在保持力矩。
- * 每拍：取指令槽并**显式丢弃**（停止过程中不接受新目标；不丢弃的话它会留在
- *       槽里，等停稳进 HOLDING 后被意外执行）；
- *       再等该轴报"停稳"：DONE → HOLDING；FAILED → 置 STOP_FAILED。
- *
- * 名字不叫 STOPPING：这里做的是 6040 bit8 = Halt（停在当前位置、保持力矩），
- * 不是"停止程序/停机"。
+ * 减速停：通过 6040 bit8 停车并保持使能。
+ * 停车期间忽略 MOVE/STOP，完成后转 HOLDING。
  */
 
 #include "states.h"

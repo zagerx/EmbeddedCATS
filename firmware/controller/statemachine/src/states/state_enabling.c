@@ -1,13 +1,4 @@
-/*
- * state_enabling.c — 使能中
- *
- * 进入：NMT 启动（0x01，手册 6.1.4 步骤 2）+ 请求各轴使能（并发，互不阻塞）。
- * 每拍：只看两个事实——都使能上了 → HOLDING；有轴失败 / 超时 → 置故障码，
- *       由 ROOT 统一迁 FAULT。
- *
- * 本状态不推进任何步骤：轴的推进在 axis_poll_all() 里（组合根每拍调一次），
- * 这里只读 axis_all_enabled() / axis_any_failed() 的结论。
- */
+/* 使能中：广播 NMT Start 并请求各轴使能，全部完成后转 HOLDING。 */
 
 #include "states.h"
 

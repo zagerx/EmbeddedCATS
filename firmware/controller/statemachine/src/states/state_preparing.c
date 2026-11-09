@@ -1,22 +1,9 @@
 /*
- * state_preparing.c — 准备中
+ * 准备中：广播 Reset Communication，等待心跳后转 CONFIGURING。
+ * 本状态不在 ONLINE 下，启动期没有心跳不算运行期掉线。
  *
- * 进入：广播 Reset Communication（0x82，只复位通信，不动配置）。
- * 每拍：静默期过后心跳正常 → CONFIGURING；超时 → 置 BOOTUP_TIMEOUT（由 ROOT 迁 FAULT）。
- * 退出：无动作。
- *
- * 静默期：发完 0x82 后等这么久再判心跳，让驱动器有机会先处理复位并回 boot-up
- * （boot-up 会把消费者槽位置回 UNKNOWN，之后必须收到新心跳才算 ACTIVE）。
- *
- * 注意：本值（100 ms）小于 OD 0x1016 的超时值（750 ms），所以它并不保证
- * "复位前那一帧残留的 ACTIVE 已经过期"。若驱动器回 boot-up 晚于本值，
- * 判定会用上残留的 ACTIVE 而提前进 ENABLING，随后槽位变 UNKNOWN，
- * 可能在 750 ms 内被判成心跳丢失。驱动器响应足够快时不会走到这条路。
- *
- * 心跳的事实（hb_ok）由组合根每拍算好，本状态只读；掉线 → FAULT 的判定在
- * ONLINE（父状态）统一做。**本状态不在 ONLINE 下**，所以自己不做心跳判定。
- *
- * 时间：内核不提供定时器，用 ctl->state_since_ms（每拍由 cats_control_poll 刷新）。
+ * 100 ms 静默期小于 750 ms 心跳超时，残留的 ACTIVE 可能让状态提前迁移；
+ * 随后收到延迟的 boot-up 时，心跳槽会重新变为 UNKNOWN。
  */
 
 #include "states.h"

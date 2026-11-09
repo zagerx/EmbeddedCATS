@@ -1,12 +1,5 @@
 /*
- * od_sdo.c — 用 CANopenNode 的 SDO 客户端实现 od_access
- *
- * 关键点：**阻塞的是服务线程，不是 I/O 线程**。
- * 服务线程等条件变量（睡眠，不占 CPU）；I/O 线程调 CO_SDOclient_* 推进事务。
- *
- * CANopenNode 的 SDO 客户端是步进式的：CO_SDOclientDownload/Upload() 每调一次
- * 返回 "还在进行 / 已结束 / 失败"，所以它天然适合放在 I/O 线程的每拍里。
- * 等待被本文件包成一次阻塞调用（od_read / od_write）。
+ * od_access 的 SDO 实现：服务线程等待条件变量，I/O 线程步进协议栈。
  */
 
 #include <drive/od_sdo.h>
@@ -16,7 +9,7 @@
 #include <time.h>
 
 #define OD_SDO_DEFAULT_TXN_MS 200u
-/* 等条件变量时比事务超时多留一点：让栈自己先判超时并回 abort */
+/* 给协议栈完成事务或判定超时留出余量 */
 #define OD_SDO_WAIT_SLACK_MS 100u
 
 static void deadline_after(struct timespec *ts, uint32_t ms)

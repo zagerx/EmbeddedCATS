@@ -1,9 +1,4 @@
-/*
- * theme.h — 外观的唯一出处：调色板 + 样式表加载
- *
- * app.qss 里用 @token 占位（如 @bg），由 theme::apply() 用下面的色值替换。
- * 自绘控件（状态灯等）也从这里取色，颜色只有这一份。
- */
+/* 全局调色板与 QSS 加载接口。 */
 
 #ifndef THEME_H
 #define THEME_H
