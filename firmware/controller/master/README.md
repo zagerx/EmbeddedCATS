@@ -25,7 +25,9 @@ master/
 master_init(&m, bus);
 master_add_node(&m, 1);            /* 双轴驱动器 = 2 个从站 */
 master_set_state(&m, 0, CO_NMT_START);       /* 0 = 全站 */
-master_poll(&m, now_ms);           /* 抽帧 → 分派 → 推进各站事务 */
+master_recv_step(&m, now);        /* ① 抽帧 → 分派 */
+/* ② 宿主：od_sdo_io_step 把服务线程的请求交给协议 */
+master_send_step(&m, now);        /* ③ 该发的帧（请求 / abort）发出去 */
 master_node_alive(&m, 1);          /* 0 = 在位 */
 master_sdo(&m, 1);                 /* 该从站的对象访问通道，交给 drive */
 ```
@@ -34,7 +36,7 @@ master_sdo(&m, 1);                 /* 该从站的对象访问通道，交给 dr
 
 - 只依赖 `canopen`（协议栈）与 `bus`（一帧收发）；
 - **不认识** 402、对象语义、轴、单位、业务状态机（R10 检查）；
-- 不创建线程：`master_poll()` 由宿主的 I/O 线程按拍调用。
+- 不创建线程：`master_recv_step()` / `master_send_step()` 由宿主的 I/O 线程按拍调用。
 
 ## 与 canopen/ 的分工
 

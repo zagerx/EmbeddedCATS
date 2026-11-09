@@ -53,8 +53,8 @@ struct od_sdo {
 
 void od_sdo_init(struct od_sdo *s, struct co_sdo *sdo);
 
-/* I/O 线程每拍调用 */
-void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms);
+/* I/O 线程每拍调用：投递请求 / 收取结果 / 处理放弃 */
+void od_sdo_io_step(struct od_sdo *s);
 
 /* 任意线程：打断在途事务（等待方立刻返回 -1，I/O 线程负责关掉事务） */
 void od_sdo_abort(struct od_sdo *s);

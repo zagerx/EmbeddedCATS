@@ -149,10 +149,9 @@ static void dispatch(struct master *m, const struct can_io_frame *frame, uint32_
 	}
 }
 
-void master_poll(struct master *m, uint32_t now_ms)
+void master_recv_step(struct master *m, uint32_t now_ms)
 {
 	struct can_io_frame frame;
-	uint8_t i;
 	uint8_t budget = (uint8_t)MASTER_RX_BUDGET;
 
 	if (m == NULL || m->bus == NULL) {
@@ -160,7 +159,7 @@ void master_poll(struct master *m, uint32_t now_ms)
 	}
 	m->now_ms = now_ms;
 
-	/* 1. 把总线上已到的帧抽干（不阻塞）；抽帧与分派在同一个地方做 */
+	/* 把总线上已到的帧抽干（不阻塞）；抽帧与分派在同一个地方做 */
 	while (budget > 0u) {
 		if (can_io_recv(m->bus, &frame, 0u) != CAN_IO_OK) {
 			break; /* 本拍的帧已经抽完 */
@@ -168,8 +167,18 @@ void master_poll(struct master *m, uint32_t now_ms)
 		budget--;
 		dispatch(m, &frame, now_ms);
 	}
+}
 
-	/* 2. 每个从站的事务槽推进一步：要发请求帧 / abort 帧就在这里发 */
+void master_send_step(struct master *m, uint32_t now_ms)
+{
+	uint8_t i;
+
+	if (m == NULL || m->bus == NULL) {
+		return;
+	}
+	m->now_ms = now_ms;
+
+	/* 每个从站的事务槽推进一步：要发请求帧 / abort 帧就在这里发 */
 	for (i = 0u; i < m->node_count; i++) {
 		co_sdo_advance(&m->node[i].sdo, now_ms);
 	}

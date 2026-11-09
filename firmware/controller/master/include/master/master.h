@@ -4,7 +4,7 @@
  * 这个头回答的是"这台机器上有哪几个站、它们还活着吗、我要让谁上线"，
  * 不回答"帧长什么样"（那些在 canopen/ 的四个头里）。
  *
- * 它持有并独占总线：整个进程只有 master_poll() 收帧、只有 master_send() 发帧。
+ * 它持有并独占总线：整个进程只有 master_recv_step() 收帧、只有 master_send() 发帧。
  * 每个登记过的从站各有一份 SDO 客户端（struct co_sdo），所以多站访问是并行的。
  *
  * 本层不知道：402、对象语义（drive/ds402）、"轴""运动"这些业务词、线程。
@@ -70,10 +70,21 @@ struct can_io *master_bus(struct master *m);
 int master_set_state(struct master *m, uint8_t node_id, enum co_nmt_cmd cmd);
 
 /*
- * 推进一次：抽干总线 → 按 COB-ID 分派（心跳 / 某站的 SDO 应答）→ 推进各站的
- * 在途事务。每拍无条件调用，与业务状态无关。
+ * 一拍分两步，中间允许插入别的事（宿主正是这么排的）：
+ *
+ *   ① master_recv_step()   抽帧 + 按 COB-ID 分派（心跳 / SDO 应答）
+ *   ② （宿主：od_sdo_io_step 把服务线程的请求提交给协议）
+ *   ③ master_send_step()   推进各站在途事务，该发的帧发出去
+ *
+ * 两步共用同一份“上一拍时刻”（心跳超时按它算）。
+ * **两步必须在同一个线程里按顺序调**：总线只有一个收发者。
  */
-void master_poll(struct master *m, uint32_t now_ms);
+
+/* ① 收：把总线上已到的帧抽干并分派（不阻塞） */
+void master_recv_step(struct master *m, uint32_t now_ms);
+
+/* ③ 发：每个从站的事务槽推进一步（要发请求帧 / abort 帧就发） */
+void master_send_step(struct master *m, uint32_t now_ms);
 
 /*
  * 查一个从站的心跳是否正常：0 = 正常；非 0 = 不正常。

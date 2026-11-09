@@ -255,10 +255,16 @@ void cats_control_io_poll(void)
 		return;
 	}
 	now = now_ms(&s_ctl);
-	master_poll(s_ctl.master, now);
+
+	/* 一拍三件事，顺序有意义：
+	 *   ① 收：应答落到各从站的事务槽里
+	 *   ② 搬：服务线程的请求提交给协议 / 结果搬回 od_sdo
+	 *   ③ 发：该发的帧当拍发出去（放在 ② 之后，请求不用多等一拍） */
+	master_recv_step(s_ctl.master, now);
 	for (i = 0u; i < s_ctl.axis_count; i++) {
-		od_sdo_io_step(&s_ctl.sdo[i], now);
+		od_sdo_io_step(&s_ctl.sdo[i]);
 	}
+	master_send_step(s_ctl.master, now);
 }
 
 void cats_control_svc_poll(void)

@@ -50,13 +50,14 @@ void od_sdo_init(struct od_sdo *s, struct co_sdo *sdo)
 
 /* ---------------- I/O 线程侧 ---------------- */
 
-void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms)
+void od_sdo_io_step(struct od_sdo *s)
 {
 	uint8_t data[4] = {0, 0, 0, 0};
 	uint8_t len = 0u;
 	int r;
 
-	(void)now_ms;
+	/* 全程持锁调 co_sdo_*：那些都是纯内存操作（组帧/改状态/拷 4 字节），
+	 * 不会阻塞，所以持锁时间可以忽略；canopen 层本身无锁，靠这把锁串行化。 */
 	pthread_mutex_lock(&s->lock);
 
 	if (s->cancel != 0u) {
@@ -65,8 +66,8 @@ void od_sdo_io_step(struct od_sdo *s, uint32_t now_ms)
 		s->pending = 0u;
 		s->busy = 0u;
 		s->done = 0u;
-		pthread_mutex_unlock(&s->lock);
 		co_sdo_close(s->sdo);
+		pthread_mutex_unlock(&s->lock);
 		return;
 	}
 
