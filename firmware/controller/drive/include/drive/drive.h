@@ -27,9 +27,6 @@
 extern "C" {
 #endif
 
-/* 只借用指针：drive 不认识 canopen 的类型细节 */
-struct co_sdo;
-
 /* 配置结论 */
 enum drive_cfg_state {
 	DRIVE_CFG_PENDING = 0, /* 还没配 / 正在配 */
@@ -72,7 +69,6 @@ enum {
 
 struct drive {
 	/* ---- 装配期写入，之后只读 ---- */
-	struct co_sdo *sdo; /* 该从站的对象访问通道（主站提供） */
 	const struct od_access *od;
 	uint8_t node_id;
 
@@ -102,7 +98,7 @@ struct drive {
 	uint32_t mon_last_ms;
 };
 
-void drive_init(struct drive *d, struct co_sdo *sdo, const struct od_access *od, uint8_t node_id);
+void drive_init(struct drive *d, const struct od_access *od, uint8_t node_id);
 
 /* ---- 意图：0 = 已受理；1 = 有别的请求在跑；-1 = 参数/装配错误 ---- */
 int drive_request_config(struct drive *d);

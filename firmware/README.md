@@ -2,7 +2,7 @@
 
 ```text
 firmware/
-├── controller/   控制主体：七个层 + 主站 + 组合根，不创建线程
+├── controller/   控制主体：各层 + 主站（CANopenNode）+ 组合根，不创建线程
 ├── apps/         宿主：谁起线程、怎么装配、界面/命令行
 ├── cmake/        构建辅助
 └── CMakeLists.txt
@@ -28,7 +28,6 @@ firmware/
 
 ```bash
 cmake -S . -B build && cmake --build build -j4     # 期望 0 error / 0 warning
-./build/canopen_selftest                           # 协议栈：编解码与事务槽
 ./build/ds402_selftest                             # PDS：状态字解析与起点快进
 apps/tools/layering_check.sh                       # R1–R10 边界检查
 ```

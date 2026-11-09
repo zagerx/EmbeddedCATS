@@ -24,14 +24,14 @@ static void nmt_start_cb(void *ctx)
 {
 	struct cats_control *ctl = ctx;
 
-	(void)master_set_state(ctl->master, CO_NMT_ALL_NODES, CO_NMT_START);
+	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
 }
 
 static void nmt_reset_cb(void *ctx)
 {
 	struct cats_control *ctl = ctx;
 
-	(void)master_set_state(ctl->master, CO_NMT_ALL_NODES, CO_NMT_RESET_COMMUNICATION);
+	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
 }
 
 static uint32_t now_ms_cb(void *ctx)
@@ -66,12 +66,12 @@ enum cats_result cats_control_init(struct master *master)
 								     : CATS_MAX_AXES;
 	for (i = 0; i < s_ctl.axis_count; i++) {
 		uint8_t node_id = master_node_id(master, i);
-		struct co_sdo *sdo = master_sdo(master, node_id);
+		CO_SDOclient_t *sdo = master_sdo(master, node_id);
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
 		od_sdo_init(&s_ctl.sdo[i], sdo);
 		s_ctl.od[i] = od_sdo_iface(&s_ctl.sdo[i]);
-		drive_init(&s_ctl.axes[i].drv, sdo, &s_ctl.od[i], node_id);
+		drive_init(&s_ctl.axes[i].drv, &s_ctl.od[i], node_id);
 		axis_init(&s_ctl.axes[i], node_id);
 	}
 
@@ -112,7 +112,7 @@ void cats_control_io_poll(void)
 	 *   ③ 发：该发的帧当拍发出去（放在 ② 之后，请求不用多等一拍） */
 	master_recv_step(ctl->master, now);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		od_sdo_io_step(&ctl->sdo[i]);
+		od_sdo_io_step(&ctl->sdo[i], now);
 	}
 	master_send_step(ctl->master, now);
 }

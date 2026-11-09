@@ -30,34 +30,56 @@ target_include_directories(bus_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cont
 target_include_directories(bus_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
 target_compile_definitions(bus_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
 
-# 协议栈层：CANopen 客户端服务（DS 301 子集），不知道有几个从站
-#   cob.c          COB-ID 算式与反判（纯函数）
-#   nmt.c          NMT 命令 → 0x000 帧（纯函数）
-#   hb.c           心跳状态（纯时间戳，超时时长由调用方给）
-#   sdo_client.c   SDO 客户端：站号 + 事务槽 + 注入的 tx 回调
-#   sdo_channel.c  一次 SDO 事务的纯状态机（零 I/O、零锁，可离线单测）
-#   sdo_frame.c    SDO 报文编解码（纯函数，可单测）
-add_library(canopen_stack STATIC
-	controller/canopen/src/cob.c
-	controller/canopen/src/nmt.c
-	controller/canopen/src/hb.c
-	controller/canopen/src/sdo_client.c
-	controller/canopen/src/sdo_channel.c
-	controller/canopen/src/sdo_frame.c)
-target_include_directories(canopen_stack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/include)
-target_include_directories(canopen_stack PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
-
-# 纯逻辑单测：SDO 报文编解码（不需要 CAN，不碰硬件）
-add_executable(canopen_selftest apps/tools/canopen_selftest/main.c)
-target_include_directories(canopen_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/src)
-target_link_libraries(canopen_selftest PRIVATE canopen_stack)
-
 # 主站层：一条总线 + 登记的从站（站号表 / 收发分派 / 心跳超时）
 add_library(cats_master STATIC controller/master/src/master.c)
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/master/include)
 # master.h 要用 <bus/can_io.h>：bus 是它的下层，路径向上游都可见
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
-target_link_libraries(cats_master PUBLIC canopen_stack bus_socketcan)
+target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan)
+
+# ---------------------------------------------------------------
+# CANopenNode v4（第三方协议栈，原样参与构建）
+#   third_party/CANopenNode/  官方源码（只读，不改）
+#   canopen_node/             本机移植层：CO_driver 用我们的 bus 实现
+#   config/canopen_node/      对象字典：心跳消费 0x1016 / SDO 客户端 0x1280
+# 只开本工程用到的服务：NMT master、心跳消费（含查询）、SDO 客户端。
+# ---------------------------------------------------------------
+set(CANOPENNODE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenNode)
+add_library(canopen_node STATIC
+	${CANOPENNODE_DIR}/CANopen.c
+	${CANOPENNODE_DIR}/301/CO_Emergency.c
+	${CANOPENNODE_DIR}/301/CO_fifo.c
+	${CANOPENNODE_DIR}/301/CO_HBconsumer.c
+	${CANOPENNODE_DIR}/301/CO_NMT_Heartbeat.c
+	${CANOPENNODE_DIR}/301/CO_Node_Guarding.c
+	${CANOPENNODE_DIR}/301/CO_ODinterface.c
+	${CANOPENNODE_DIR}/301/CO_PDO.c
+	${CANOPENNODE_DIR}/301/CO_SDOclient.c
+	${CANOPENNODE_DIR}/301/CO_SDOserver.c
+	${CANOPENNODE_DIR}/301/CO_SYNC.c
+	${CANOPENNODE_DIR}/301/CO_TIME.c
+	${CANOPENNODE_DIR}/301/crc16-ccitt.c
+	controller/canopen_node/co_driver_cats.c
+	controller/config/canopen_node/OD.c)
+target_include_directories(canopen_node PUBLIC
+	${CANOPENNODE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen_node
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/config/canopen_node
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
+# 这些宏决定 CANopenNode 头里暴露哪些类型/服务，所有包含 CANopen.h 的
+# 编译单元必须一致 → PUBLIC
+target_compile_definitions(canopen_node PUBLIC
+	CO_USE_GLOBALS=1
+	CO_CONFIG_NMT=0x02
+	CO_CONFIG_HB_CONS=0x09
+	CO_CONFIG_FIFO=0x01
+	CO_CONFIG_SDO_CLI=0x01
+	CO_CONFIG_LSS=0
+	CO_CONFIG_LEDS=0
+	CO_CONFIG_GTW=0
+	CO_CONFIG_SRDO=0)
+# 第三方代码：按配置裁剪后会留下"未使用参数"，只对本 target 关掉这条告警
+target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
 
 # DS 402 标准知识（纯函数，零依赖）：PDS 状态解析 / 序列表 / 对象号 / 位定义
 # 谁都能链它；它自己不链任何东西，也没有循环与 I/O
@@ -80,7 +102,7 @@ add_library(drive STATIC
 	controller/drive/src/backends/od_sdo.c)
 target_include_directories(drive PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/include)
 target_include_directories(drive PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/drive/src)
-target_link_libraries(drive PUBLIC ds402 canopen_stack Threads::Threads)
+target_link_libraries(drive PUBLIC ds402 canopen_node Threads::Threads)
 # pthread_cond_timedwait / clock_gettime / clock_nanosleep 属 POSIX 2008
 target_compile_definitions(drive PRIVATE _POSIX_C_SOURCE=200809L)
 

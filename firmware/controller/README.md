@@ -7,14 +7,15 @@
 ```text
 controller/
 ├── bus/            帧契约 + SocketCAN 后端（不认协议）
-├── canopen/        协议栈：DS 301 子集（COB-ID / NMT / 心跳 / SDO 客户端）
-├── master/         主站实体：一条总线 + 登记的从站（站号表 / 收发分派）
+├── canopen_node/   移植层：CANopenNode 的 CO_driver 用我们的 bus 实现
+├── master/         主站实体：站号表 + 每拍两段（收 / 发），内部是 CANopenNode
+├── third_party/CANopenNode/   第三方协议栈（只读，原样参与构建）
 ├── ds402/          CiA 402 状态知识（零依赖）
 ├── drive/          从站运行期：请求槽、状态迁移、模式插件、对象访问后端
 ├── axis/           单位换算与指令流
 ├── statemachine/   本机业务状态图（一状态一文件，states.c 唯一注册点）
 ├── hsm/            通用层次状态机内核（零业务依赖）
-├── config/         机械参数与 PDO 配置
+├── config/         机械参数 + canopen_node/OD（对象字典）
 ├── include/control/control.h    对外契约
 ├── controller.c                 组合根：装配 + 三个推进步骤
 ├── control_api.c                状态机侧：对外 API 翻译 + 事实 + 发布
@@ -30,7 +31,7 @@ controller/
 
 ## 边界
 
-- 只依赖各层的公共头：`axis`、`drive`、`master`、`canopen`、`bus`；
+- 只依赖各层的公共头：`axis`、`drive`、`master`、`bus`（`master` 内部才见 CANopenNode）；
 - 不直接操作 PDO 字节、不直接调用平台 CAN 接口；
 - 具体 backend 由集成层传入，本层不 `#include` 任何 backend 实现。
 
