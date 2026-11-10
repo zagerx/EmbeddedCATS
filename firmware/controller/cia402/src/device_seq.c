@@ -119,7 +119,6 @@ int cia402_device_read_statusword(struct cia402_device *d, uint16_t *out)
 	*out = (uint16_t)(v & 0xFFFFu);
 	pthread_mutex_lock(&d->lock);
 	d->statusword = *out;
-	d->fb_valid |= CIA402_DEVICE_FB_STATUSWORD;
 	pthread_mutex_unlock(&d->lock);
 	return 0;
 }

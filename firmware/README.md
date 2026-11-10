@@ -12,7 +12,7 @@ firmware/
 
 - **`controller/`** 是"该做什么"：从 CAN 帧到业务状态机的全部逻辑。
   它**不创建线程**，只提供三个"推进一步"的接口
-  （`cats_control_io_poll` / `cats_control_poll` / `cats_control_svc_poll`）。
+  （`controller_io_poll` / `controller_poll` / `controller_svc_poll`）。
 - **`apps/`** 是"什么时候做"：起线程、定节拍、把事件送进状态机、显示状态。
 
 换个运行环境时，换掉 `apps/` 里的宿主即可——`controller/` 一行不用改。

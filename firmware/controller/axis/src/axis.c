@@ -73,15 +73,13 @@ uint32_t axis_abort_code(const struct cats_axis *a)
 
 /**
  * axis_sample - 读取最近一次反馈并换算为业务单位
- * @a: 轴对象；NULL 时输出无效样本
+ * @a: 轴对象；NULL 时输出全 0
  * @out: 输出样本；NULL 时直接返回
  *
- * 不触发总线传输，各有效位由设备反馈有效位映射而来。
+ * 不触发总线传输，只读设备层缓存的反馈。
  */
 void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 {
-	uint8_t valid;
-
 	if (out == NULL) {
 		return;
 	}
@@ -89,28 +87,14 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 	out->velocity_mm_s = 0.0f;
 	out->statusword = 0U;
 	out->error_code = 0U;
-	out->valid = 0U;
 	if (a == NULL) {
 		return;
 	}
 
-	valid = cia402_device_feedback_valid(&a->dev);
+	out->position_mm = unscale_mm(cia402_device_feedback_position(&a->dev));
+	out->velocity_mm_s = unscale_mm(cia402_device_feedback_velocity(&a->dev));
 	out->statusword = cia402_device_feedback_statusword(&a->dev);
-	if ((valid & CIA402_DEVICE_FB_STATUSWORD) != 0U) {
-		out->valid |= CIA402_DEVICE_FB_STATUSWORD;
-	}
-	if ((valid & CIA402_DEVICE_FB_POSITION) != 0U) {
-		out->position_mm = unscale_mm(cia402_device_feedback_position(&a->dev));
-		out->valid |= CIA402_DEVICE_FB_POSITION;
-	}
-	if ((valid & CIA402_DEVICE_FB_VELOCITY) != 0U) {
-		out->velocity_mm_s = unscale_mm(cia402_device_feedback_velocity(&a->dev));
-		out->valid |= CIA402_DEVICE_FB_VELOCITY;
-	}
 	out->error_code = cia402_device_feedback_error_code(&a->dev);
-	if ((valid & CIA402_DEVICE_FB_ERROR_CODE) != 0U) {
-		out->valid |= CIA402_DEVICE_FB_ERROR_CODE;
-	}
 }
 
 /**

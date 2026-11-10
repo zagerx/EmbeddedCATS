@@ -9,7 +9,7 @@
 
 #include "controller_internal.h"
 
-static struct cats_control s_ctl;
+static struct controller cats_controller;
 
 /* 向状态机注入 NMT Start 请求 */
 static void nmt_start_cb(void *ctx);
@@ -25,9 +25,9 @@ static uint32_t now_ms_cb(void *ctx);
  *
  * Return: 全局控制上下文指针，进程生命周期内有效。
  */
-struct cats_control *control_ctx(void)
+struct controller *control_ctx(void)
 {
-	return &s_ctl;
+	return &cats_controller;
 }
 
 /**
@@ -36,42 +36,44 @@ struct cats_control *control_ctx(void)
  *
  * Return: 总线侧单调毫秒计数；未绑定总线时返回 0。
  */
-uint32_t now_ms(struct cats_control *ctl)
+uint32_t now_ms(struct controller *ctl)
 {
 	return now_ms_cb(ctl);
 }
 
 /**
- * cats_control_init - 装配控制层并进入初始业务状态
+ * controller_init - 装配控制层并进入初始业务状态
  * @master: 已绑定总线并登记节点的主站，由调用方持有
  *
  * 只能在控制线程调用且只能成功初始化一次；不创建工作线程。
  *
  * Return: CATS_OK 成功；CATS_ERR_PARAM 参数无效；CATS_ERR_STATE 重复初始化。
  */
-enum cats_result cats_control_init(struct master *master)
+enum cats_result controller_init(struct master *master)
 {
 	uint8_t i;
 
 	if (master == NULL) {
 		return CATS_ERR_PARAM;
 	}
-	if (s_ctl.master != NULL) {
+	if (cats_controller.master != NULL) {
 		return CATS_ERR_STATE; /* 只初始化一次 */
 	}
 
-	s_ctl.master = master;
+	cats_controller.master = master;
 	/* 轴 = 主站上已登记的从站，站点号只在装配层声明一次，这里读回来 */
-	s_ctl.axis_count = master_node_count(master) < CATS_MAX_AXES ? master_node_count(master)
-								     : CATS_MAX_AXES;
-	for (i = 0; i < s_ctl.axis_count; i++) {
+	cats_controller.axis_count = master_node_count(master) < CATS_MAX_AXES
+					     ? master_node_count(master)
+					     : CATS_MAX_AXES;
+	for (i = 0; i < cats_controller.axis_count; i++) {
 		uint8_t node_id = master_node_id(master, i);
 		CO_SDOclient_t *sdo = master_sdo(master, node_id);
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
-		sdo_client_init(&s_ctl.sdo[i], sdo);
-		cia402_device_init(&s_ctl.axes[i].dev, sdo_client_access(&s_ctl.sdo[i]), node_id);
-		axis_init(&s_ctl.axes[i], node_id);
+		sdo_client_init(&cats_controller.sdo[i], sdo);
+		cia402_device_init(&cats_controller.axes[i].dev,
+				   sdo_client_access(&cats_controller.sdo[i]), node_id);
+		axis_init(&cats_controller.axes[i], node_id);
 	}
 
 	/* 初态：initial() 返回 SM_TRAN(&st_preparing)，内核把 sm_top → ROOT → PREPARING
@@ -82,24 +84,25 @@ enum cats_result cats_control_init(struct master *master)
 		ops.nmt_start = nmt_start_cb;
 		ops.nmt_reset_comm = nmt_reset_cb;
 		ops.now_ms = now_ms_cb;
-		ops.ctx = &s_ctl;
-		s_ctl.stm = stm_instance();
-		stm_init(s_ctl.stm, s_ctl.axes, s_ctl.axis_count, &ops);
+		ops.ctx = &cats_controller;
+		cats_controller.stm = stm_instance();
+		stm_init(cats_controller.stm, cats_controller.axes, cats_controller.axis_count,
+			 &ops);
 	}
 
-	cats_control_publish();
+	controller_publish();
 	/* 线程由宿主起（见 control.h 的三个推进入口说明） */
 	return CATS_OK;
 }
 
 /**
- * cats_control_io_poll - 推进一次总线收发与各轴 SDO 通道
+ * controller_io_poll - 推进一次总线收发与各轴 SDO 通道
  *
  * 只能由独占总线的 I/O 线程调用；收帧、事务推进和发帧的顺序固定。
  */
-void cats_control_io_poll(void)
+void controller_io_poll(void)
 {
-	struct cats_control *ctl = &s_ctl;
+	struct controller *ctl = &cats_controller;
 	uint32_t now;
 	uint8_t i;
 
@@ -118,13 +121,13 @@ void cats_control_io_poll(void)
 }
 
 /**
- * cats_control_svc_poll - 推进一次各轴同步 CiA 402 流程
+ * controller_svc_poll - 推进一次各轴同步 CiA 402 流程
  *
  * 只能由服务线程调用；对象访问可能阻塞至 SDO 超时。
  */
-void cats_control_svc_poll(void)
+void controller_svc_poll(void)
 {
-	struct cats_control *ctl = &s_ctl;
+	struct controller *ctl = &cats_controller;
 	uint32_t now;
 	uint8_t i;
 
@@ -139,24 +142,24 @@ void cats_control_svc_poll(void)
 
 static void nmt_start_cb(void *ctx)
 {
-	struct cats_control *ctl = ctx;
+	struct controller *ctl = ctx;
 
 	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
 }
 
 static void nmt_reset_cb(void *ctx)
 {
-	struct cats_control *ctl = ctx;
+	struct controller *ctl = ctx;
 
 	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
 }
 
 static uint32_t now_ms_cb(void *ctx)
 {
-	struct cats_control *ctl = ctx;
+	struct controller *ctl = ctx;
 	struct can_io *bus = master_bus(ctl->master);
 
 	return bus != NULL ? can_io_now_ms(bus) : 0u;
 }
 
-static struct cats_control s_ctl = {.lock = PTHREAD_MUTEX_INITIALIZER};
+static struct controller cats_controller = {.lock = PTHREAD_MUTEX_INITIALIZER};

@@ -44,39 +44,33 @@ enum cia402_device_req {
 	CIA402_DEVICE_REQ_QUICK_STOP
 };
 
-enum {
-	CIA402_DEVICE_FB_STATUSWORD = 0x01,
-	CIA402_DEVICE_FB_POSITION = 0x02,
-	CIA402_DEVICE_FB_VELOCITY = 0x04,
-	CIA402_DEVICE_FB_ERROR_CODE = 0x08
-};
-
 struct cia402_device {
 	/* 装配后只读 */
 	const struct sdo_access *access;
 	uint8_t node_id;
 
-	/* 跨线程共享的请求、结果和反馈 */
+	/* 请求槽：任意线程投递，服务线程取走（lock 保护） */
 	pthread_mutex_t lock;
 	enum cia402_device_req req;
 	enum cia402_device_req running;
 	uint8_t cancel;
 	int32_t tgt, vel, acc, dec;
 
+	/* 流程结论：服务线程写，其他线程查询 */
 	enum cia402_device_cfg_state cfg_state;
 	enum cia402_device_en_state en_state;
 	uint8_t failed;
 	enum cia402_device_result result;
 	uint32_t abort_code;
-	uint16_t controlword;
 
+	/* 反馈快照：monitor_step 写，axis 层读 */
 	uint16_t statusword;
 	int32_t position;
 	int32_t velocity;
 	uint16_t error_code;
-	uint8_t fb_valid;
 
-	/* 仅服务线程使用 */
+	/* 仅服务线程使用，不加锁 */
+	uint16_t controlword;
 	uint8_t mon_slot;
 	uint32_t mon_last_ms;
 };
@@ -109,7 +103,6 @@ uint16_t cia402_device_feedback_statusword(const struct cia402_device *d);
 int32_t cia402_device_feedback_position(const struct cia402_device *d);
 int32_t cia402_device_feedback_velocity(const struct cia402_device *d);
 uint16_t cia402_device_feedback_error_code(const struct cia402_device *d);
-uint8_t cia402_device_feedback_valid(const struct cia402_device *d);
 
 #ifdef __cplusplus
 }

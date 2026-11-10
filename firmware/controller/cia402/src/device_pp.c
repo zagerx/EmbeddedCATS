@@ -80,7 +80,6 @@ int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, 
 			}
 			pthread_mutex_lock(&d->lock);
 			d->position = (int32_t)v;
-			d->fb_valid |= CIA402_DEVICE_FB_POSITION;
 			pthread_mutex_unlock(&d->lock);
 			if ((int32_t)v == target) {
 				return 0;

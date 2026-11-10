@@ -2,9 +2,9 @@
  * 控制层公共接口。CAN 通道与主站由宿主创建，控制层只借用。
  *
  * 调用约束：
- *   - cats_control_init/cats_control_poll：仅控制线程；
- *   - cats_control_io_poll：仅 I/O 线程，独占总线，约 1 ms 一拍；
- *   - cats_control_svc_poll：仅服务线程，可能阻塞至 SDO 超时；
+ *   - controller_init/controller_poll：仅控制线程；
+ *   - controller_io_poll：仅 I/O 线程，独占总线，约 1 ms 一拍；
+ *   - controller_svc_poll：仅服务线程，可能阻塞至 SDO 超时；
  *   - 状态查询与指令接口：任意线程。
  *
  * 控制层不创建线程。跨线程指令通过事件队列传递，查询读取发布快照。
@@ -27,55 +27,49 @@ extern "C" {
  * PREPARING → CONFIGURING → ENABLING → HOLDING ⇄ MOVING；
  * MOVING 可经 HALTING 回 HOLDING；FAULT/ESTOP 为终态。
  */
-enum cats_result cats_control_init(struct master *master);
+enum cats_result controller_init(struct master *master);
 
 /* 推进一次业务状态机并发布快照；非阻塞。 */
-enum cats_result cats_control_poll(void);
+enum cats_result controller_poll(void);
 
 /* 收帧、推进各节点 SDO 通道并发帧；非阻塞。 */
-void cats_control_io_poll(void);
+void controller_io_poll(void);
 
 /* 执行配置、使能、运动和停止等同步 402 流程。 */
-void cats_control_svc_poll(void);
+void controller_svc_poll(void);
 
-enum cats_state cats_control_state(void);
+enum cats_state controller_state(void);
 
 /*
  * 绝对位置指令，单位为 mm、mm/s、mm/s²。
  * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、初始化状态或参数无效。
  * 只有 HOLDING 接受位置指令，MOVING/HALTING 中的新位置指令被丢弃。
  */
-enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float mm_s2);
+enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2);
 
 /* 减速停在当前位置并保持使能；事件插到队头。 */
-void cats_control_stop(void);
+void controller_stop(void);
 
-const char *cats_control_state_name(enum cats_state s);
+const char *controller_state_name(enum cats_state s);
 
 /* 请求所有轴 quick stop 并断使能；事件插到队头，ESTOP 只能重启退出。 */
-void cats_control_estop(void);
+void controller_estop(void);
 
-enum cats_fault cats_control_fault_code(void);
-const char *cats_control_fault_name(enum cats_fault f);
+enum cats_fault controller_fault_code(void);
+const char *controller_fault_name(enum cats_fault f);
 
 /* 最近一次失败的 SDO abort；0 表示没有记录到 abort。 */
-uint32_t cats_control_axis_abort(uint8_t axis);
+uint32_t controller_axis_abort(uint8_t axis);
 
-/* 服务线程反馈读取的最新发布样本；valid 位为 0 时对应字段尚无有效值。 */
+/* 服务线程反馈读取的最新发布样本；未读到过的字段为 0。 */
 struct cats_axis_sample {
 	float position_mm;
 	float velocity_mm_s;
 	uint16_t statusword;
 	uint16_t error_code;
-	uint8_t valid;
 };
 
-#define CATS_SAMPLE_VALID_STATUSWORD 0x01u
-#define CATS_SAMPLE_VALID_POSITION 0x02u
-#define CATS_SAMPLE_VALID_VELOCITY 0x04u
-#define CATS_SAMPLE_VALID_ERROR_CODE 0x08u
-
-enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample *out);
+enum cats_result controller_axis_sample(uint8_t axis, struct cats_axis_sample *out);
 
 #ifdef __cplusplus
 }

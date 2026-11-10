@@ -103,7 +103,7 @@ bool AppBinder::openChannel(const QString &ifname)
 		return false;
 	}
 	channel_open_ = true;
-	/* 建主站与 cats_control_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
+	/* 建主站与 controller_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
 	 * 而且之后所有状态都在那个线程里改 */
 	return true;
 }
@@ -136,29 +136,20 @@ void AppBinder::updateAxisCards()
 		if (card == nullptr) {
 			continue;
 		}
-		if (cats_control_axis_sample(i, &sample) != CATS_OK) {
+		if (controller_axis_sample(i, &sample) != CATS_OK) {
 			continue;
 		}
 
-		card->setPosition(
-			(sample.valid & CATS_SAMPLE_VALID_POSITION) != 0U
-				? QString::number(static_cast<double>(sample.position_mm), 'f', 3)
-				: QStringLiteral("—"));
+		card->setPosition(QString::number(static_cast<double>(sample.position_mm), 'f', 3));
 		card->setVelocity(
-			(sample.valid & CATS_SAMPLE_VALID_VELOCITY) != 0U
-				? QString::number(static_cast<double>(sample.velocity_mm_s), 'f', 3)
-				: QStringLiteral("—"));
-		card->setStatusword((sample.valid & CATS_SAMPLE_VALID_STATUSWORD) != 0U
-					    ? hex16(sample.statusword)
-					    : QStringLiteral("—"));
+			QString::number(static_cast<double>(sample.velocity_mm_s), 'f', 3));
+		card->setStatusword(hex16(sample.statusword));
 
 		/* 错误码只有一来源：驱动器的 603F（主站的故障判断不往这里写） */
-		card->setError((sample.valid & CATS_SAMPLE_VALID_ERROR_CODE) != 0U
-				       ? hex16(sample.error_code)
-				       : QStringLiteral("—"));
+		card->setError(hex16(sample.error_code));
 
 		/* SDO abort 是传输层失败原因，不属于驱动器错误码：只进日志 */
-		const uint32_t abort = cats_control_axis_abort(i);
+		const uint32_t abort = controller_axis_abort(i);
 
 		if (abort != last_abort_[i]) {
 			last_abort_[i] = abort;
@@ -190,8 +181,8 @@ void AppBinder::pushLog(const QString &line)
 
 void AppBinder::publish()
 {
-	const enum cats_state state = cats_control_state();
-	const enum cats_fault fault = cats_control_fault_code();
+	const enum cats_state state = controller_state();
+	const enum cats_fault fault = controller_fault_code();
 
 	if (state == last_state_ && fault == last_fault_) {
 		return; /* 状态和故障都没变就不碰控件 */
@@ -201,11 +192,11 @@ void AppBinder::publish()
 
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(state),
-				     QString::fromUtf8(cats_control_state_name(state)));
+				     QString::fromUtf8(controller_state_name(state)));
 		/* 整机故障原因跟在状态后面；不在 FAULT 时清掉 */
 		state_bar_->setDetail(fault != CATS_FAULT_NONE
-					      ? QString::fromUtf8(cats_control_fault_name(fault))
+					      ? QString::fromUtf8(controller_fault_name(fault))
 					      : QString());
 	}
-	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(cats_control_state_name(state))));
+	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(controller_state_name(state))));
 }

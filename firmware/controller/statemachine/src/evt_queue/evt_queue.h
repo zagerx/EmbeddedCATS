@@ -2,7 +2,7 @@
  * evt_queue.h — 控制层的输入事件队列（多生产者 / 单消费者）
  *
  * 为什么需要：Qt 线程等外部线程不能直接碰状态机。它们把"命令"封装成事件投进来，
- * 控制线程在 cats_control_poll() 里逐个 sm_hsm_dispatch() 消费。
+ * 控制线程在 controller_poll() 里逐个 sm_hsm_dispatch() 消费。
  *
  * 入队规则（**队列满时**）：
  *   · cats_evtq_push()       普通命令，满了丢弃**新的一条**，返回 false ⇒ 调用方回 BUSY；
@@ -23,7 +23,7 @@
 #define CATS_EVTQ_LEN 8u       /* 队列容量 */
 #define CATS_EVTQ_DRAIN_MAX 4u /* 每拍最多消费几条，防把 1 ms 节拍拉长 */
 
-/* 位置指令载荷（对应 cats_control_move_to 的参数；业务单位 mm / mm·s⁻¹ / mm·s⁻²） */
+/* 位置指令载荷（对应 controller_move_to 的参数；业务单位 mm / mm·s⁻¹ / mm·s⁻²） */
 struct cats_move_cmd {
 	uint8_t axis;
 	float mm;

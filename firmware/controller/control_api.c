@@ -10,16 +10,16 @@
 #include "controller_internal.h"
 
 /* 汇总所有已装配轴的心跳事实，供每次状态机推进共用 */
-static uint8_t heartbeat_fact(const struct cats_control *ctl);
+static uint8_t heartbeat_fact(const struct controller *ctl);
 
 /**
- * cats_control_publish - 发布整机状态、故障和各轴反馈快照
+ * controller_publish - 发布整机状态、故障和各轴反馈快照
  *
  * 只能由控制线程调用；轴单位换算在发布锁外完成。
  */
-void cats_control_publish(void)
+void controller_publish(void)
 {
-	struct cats_control *app = control_ctx();
+	struct controller *app = control_ctx();
 	int state;
 	struct cats_axis_sample samples[CATS_MAX_AXES];
 	uint8_t i;
@@ -37,7 +37,6 @@ void cats_control_publish(void)
 		samples[i].velocity_mm_s = s.velocity_mm_s;
 		samples[i].statusword = s.statusword;
 		samples[i].error_code = s.error_code;
-		samples[i].valid = s.valid;
 	}
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
@@ -49,15 +48,15 @@ void cats_control_publish(void)
 }
 
 /**
- * cats_control_poll - 推进一次业务状态机并发布快照
+ * controller_poll - 推进一次业务状态机并发布快照
  *
  * 只能由控制线程调用；本函数不执行总线收发或阻塞式对象访问。
  *
  * Return: CATS_OK 推进成功；CATS_ERR_STATE 尚未初始化。
  */
-enum cats_result cats_control_poll(void)
+enum cats_result controller_poll(void)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 	uint32_t now;
 
 	if (ctl->master == NULL) {
@@ -68,18 +67,18 @@ enum cats_result cats_control_poll(void)
 	/* 收帧和 402/SDO 推进由其他入口执行，本拍只向状态机提供事实。 */
 	stm_poll(ctl->stm, heartbeat_fact(ctl), now);
 
-	cats_control_publish();
+	controller_publish();
 	return CATS_OK;
 }
 
 /**
- * cats_control_estop - 请求所有轴急停
+ * controller_estop - 请求所有轴急停
  *
  * 任意线程均可调用；事件插入队头，ESTOP 只能重启退出。
  */
-void cats_control_estop(void)
+void controller_estop(void)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 
 	if (ctl->master == NULL) {
 		return;
@@ -89,7 +88,7 @@ void cats_control_estop(void)
 }
 
 /**
- * cats_control_move_to - 提交绝对位置指令
+ * controller_move_to - 提交绝对位置指令
  * @axis: 轴索引
  * @mm: 目标位置，单位 mm
  * @mm_s: 速度，单位 mm/s
@@ -97,9 +96,9 @@ void cats_control_estop(void)
  *
  * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数或状态无效。
  */
-enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
+enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 	struct stm_move mv;
 
 	if (ctl->master == NULL || axis >= ctl->axis_count) {
@@ -119,13 +118,13 @@ enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float 
 }
 
 /**
- * cats_control_stop - 请求减速停并保持使能
+ * controller_stop - 请求减速停并保持使能
  *
  * 任意线程均可调用；停止事件插入队头，由控制线程消费。
  */
-void cats_control_stop(void)
+void controller_stop(void)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 
 	if (ctl->master == NULL) {
 		return;
@@ -135,13 +134,13 @@ void cats_control_stop(void)
 }
 
 /**
- * cats_control_fault_code - 读取已发布的整机故障码
+ * controller_fault_code - 读取已发布的整机故障码
  *
  * Return: 最近一次发布的故障码。
  */
-enum cats_fault cats_control_fault_code(void)
+enum cats_fault controller_fault_code(void)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 	enum cats_fault f;
 
 	pthread_mutex_lock(&ctl->lock);
@@ -151,13 +150,13 @@ enum cats_fault cats_control_fault_code(void)
 }
 
 /**
- * cats_control_state - 读取已发布的整机业务状态
+ * controller_state - 读取已发布的整机业务状态
  *
  * Return: 最近一次发布的业务状态。
  */
-enum cats_state cats_control_state(void)
+enum cats_state controller_state(void)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 	enum cats_state s;
 
 	pthread_mutex_lock(&ctl->lock);
@@ -167,14 +166,14 @@ enum cats_state cats_control_state(void)
 }
 
 /**
- * cats_control_axis_abort - 读取轴最近一次 SDO abort 码
+ * controller_axis_abort - 读取轴最近一次 SDO abort 码
  * @axis: 轴索引
  *
  * Return: abort 码；没有记录或轴索引越界时返回 0。
  */
-uint32_t cats_control_axis_abort(uint8_t axis)
+uint32_t controller_axis_abort(uint8_t axis)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 
 	if (axis >= ctl->axis_count) {
 		return 0U;
@@ -183,15 +182,15 @@ uint32_t cats_control_axis_abort(uint8_t axis)
 }
 
 /**
- * cats_control_axis_sample - 拷贝一轴已发布的反馈样本
+ * controller_axis_sample - 拷贝一轴已发布的反馈样本
  * @axis: 轴索引，范围为 0 至 CATS_MAX_AXES-1
  * @out: 输出样本；NULL 时拒绝
  *
  * Return: CATS_OK 成功；CATS_ERR_PARAM 输出为空或轴索引越界。
  */
-enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample *out)
+enum cats_result controller_axis_sample(uint8_t axis, struct cats_axis_sample *out)
 {
-	struct cats_control *ctl = control_ctx();
+	struct controller *ctl = control_ctx();
 
 	if (out == NULL || axis >= CATS_MAX_AXES) {
 		return CATS_ERR_PARAM;
@@ -203,28 +202,28 @@ enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample 
 }
 
 /**
- * cats_control_state_name - 获取业务状态名称
+ * controller_state_name - 获取业务状态名称
  * @s: 业务状态枚举
  *
  * Return: 静态名称字符串；未知状态返回 "?"。
  */
-const char *cats_control_state_name(enum cats_state s)
+const char *controller_state_name(enum cats_state s)
 {
 	return stm_state_name(s);
 }
 
 /**
- * cats_control_fault_name - 获取整机故障名称
+ * controller_fault_name - 获取整机故障名称
  * @f: 故障枚举
  *
  * Return: 静态名称字符串；未知故障返回 "?"。
  */
-const char *cats_control_fault_name(enum cats_fault f)
+const char *controller_fault_name(enum cats_fault f)
 {
 	return stm_fault_name(f);
 }
 
-static uint8_t heartbeat_fact(const struct cats_control *ctl)
+static uint8_t heartbeat_fact(const struct controller *ctl)
 {
 	uint8_t ok = ctl->axis_count > 0 ? 1u : 0u;
 	uint8_t i;

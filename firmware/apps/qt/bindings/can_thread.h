@@ -31,7 +31,7 @@ class CanThread
 	CanThread(const CanThread &) = delete;
 	CanThread &operator=(const CanThread &) = delete;
 
-	/* 起线程：线程内建主站（登记节点 1 / 2）并 cats_control_init，随后进 1 ms 循环。
+	/* 起线程：线程内建主站（登记节点 1 / 2）并 controller_init，随后进 1 ms 循环。
 	 * 会等初始化结果再返回；失败时 err 里是给界面看的说明。 */
 	bool start(struct can_io *bus, QString *err);
 

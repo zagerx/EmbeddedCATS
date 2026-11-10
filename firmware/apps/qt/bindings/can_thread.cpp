@@ -103,7 +103,7 @@ CanThread::Stats CanThread::stats() const
 void CanThread::run_svc()
 {
 	while (!stop_.load(std::memory_order_relaxed)) {
-		cats_control_svc_poll(); /* 会阻塞：最长一个 SDO 超时 */
+		controller_svc_poll(); /* 会阻塞：最长一个 SDO 超时 */
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 }
@@ -117,7 +117,7 @@ void CanThread::run(std::promise<bool> init_done)
 	(void)master_add_node(&master_, 1);
 	(void)master_add_node(&master_, 2);
 
-	const bool ok = cats_control_init(&master_) == CATS_OK;
+	const bool ok = controller_init(&master_) == CATS_OK;
 	init_done.set_value(ok);
 	if (!ok) {
 		return;
@@ -140,7 +140,7 @@ void CanThread::run(std::promise<bool> init_done)
 			late_ticks_.fetch_add(1u, std::memory_order_relaxed);
 		}
 
-		(void)cats_control_poll();
+		(void)controller_poll();
 		ticks_.fetch_add(1u, std::memory_order_relaxed);
 
 		sleep_until(next);

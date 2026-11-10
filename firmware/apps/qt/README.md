@@ -27,15 +27,15 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 线程与时序
 
-- **控制线程**（`can_thread`）：建主站、`cats_control_init()`，按 **1 ms** 绝对节拍调
-  `cats_control_poll()`；总线收发与状态推进都在这条线程里。
-- **界面线程**：`QTimer 50 ms` 读 `cats_control_state()` 刷状态条；`QTimer 5 s` 往日志
+- **控制线程**（`can_thread`）：建主站、`controller_init()`，按 **1 ms** 绝对节拍调
+  `controller_poll()`；总线收发与状态推进都在这条线程里。
+- **界面线程**：`QTimer 50 ms` 读 `controller_state()` 刷状态条；`QTimer 5 s` 往日志
   写一行节拍统计。界面不碰总线。
 
 ## 区域布局
 
 1. **1 号区域**（最小高度 240 px，约占 1/3）：`1.1` = 状态条，`1.2` = 空白预留
-2. **2 号区域**：`2.1` = 急停 / 暂停 / 运动 三个按钮（仅界面，尚未绑定 `cats_control_*`），
+2. **2 号区域**：`2.1` = 急停 / 暂停 / 运动 三个按钮（仅界面，尚未绑定 `controller_*`），
    `2.2` / `2.3` = `axis_card` ×2 左右等分
 3. **3 号区域**：日志面板
 
@@ -49,7 +49,7 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 状态显示
 
-状态条的**状态码不在界面里写死**：由 `bindings` 传 `cats_control_state_name()` 的结果，
+状态条的**状态码不在界面里写死**：由 `bindings` 传 `controller_state_name()` 的结果，
 保证界面与日志同一套名字（PREPARING / CONFIGURING / ENABLING / HOLDING / MOVING /
 HALTING / FAULT / ESTOP）。
 
@@ -82,11 +82,11 @@ HALTING / FAULT / ESTOP）。
 ## 当前缺口（有意不加功能）
 
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
-  `cats_control_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
+  `controller_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
   取整到脉冲只发生在轴层，机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
-- `cats_control_move_to()` / `cats_control_stop()` / `cats_control_estop()` 还没有界面
+- `controller_move_to()` / `controller_stop()` / `controller_estop()` 还没有界面
   入口（2.1 的三个按钮已摆好，但未绑定）。
-- 启动不需要按钮：`cats_control_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
+- 启动不需要按钮：`controller_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
 
 ## 命名规范
 

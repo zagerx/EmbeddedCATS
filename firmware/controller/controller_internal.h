@@ -27,7 +27,7 @@
  * 字段顺序刻意分三段：装配期只读 → 控制线程私有 → 跨线程共享（放最后）。
  * 阅读时看到最后一段就知道"要加锁的只有这几个"，不用把整个结构扫一遍。
  */
-struct cats_control {
+struct controller {
 	/* ---- 装配期写入，之后所有线程只读（不需要锁） ---- */
 	struct master *master; /* 主站层：一条总线 + 登记的从站；只借用，不归本层拥有 */
 	struct cats_axis axes[CATS_MAX_AXES];
@@ -48,12 +48,12 @@ struct cats_control {
 };
 
 /* 取当前时刻；未接管主站时返回 0（I/O/服务线程用） */
-uint32_t now_ms(struct cats_control *app);
+uint32_t now_ms(struct controller *app);
 
 /* 控制层单例（由 controller.c 创建；同层另一文件通过它拿上下文） */
-struct cats_control *control_ctx(void);
+struct controller *control_ctx(void);
 
 /* 把"其他线程可以看"的值发布出去（只在控制线程里调，见 control_api.c） */
-void cats_control_publish(void);
+void controller_publish(void);
 
 #endif /* CONTROL_INTERNAL_H */

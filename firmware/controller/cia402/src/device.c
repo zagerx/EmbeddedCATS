@@ -356,17 +356,6 @@ uint16_t cia402_device_feedback_error_code(const struct cia402_device *d)
 	return (d == NULL) ? 0u : d->error_code;
 }
 
-/**
- * cia402_device_feedback_valid - 读取反馈有效位图
- * @d: 设备对象；NULL 安全
- *
- * Return: CIA402_DEVICE_FB_* 位图；设备为空时返回 0。
- */
-uint8_t cia402_device_feedback_valid(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0u : d->fb_valid;
-}
-
 static int submit(struct cia402_device *d, enum cia402_device_req req)
 {
 	int rc;
@@ -450,9 +439,10 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 	uint8_t len = 0u;
 	uint8_t slot = d->mon_slot;
 
-	if (d->fb_valid == (uint8_t)0x0Fu &&
+	/* mon_slot 回到 0 说明四个对象都轮过一遍：按间隔刷新 */
+	if (d->mon_slot == 0u &&
 	    (uint32_t)(now_ms - d->mon_last_ms) < CIA402_DEVICE_MON_INTERVAL_MS) {
-		return; /* 都读到过了：按间隔刷新 */
+		return;
 	}
 	d->mon_last_ms = now_ms;
 	if (d->access->xfer(d->access->ctx, SDO_DIR_READ, kIndex[slot], 0u, 0u, 0u, &v, &len,
@@ -465,19 +455,15 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 	switch (slot) {
 	case 0:
 		d->statusword = (uint16_t)(v & 0xFFFFu);
-		d->fb_valid |= CIA402_DEVICE_FB_STATUSWORD;
 		break;
 	case 1:
 		d->position = (int32_t)v;
-		d->fb_valid |= CIA402_DEVICE_FB_POSITION;
 		break;
 	case 2:
 		d->velocity = (int32_t)v;
-		d->fb_valid |= CIA402_DEVICE_FB_VELOCITY;
 		break;
 	default:
 		d->error_code = (uint16_t)(v & 0xFFFFu);
-		d->fb_valid |= CIA402_DEVICE_FB_ERROR_CODE;
 		break;
 	}
 	d->mon_slot = (uint8_t)((slot + 1u) % 4u);

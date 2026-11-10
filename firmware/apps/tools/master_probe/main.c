@@ -109,7 +109,7 @@ static void *io_thread_main(void *arg)
 {
 	(void)arg;
 	while (s_run_threads != 0) {
-		cats_control_io_poll();             /* 独占总线、非阻塞 */
+		controller_io_poll();               /* 独占总线、非阻塞 */
 		struct timespec ts = {0, 1000000L}; /* 1 ms */
 		(void)nanosleep(&ts, NULL);
 	}
@@ -120,7 +120,7 @@ static void *svc_thread_main(void *arg)
 {
 	(void)arg;
 	while (s_run_threads != 0) {
-		cats_control_svc_poll(); /* 会阻塞（最长一个 SDO 超时） */
+		controller_svc_poll(); /* 会阻塞（最长一个 SDO 超时） */
 		struct timespec ts = {0, 1000000L};
 		(void)nanosleep(&ts, NULL);
 	}
@@ -191,8 +191,8 @@ int main(int argc, char **argv)
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	if (cats_control_init(&master) != CATS_OK) {
-		fprintf(stderr, "cats_control_init 失败\n");
+	if (controller_init(&master) != CATS_OK) {
+		fprintf(stderr, "controller_init 失败\n");
 		can_io_close(&io);
 		return 1;
 	}
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
 	}
 
 	while (!s_stop) {
-		(void)cats_control_poll(); /* ② 业务状态机走一拍 */
+		(void)controller_poll(); /* ② 业务状态机走一拍 */
 
 		now = can_io_now_ms(&io);
 		if (cmd.armed) {
@@ -224,8 +224,8 @@ int main(int argc, char **argv)
 			if (cmd.has_move && !moved && t >= cmd.move_at_ms) {
 				moved = 1;
 				printf("[%6ld] 指令：move_to %.3f mm\n", t, cmd.move_mm);
-				if (cats_control_move_to(0, (float)cmd.move_mm, (float)cmd.vel_mm_s,
-							 (float)cmd.acc_mm_s2) != CATS_OK) {
+				if (controller_move_to(0, (float)cmd.move_mm, (float)cmd.vel_mm_s,
+						       (float)cmd.acc_mm_s2) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
@@ -233,9 +233,8 @@ int main(int argc, char **argv)
 			if (cmd.has_move2 && !moved2 && t >= cmd.move2_at_ms) {
 				moved2 = 1;
 				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
-				if (cats_control_move_to(0, (float)cmd.move2_mm,
-							 (float)cmd.vel_mm_s,
-							 (float)cmd.acc_mm_s2) != CATS_OK) {
+				if (controller_move_to(0, (float)cmd.move2_mm, (float)cmd.vel_mm_s,
+						       (float)cmd.acc_mm_s2) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
@@ -247,9 +246,9 @@ int main(int argc, char **argv)
 
 				spammed = 1;
 				for (i = 0; i < cmd.spam; i++) {
-					if (cats_control_move_to(0, (float)(i + 1),
-								 (float)cmd.vel_mm_s,
-								 (float)cmd.acc_mm_s2) == CATS_OK) {
+					if (controller_move_to(0, (float)(i + 1),
+							       (float)cmd.vel_mm_s,
+							       (float)cmd.acc_mm_s2) == CATS_OK) {
 						ok++;
 					} else {
 						busy++;
@@ -262,27 +261,27 @@ int main(int argc, char **argv)
 			if (cmd.has_stop && !stopped && t >= cmd.stop_at_ms) {
 				stopped = 1;
 				printf("[%6ld] 指令：stop\n", t);
-				cats_control_stop();
+				controller_stop();
 				fflush(stdout);
 			}
 			if (cmd.has_estop && !estopped && t >= cmd.estop_at_ms) {
 				estopped = 1;
 				printf("[%6ld] 指令：estop\n", t);
-				cats_control_estop();
+				controller_estop();
 				fflush(stdout);
 			}
 		}
 
-		if (cats_control_state() != last) {
-			last = cats_control_state();
+		if (controller_state() != last) {
+			last = controller_state();
 			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
-			       cats_control_state_name(last));
+			       controller_state_name(last));
 			if (last == CATS_STATE_FAULT) {
 				uint8_t i;
 
-				printf(" (%s", cats_control_fault_name(cats_control_fault_code()));
+				printf(" (%s", controller_fault_name(controller_fault_code()));
 				for (i = 0; i < 2; i++) {
-					uint32_t abort_code = cats_control_axis_abort(i);
+					uint32_t abort_code = controller_axis_abort(i);
 
 					if (abort_code != 0U) {
 						printf(", axis%u abort=0x%08X", (unsigned)i,

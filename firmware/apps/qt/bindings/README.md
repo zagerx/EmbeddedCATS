@@ -2,7 +2,7 @@
 
 这一层把「app 状态」变成「界面显示」、把「app 日志」送到日志面板。
 
-**当前不绑定任何按钮**：启动由 `cats_control_init()` 完成，之后状态机自行推进。
+**当前不绑定任何按钮**：启动由 `controller_init()` 完成，之后状态机自行推进。
 
 ## 约定
 
@@ -14,9 +14,9 @@
 
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
-| 控制节拍（`CanThread`，1 ms） | `cats_control_poll()` |
-| 顶部状态条 | `cats_control_state()` / `cats_control_state_name()` |
-| 故障原因 | `cats_control_fault_code()` / `cats_control_fault_name()` |
+| 控制节拍（`CanThread`，1 ms） | `controller_poll()` |
+| 顶部状态条 | `controller_state()` / `controller_state_name()` |
+| 故障原因 | `controller_fault_code()` / `controller_fault_name()` |
 | 通道开/关 | `socketcan_open()` / `can_io_close()`（选后端只在集成层） |
 
 已实现的：节拍、状态条、通道开与 app 初始化。

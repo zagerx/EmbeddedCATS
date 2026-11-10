@@ -23,13 +23,12 @@ struct cats_axis {
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
-/* 反馈由 cia402 设备层读取；valid 位为 0 时对应值无意义。 */
+/* 反馈由 cia402 设备层读取；未读到过的字段为 0。 */
 struct axis_sample {
 	float position_mm;
 	float velocity_mm_s;
 	uint16_t statusword;
 	uint16_t error_code; /* 603F：驱动器自己报的错误码（不是主站的判断） */
-	uint8_t valid;
 };
 
 /* 运动结论汇总（已从 402 取走，不会重复上报） */

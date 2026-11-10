@@ -91,17 +91,15 @@ void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 	if (s->cancel != 0u) {
 		/* 调用方已放弃：关掉在途事务，通道立刻可用 */
 		s->cancel = 0u;
-		s->pending = 0u;
-		s->busy = 0u;
-		s->done = 0u;
+		s->state = SDO_CLIENT_IDLE;
 		CO_SDOclientClose(s->co);
 		pthread_mutex_unlock(&s->lock);
 		return;
 	}
 
 	/* 发起：Initiate 只做准备；写事务要先把值放进发送缓冲 */
-	if (s->pending != 0u && s->busy == 0u) {
-		if (s->is_write != 0u) {
+	if (s->state == SDO_CLIENT_QUEUED) {
+		if (s->dir == SDO_DIR_WRITE) {
 			uint8_t buf[4];
 			uint8_t i;
 
@@ -120,14 +118,13 @@ void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 		if (r < 0) {
 			failed = 1;
 		} else {
-			s->pending = 0u;
-			s->busy = 1u;
+			s->state = SDO_CLIENT_RUNNING;
 		}
 	}
 
 	/* 推进：发帧 / 收应答 / 判超时都在栈里 */
-	if (failed == 0 && s->busy != 0u) {
-		if (s->is_write != 0u) {
+	if (failed == 0 && s->state == SDO_CLIENT_RUNNING) {
+		if (s->dir == SDO_DIR_WRITE) {
 			/* download 多一个 bufferPartial（不分段传，固定 false） */
 			r = CO_SDOclientDownload(s->co, dt_us, false, false, &abort_code, NULL,
 						 NULL);
@@ -136,7 +133,7 @@ void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 		}
 		if (r == CO_SDO_RT_ok_communicationEnd) {
 			/* 读事务：把栈缓冲里的数据取出来 */
-			if (s->is_write == 0u) {
+			if (s->dir != SDO_DIR_WRITE) {
 				uint8_t data[4] = {0, 0, 0, 0};
 				size_t n = CO_SDOclientUploadBufRead(s->co, data, sizeof(data));
 
@@ -153,11 +150,9 @@ void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 
 	/* 唯一的收尾点：写结论并唤醒等待者 */
 	if (ok != 0 || failed != 0) {
-		s->pending = 0u;
-		s->busy = 0u;
-		s->done = 1u;
 		s->status = (ok != 0) ? 0 : -1;
 		s->last_code = (ok != 0) ? 0u : (uint32_t)abort_code;
+		s->state = SDO_CLIENT_DONE;
 		pthread_cond_broadcast(&s->cv);
 	}
 
@@ -209,7 +204,7 @@ static int sc_wait(struct sdo_client *s, uint32_t timeout_ms)
 	}
 
 	/* 到期由 timedwait 自己返回 ETIMEDOUT；这里只处理"结果到了"和"被打断" */
-	while (s->done == 0u && s->abort == 0u) {
+	while (s->state != SDO_CLIENT_DONE && s->abort == 0u) {
 		if (pthread_cond_timedwait(&s->cv, &s->lock, &dl) == ETIMEDOUT) {
 			break;
 		}
@@ -219,11 +214,11 @@ static int sc_wait(struct sdo_client *s, uint32_t timeout_ms)
 		/* 外部打断（安全动作）：这一笔作废，事务由 I/O 线程关掉 */
 		s->abort = 0u;
 		s->cancel = 1u;
-		s->pending = 0u;
+		s->state = SDO_CLIENT_IDLE;
 		return -1;
 	}
 
-	if (s->done == 0u) {
+	if (s->state != SDO_CLIENT_DONE) {
 		s->cancel = 1u; /* 超时：让 I/O 线程收尾，通道不占用 */
 		return -1;
 	}
@@ -241,18 +236,18 @@ static int sc_xfer(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t
 		return -1;
 	}
 	pthread_mutex_lock(&s->lock);
-	if (s->co == NULL || s->pending != 0u || s->busy != 0u || s->done != 0u) {
+	if (s->co == NULL || s->state != SDO_CLIENT_IDLE) {
 		pthread_mutex_unlock(&s->lock);
 		return -1; /* 通道忙：一笔没结束 */
 	}
-	s->is_write = (uint8_t)(dir == SDO_DIR_WRITE ? 1u : 0u);
+	s->dir = dir;
 	s->index = index;
 	s->sub = sub;
 	s->value = in_value;
 	s->size = size;
-	s->txn_ms = txn;
+	s->txn_ms = (uint16_t)txn;
 	s->status = -1;
-	s->pending = 1u;
+	s->state = SDO_CLIENT_QUEUED;
 
 	rc = sc_wait(s, txn);
 	if (rc == 0 && out_value != NULL) {
@@ -261,7 +256,7 @@ static int sc_xfer(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t
 	if (rc == 0 && out_len != NULL) {
 		*out_len = s->len;
 	}
-	s->done = 0u;
+	s->state = SDO_CLIENT_IDLE;
 	pthread_mutex_unlock(&s->lock);
 	return rc;
 }
