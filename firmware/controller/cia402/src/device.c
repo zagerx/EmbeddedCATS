@@ -1,11 +1,10 @@
 /*
- * device.c — 意图受理、服务执行、反馈刷新
+ * device.c — 受理 CiA 402 设备请求、执行流程并刷新反馈
  *
- * 三条规则：
- *   1. 意图只往槽里放（不阻塞调用者），由服务线程取；
- *   2. 一次只执行一件事：槽里已有请求或正在执行 → 后来者得到 1（忙）；
- *      安全动作（halt / quick stop）不同：先 cancel 在途流程，再占槽；
- *   3. 反馈轮转只在"没有流程在跑"时进行，避免和业务事务抢同一条通道。
+ * 普通请求一次只执行一个，Halt 和 Quick Stop 可抢占在途流程。
+ * 服务线程同步执行请求；反馈只在设备空闲时轮转读取，避免争用对象通道。
+ *
+ * Author: zager
  */
 
 #include "device_internal.h"
@@ -16,10 +15,24 @@
 #include <stddef.h>
 #include <string.h>
 
+/* 空闲时按间隔轮转读取状态字、位置、速度和错误码 */
 static void monitor_step(struct cia402_device *d, uint32_t now_ms);
 
-/* ---- 装配 ---- */
+/* 提交普通请求；已有请求或流程时返回忙 */
+static int submit(struct cia402_device *d, enum cia402_device_req req);
 
+/* 中断在途事务并覆盖请求槽，仅供安全动作使用 */
+static int submit_urgent(struct cia402_device *d, enum cia402_device_req req);
+
+/* 写入请求结论；被取消的流程不留下结果 */
+static void finish_request(struct cia402_device *d, int ok);
+
+/**
+ * cia402_device_init - 初始化一个 CiA 402 设备实例
+ * @d: 设备对象
+ * @access: 对象访问接口，由调用方持有
+ * @node_id: CANopen 节点号
+ */
 void cia402_device_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
@@ -32,48 +45,12 @@ void cia402_device_init(struct cia402_device *d, const struct sdo_access *access
 	d->controlword = CIA402_CW_DISABLE;
 }
 
-/* ---- 意图 ---- */
-
-static int submit(struct cia402_device *d, enum cia402_device_req req)
-{
-	int rc;
-
-	if (d == NULL || d->access == NULL) {
-		return -1;
-	}
-	pthread_mutex_lock(&d->lock);
-	if (d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE) {
-		rc = 1; /* 有一件在处理：调用方自己决定何时重试 */
-	} else {
-		d->req = req;
-		rc = 0;
-	}
-	pthread_mutex_unlock(&d->lock);
-	return rc;
-}
-
-/*
- * 抢占式提交：仅供"停"这类安全动作使用。
- * 先把在途流程 cancel 掉（在等的对象事务立刻返回），再把请求覆盖进槽位；
- * 服务线程退出当前流程后会立刻取新的这一件。
+/**
+ * cia402_device_request_config - 请求配置设备
+ * @d: 设备对象
+ *
+ * Return: 0 已受理；1 已配置、已失败或设备忙；-1 参数或装配错误。
  */
-static int submit_urgent(struct cia402_device *d, enum cia402_device_req req)
-{
-	if (d == NULL || d->access == NULL) {
-		return -1;
-	}
-	if (d->access->abort != NULL) {
-		d->access->abort(d->access->ctx); /* 先让阻塞的等待醒来 */
-	}
-	pthread_mutex_lock(&d->lock);
-	if (d->running != CIA402_DEVICE_REQ_NONE) {
-		d->cancel = 1u; /* 当前流程尽快退出（结论作废） */
-	}
-	d->req = req;
-	pthread_mutex_unlock(&d->lock);
-	return 0;
-}
-
 int cia402_device_request_config(struct cia402_device *d)
 {
 	if (d != NULL) {
@@ -87,6 +64,12 @@ int cia402_device_request_config(struct cia402_device *d)
 	return submit(d, CIA402_DEVICE_REQ_CONFIG);
 }
 
+/**
+ * cia402_device_request_enable - 请求使能设备
+ * @d: 设备对象
+ *
+ * Return: 0 已受理；1 已使能、已失败或设备忙；-1 参数或装配错误。
+ */
 int cia402_device_request_enable(struct cia402_device *d)
 {
 	if (d != NULL) {
@@ -100,12 +83,29 @@ int cia402_device_request_enable(struct cia402_device *d)
 	return submit(d, CIA402_DEVICE_REQ_ENABLE);
 }
 
+/**
+ * cia402_device_request_disable - 请求断使能
+ * @d: 设备对象
+ *
+ * Return: 0 已受理；1 设备忙；-1 参数或装配错误。
+ */
 int cia402_device_request_disable(struct cia402_device *d)
 {
 	return submit(d, CIA402_DEVICE_REQ_DISABLE);
 }
 
-int cia402_device_pp_start(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc, int32_t dec)
+/**
+ * cia402_device_pp_start - 请求一次 PP 绝对位置运动
+ * @d: 设备对象
+ * @target: 目标位置
+ * @vel: 轮廓速度
+ * @acc: 轮廓加速度
+ * @dec: 轮廓减速度
+ *
+ * Return: 0 已受理；1 设备忙；-1 设备为空或未使能。
+ */
+int cia402_device_pp_start(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc,
+			   int32_t dec)
 {
 	int rc;
 
@@ -128,16 +128,32 @@ int cia402_device_pp_start(struct cia402_device *d, int32_t target, int32_t vel,
 	return rc;
 }
 
+/**
+ * cia402_device_halt - 抢占当前流程并请求减速停车
+ * @d: 设备对象
+ *
+ * Return: 0 已受理；-1 参数或装配错误。
+ */
 int cia402_device_halt(struct cia402_device *d)
 {
 	return submit_urgent(d, CIA402_DEVICE_REQ_HALT);
 }
 
+/**
+ * cia402_device_quick_stop - 抢占当前流程并请求快速停止
+ * @d: 设备对象
+ *
+ * Return: 0 已受理；-1 参数或装配错误。
+ */
 int cia402_device_quick_stop(struct cia402_device *d)
 {
 	return submit_urgent(d, CIA402_DEVICE_REQ_QUICK_STOP);
 }
 
+/**
+ * cia402_device_cancel - 取消当前对象事务和在途流程
+ * @d: 设备对象；NULL 时直接返回
+ */
 void cia402_device_cancel(struct cia402_device *d)
 {
 	if (d == NULL) {
@@ -151,49 +167,13 @@ void cia402_device_cancel(struct cia402_device *d)
 	pthread_mutex_unlock(&d->lock);
 }
 
-/* ---- 服务执行 ---- */
-
-/* 收尾：把结论写进事实；被取消的流程不留结论（调用方已转走） */
-static void finish_request(struct cia402_device *d, int ok)
-{
-	int cancelled;
-
-	pthread_mutex_lock(&d->lock);
-	cancelled = d->cancel != 0u;
-	d->cancel = 0u;
-	if (cancelled != 0) {
-		d->result = CIA402_DEVICE_RESULT_NONE;
-		d->running = CIA402_DEVICE_REQ_NONE;
-		pthread_mutex_unlock(&d->lock);
-		return;
-	}
-	if (ok != 0) {
-		d->abort_code = (d->access != NULL && d->access->last_error != NULL)
-					? d->access->last_error(d->access->ctx)
-					: 0u;
-		d->failed = 1u;
-	}
-	switch (d->running) {
-	case CIA402_DEVICE_REQ_CONFIG:
-		d->cfg_state = (ok == 0) ? CIA402_DEVICE_CFG_CONFIGURED : CIA402_DEVICE_CFG_FAILED;
-		break;
-	case CIA402_DEVICE_REQ_ENABLE:
-		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_ENABLED : CIA402_DEVICE_EN_FAILED;
-		break;
-	case CIA402_DEVICE_REQ_DISABLE:
-		d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
-		break;
-	case CIA402_DEVICE_REQ_QUICK_STOP:
-		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_NOT_ENABLED : CIA402_DEVICE_EN_FAILED;
-		break;
-	default:
-		break;
-	}
-	d->result = (ok == 0) ? CIA402_DEVICE_RESULT_DONE : CIA402_DEVICE_RESULT_FAILED;
-	d->running = CIA402_DEVICE_REQ_NONE;
-	pthread_mutex_unlock(&d->lock);
-}
-
+/**
+ * cia402_device_service - 执行一个待处理请求或刷新一次反馈
+ * @d: 设备对象
+ * @now_ms: 当前单调毫秒时刻
+ *
+ * 只能由服务线程调用；执行请求时可能阻塞等待对象访问。
+ */
 void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 {
 	enum cia402_device_req req;
@@ -254,7 +234,213 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 	}
 }
 
-/* ---- 反馈轮转：每 50 ms 读一个对象 ---- */
+/**
+ * cia402_device_is_configured - 查询设备是否已配置
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 1 已配置；0 未配置、配置失败或设备为空。
+ */
+int cia402_device_is_configured(const struct cia402_device *d)
+{
+	return d != NULL && d->cfg_state == CIA402_DEVICE_CFG_CONFIGURED;
+}
+
+/**
+ * cia402_device_is_enabled - 查询设备是否已使能
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 1 已使能；0 未使能、使能失败或设备为空。
+ */
+int cia402_device_is_enabled(const struct cia402_device *d)
+{
+	return d != NULL && d->en_state == CIA402_DEVICE_EN_ENABLED;
+}
+
+/**
+ * cia402_device_failed - 查询设备是否记录到失败
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 1 有失败记录；0 无失败记录或设备为空。
+ */
+int cia402_device_failed(const struct cia402_device *d)
+{
+	return d != NULL && d->failed != 0u;
+}
+
+/**
+ * cia402_device_busy - 查询设备是否有请求待处理或在途
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 1 忙或设备为空；0 空闲。
+ */
+int cia402_device_busy(const struct cia402_device *d)
+{
+	if (d == NULL) {
+		return 1;
+	}
+	return d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE;
+}
+
+/**
+ * cia402_device_take_result - 取走设备请求结论
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 当前结论并复位为 NONE；设备为空时返回 NONE。
+ */
+enum cia402_device_result cia402_device_take_result(struct cia402_device *d)
+{
+	enum cia402_device_result r;
+
+	if (d == NULL) {
+		return CIA402_DEVICE_RESULT_NONE;
+	}
+	pthread_mutex_lock(&d->lock);
+	r = d->result;
+	d->result = CIA402_DEVICE_RESULT_NONE;
+	pthread_mutex_unlock(&d->lock);
+	return r;
+}
+
+/**
+ * cia402_device_abort_code - 读取最近一次失败对应的 abort 码
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: abort 码；无记录或设备为空时返回 0。
+ */
+uint32_t cia402_device_abort_code(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0u : d->abort_code;
+}
+
+/**
+ * cia402_device_feedback_statusword - 读取缓存的状态字
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 状态字；设备为空时返回 0。
+ */
+uint16_t cia402_device_feedback_statusword(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0u : d->statusword;
+}
+
+/**
+ * cia402_device_feedback_position - 读取缓存的实际位置
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 实际位置；设备为空时返回 0。
+ */
+int32_t cia402_device_feedback_position(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0 : d->position;
+}
+
+/**
+ * cia402_device_feedback_velocity - 读取缓存的实际速度
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 实际速度；设备为空时返回 0。
+ */
+int32_t cia402_device_feedback_velocity(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0 : d->velocity;
+}
+
+/**
+ * cia402_device_feedback_error_code - 读取缓存的驱动器错误码
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: 错误码；设备为空时返回 0。
+ */
+uint16_t cia402_device_feedback_error_code(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0u : d->error_code;
+}
+
+/**
+ * cia402_device_feedback_valid - 读取反馈有效位图
+ * @d: 设备对象；NULL 安全
+ *
+ * Return: CIA402_DEVICE_FB_* 位图；设备为空时返回 0。
+ */
+uint8_t cia402_device_feedback_valid(const struct cia402_device *d)
+{
+	return (d == NULL) ? 0u : d->fb_valid;
+}
+
+static int submit(struct cia402_device *d, enum cia402_device_req req)
+{
+	int rc;
+
+	if (d == NULL || d->access == NULL) {
+		return -1;
+	}
+	pthread_mutex_lock(&d->lock);
+	if (d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE) {
+		rc = 1; /* 有一件在处理：调用方自己决定何时重试 */
+	} else {
+		d->req = req;
+		rc = 0;
+	}
+	pthread_mutex_unlock(&d->lock);
+	return rc;
+}
+
+static int submit_urgent(struct cia402_device *d, enum cia402_device_req req)
+{
+	if (d == NULL || d->access == NULL) {
+		return -1;
+	}
+	if (d->access->abort != NULL) {
+		d->access->abort(d->access->ctx); /* 先让阻塞的等待醒来 */
+	}
+	pthread_mutex_lock(&d->lock);
+	if (d->running != CIA402_DEVICE_REQ_NONE) {
+		d->cancel = 1u; /* 当前流程尽快退出（结论作废） */
+	}
+	d->req = req;
+	pthread_mutex_unlock(&d->lock);
+	return 0;
+}
+
+static void finish_request(struct cia402_device *d, int ok)
+{
+	int cancelled;
+
+	pthread_mutex_lock(&d->lock);
+	cancelled = d->cancel != 0u;
+	d->cancel = 0u;
+	if (cancelled != 0) {
+		d->result = CIA402_DEVICE_RESULT_NONE;
+		d->running = CIA402_DEVICE_REQ_NONE;
+		pthread_mutex_unlock(&d->lock);
+		return;
+	}
+	if (ok != 0) {
+		d->abort_code = (d->access != NULL && d->access->last_error != NULL)
+					? d->access->last_error(d->access->ctx)
+					: 0u;
+		d->failed = 1u;
+	}
+	switch (d->running) {
+	case CIA402_DEVICE_REQ_CONFIG:
+		d->cfg_state = (ok == 0) ? CIA402_DEVICE_CFG_CONFIGURED : CIA402_DEVICE_CFG_FAILED;
+		break;
+	case CIA402_DEVICE_REQ_ENABLE:
+		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_ENABLED : CIA402_DEVICE_EN_FAILED;
+		break;
+	case CIA402_DEVICE_REQ_DISABLE:
+		d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
+		break;
+	case CIA402_DEVICE_REQ_QUICK_STOP:
+		d->en_state = (ok == 0) ? CIA402_DEVICE_EN_NOT_ENABLED : CIA402_DEVICE_EN_FAILED;
+		break;
+	default:
+		break;
+	}
+	d->result = (ok == 0) ? CIA402_DEVICE_RESULT_DONE : CIA402_DEVICE_RESULT_FAILED;
+	d->running = CIA402_DEVICE_REQ_NONE;
+	pthread_mutex_unlock(&d->lock);
+}
 
 static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 {
@@ -296,73 +482,4 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 	}
 	d->mon_slot = (uint8_t)((slot + 1u) % 4u);
 	pthread_mutex_unlock(&d->lock);
-}
-
-/* ---- 事实 ---- */
-
-int cia402_device_is_configured(const struct cia402_device *d)
-{
-	return d != NULL && d->cfg_state == CIA402_DEVICE_CFG_CONFIGURED;
-}
-
-int cia402_device_is_enabled(const struct cia402_device *d)
-{
-	return d != NULL && d->en_state == CIA402_DEVICE_EN_ENABLED;
-}
-
-int cia402_device_failed(const struct cia402_device *d)
-{
-	return d != NULL && d->failed != 0u;
-}
-
-int cia402_device_busy(const struct cia402_device *d)
-{
-	if (d == NULL) {
-		return 1;
-	}
-	return d->running != CIA402_DEVICE_REQ_NONE || d->req != CIA402_DEVICE_REQ_NONE;
-}
-
-enum cia402_device_result cia402_device_take_result(struct cia402_device *d)
-{
-	enum cia402_device_result r;
-
-	if (d == NULL) {
-		return CIA402_DEVICE_RESULT_NONE;
-	}
-	pthread_mutex_lock(&d->lock);
-	r = d->result;
-	d->result = CIA402_DEVICE_RESULT_NONE;
-	pthread_mutex_unlock(&d->lock);
-	return r;
-}
-
-uint32_t cia402_device_abort_code(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0u : d->abort_code;
-}
-
-uint16_t cia402_device_feedback_statusword(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0u : d->statusword;
-}
-
-int32_t cia402_device_feedback_position(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0 : d->position;
-}
-
-int32_t cia402_device_feedback_velocity(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0 : d->velocity;
-}
-
-uint16_t cia402_device_feedback_error_code(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0u : d->error_code;
-}
-
-uint8_t cia402_device_feedback_valid(const struct cia402_device *d)
-{
-	return (d == NULL) ? 0u : d->fb_valid;
 }

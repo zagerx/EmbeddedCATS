@@ -1,10 +1,22 @@
-/* CANopenNode CO_driver 的 bus 实现，使用同步发送和软件接收匹配。 */
+/*
+ * co_driver_cats.c — 将 CANopenNode 驱动接口适配到 CAN I/O 后端
+ *
+ * 发送采用同步方式，接收帧按 ident/mask 在软件中匹配。
+ * 协议栈只由 I/O 线程推进，本层不保存从站节点表或 CiA 402 语义。
+ *
+ * Author: zager
+ */
 
 #include "co_driver_cats.h"
 
 #include <stddef.h>
 #include <string.h>
 
+/**
+ * co_cats_can_init - 初始化本机 CAN 适配句柄
+ * @c: 适配句柄；NULL 时直接返回
+ * @bus: CAN I/O 通道，由调用方持有
+ */
 void co_cats_can_init(struct co_cats_can *c, struct can_io *bus)
 {
 	if (c == NULL) {
@@ -14,11 +26,21 @@ void co_cats_can_init(struct co_cats_can *c, struct can_io *bus)
 	c->tx_error = 0u;
 }
 
+/**
+ * CO_CANsetConfigurationMode - 将 CAN 控制器切换到配置模式
+ * @CANptr: CAN 适配句柄
+ *
+ * 本机由平台完成控制器配置，因此当前实现为空操作。
+ */
 void CO_CANsetConfigurationMode(void *CANptr)
 {
 	(void)CANptr;
 }
 
+/**
+ * CO_CANsetNormalMode - 将 CANopenNode 模块标记为正常模式
+ * @CANmodule: CANopenNode CAN 模块；NULL 时直接返回
+ */
 void CO_CANsetNormalMode(CO_CANmodule_t *CANmodule)
 {
 	if (CANmodule != NULL) {
@@ -26,6 +48,16 @@ void CO_CANsetNormalMode(CO_CANmodule_t *CANmodule)
 	}
 }
 
+/**
+ * CO_CANmodule_init - 初始化 CAN 模块；返回 CO_ERROR_NO 或 CO_ERROR_ILLEGAL_ARGUMENT
+ * @CANmodule: CANopenNode CAN 模块
+ * @CANptr: 本机 CAN 适配句柄
+ * @rxArray: 接收缓冲数组
+ * @rxSize: 接收缓冲数量
+ * @txArray: 发送缓冲数组
+ * @txSize: 发送缓冲数量
+ * @CANbitRate: 波特率，本机忽略
+ */
 CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t *CANmodule, void *CANptr, CO_CANrx_t rxArray[],
 				   uint16_t rxSize, CO_CANtx_t txArray[], uint16_t txSize,
 				   uint16_t CANbitRate)
@@ -63,11 +95,27 @@ CO_ReturnError_t CO_CANmodule_init(CO_CANmodule_t *CANmodule, void *CANptr, CO_C
 	return CO_ERROR_NO;
 }
 
+/**
+ * CO_CANmodule_disable - 禁用 CAN 模块
+ * @CANmodule: CANopenNode CAN 模块
+ *
+ * 当前后端无需额外禁用动作，因此为空操作。
+ */
 void CO_CANmodule_disable(CO_CANmodule_t *CANmodule)
 {
 	(void)CANmodule;
 }
 
+/**
+ * CO_CANrxBufferInit - 配置接收缓冲；返回 CO_ERROR_NO 或 CO_ERROR_ILLEGAL_ARGUMENT
+ * @CANmodule: CANopenNode CAN 模块
+ * @index: 缓冲下标
+ * @ident: CAN 标识符
+ * @mask: 匹配掩码
+ * @rtr: 是否匹配远程帧
+ * @object: 回调上下文
+ * @CANrx_callback: 接收回调
+ */
 CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t *CANmodule, uint16_t index, uint16_t ident,
 				    uint16_t mask, bool_t rtr, void *object,
 				    void (*CANrx_callback)(void *object, void *message))
@@ -87,6 +135,16 @@ CO_ReturnError_t CO_CANrxBufferInit(CO_CANmodule_t *CANmodule, uint16_t index, u
 	return CO_ERROR_NO;
 }
 
+/**
+ * CO_CANtxBufferInit - 初始化一个 CAN 发送缓冲
+ * @CANmodule: CANopenNode CAN 模块
+ * @index: 缓冲下标
+ * @ident: CAN 标识符
+ * @rtr: 远程帧标记，本机忽略
+ * @noOfBytes: 数据长度
+ * @syncFlag: SYNC 标记
+ * Return: 发送缓冲指针；模块为空或下标越界时返回 NULL。
+ */
 CO_CANtx_t *CO_CANtxBufferInit(CO_CANmodule_t *CANmodule, uint16_t index, uint16_t ident,
 			       bool_t rtr, uint8_t noOfBytes, bool_t syncFlag)
 {
@@ -105,6 +163,13 @@ CO_CANtx_t *CO_CANtxBufferInit(CO_CANmodule_t *CANmodule, uint16_t index, uint16
 	return buffer;
 }
 
+/**
+ * CO_CANsend - 同步发送一个 CANopenNode 发送缓冲
+ * @CANmodule: CANopenNode CAN 模块
+ * @buffer: 待发送缓冲
+ *
+ * Return: CO_ERROR_NO 成功；参数无效或发送失败时返回对应错误码。
+ */
 CO_ReturnError_t CO_CANsend(CO_CANmodule_t *CANmodule, CO_CANtx_t *buffer)
 {
 	struct co_cats_can *can;
@@ -134,6 +199,12 @@ CO_ReturnError_t CO_CANsend(CO_CANmodule_t *CANmodule, CO_CANtx_t *buffer)
 	return CO_ERROR_NO;
 }
 
+/**
+ * CO_CANclearPendingSyncPDOs - 清除同步 PDO 的待发标记
+ * @CANmodule: CANopenNode CAN 模块；NULL 时直接返回
+ *
+ * 本机同步发送，没有额外排队帧，只需复位模块标记和计数。
+ */
 void CO_CANclearPendingSyncPDOs(CO_CANmodule_t *CANmodule)
 {
 	uint16_t i;
@@ -152,6 +223,12 @@ void CO_CANclearPendingSyncPDOs(CO_CANmodule_t *CANmodule)
 	CANmodule->CANtxCount = 0U;
 }
 
+/**
+ * CO_CANmodule_process - 根据后端发送结果更新模块错误状态
+ * @CANmodule: CANopenNode CAN 模块；NULL 时直接返回
+ *
+ * 本机没有总线错误计数，只在发送失败后保留 overflow 标记。
+ */
 void CO_CANmodule_process(CO_CANmodule_t *CANmodule)
 {
 	struct co_cats_can *can;
@@ -168,8 +245,13 @@ void CO_CANmodule_process(CO_CANmodule_t *CANmodule)
 	}
 }
 
-/* ---- 收：由 I/O 线程每拍调 ---- */
-
+/**
+ * co_cats_can_receive - 将一帧分派给首个匹配的接收缓冲
+ * @module: CANopenNode CAN 模块
+ * @frame: 已接收 CAN 帧
+ *
+ * 只能由 I/O 线程调用；未匹配或参数无效时直接丢弃。
+ */
 void co_cats_can_receive(CO_CANmodule_t *module, const struct can_io_frame *frame)
 {
 	CO_CANrxMsg_t msg;

@@ -1,9 +1,10 @@
 /*
- * 准备中：广播 Reset Communication，等待心跳后转 CONFIGURING。
- * 本状态不在 ONLINE 下，启动期没有心跳不算运行期掉线。
+ * state_preparing.c — 复位通信并等待从站心跳就绪
  *
- * 100 ms 静默期小于 750 ms 心跳超时，残留的 ACTIVE 可能让状态提前迁移；
- * 随后收到延迟的 boot-up 时，心跳槽会重新变为 UNKNOWN。
+ * 启动静默期小于心跳超时，残留的 ACTIVE 可能让状态提前迁移；
+ * 延迟的 boot-up 到达后，心跳槽会重新变为 UNKNOWN。
+ *
+ * Author: zager
  */
 
 #include "states.h"
@@ -11,6 +12,13 @@
 #define PREPARE_SETTLE_MS 100u /* 发完 0x82 先静默这么久再判心跳 */
 #define PREPARE_TIMEOUT_MS 3000u /* 从进入本状态算起，这么久还等不到心跳就判失败 */
 
+/**
+ * st_preparing - 等待心跳并决定进入配置或启动超时
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 心跳就绪后迁移 CONFIGURING；其余事件按层次上抛。
+ */
 sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

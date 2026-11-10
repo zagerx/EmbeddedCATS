@@ -1,4 +1,11 @@
-/* 轴层：业务单位换算、单轴动作和批量请求转发。 */
+/*
+ * axis.c — 换算业务单位并转发单轴与多轴动作请求
+ *
+ * 一个轴对应一个 CiA 402 设备实例，业务状态由状态机管理。
+ * 机械换算参数来自 cats_mech.h，编译期固定。
+ *
+ * Author: zager
+ */
 
 #include <axis/axis.h>
 
@@ -6,34 +13,30 @@
 
 #include <stddef.h>
 
+/* mm 到 pulse：double 计算、远离零取整并饱和到 int32，机械参数见 cats_mech.h */
+static int32_t scale_mm(float mm);
+
+/* pulse 到 mm：使用与 scale_mm 相反的 double 换算 */
+static float unscale_mm(int32_t pulse);
+
+/**
+ * axis_init - 初始化轴与节点的映射
+ * @a: 轴对象，其设备实例须已装配
+ * @node_id: CANopen 节点号
+ */
 void axis_init(struct cats_axis *a, uint8_t node_id)
 {
 	a->node_id = node_id;
 }
 
-/*
- * mm → pulse。全链路只有这一处取整：
- *   1. 先升到 double 算（float 乘法会丢位，且 double 在 x86-64/aarch64 上
- *      都是同一套 IEEE 双精度运算，结果可复现）；
- *   2. 四舍五入、远离零（加 0.5 再截断，不依赖 libm）；
- *   3. 饱和到 int32，防越界。
- *
- * 机械参数是编译期常量，见 controller/config/cats_mech.h
+/**
+ * axis_move_to - 提交绝对位置运动
+ * @a: 轴对象；NULL 时拒绝
+ * @mm: 目标位置
+ * @mm_s: 轮廓速度
+ * @mm_s2: 轮廓加速度和减速度
+ * Return: 0 已受理；1 设备忙；-1 轴为空、参数含 NaN 或设备拒绝。
  */
-static int32_t scale_mm(float mm)
-{
-	double p = ((double)mm * (double)CATS_AXIS_PULSES_PER_REV) / (double)CATS_AXIS_MM_PER_REV;
-
-	p += (p >= 0.0) ? 0.5 : -0.5;
-	if (p >= 2147483647.0) {
-		return INT32_MAX;
-	}
-	if (p <= -2147483647.0) {
-		return -INT32_MAX;
-	}
-	return (int32_t)p;
-}
-
 int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 {
 	if (a == NULL) {
@@ -43,26 +46,38 @@ int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 		return -1; /* NaN：进到整数换算就是未定义行为，这里就拦住 */
 	}
 	return cia402_device_pp_start(&a->dev, scale_mm(mm), scale_mm(mm_s), scale_mm(mm_s2),
-			       scale_mm(mm_s2));
+				      scale_mm(mm_s2));
 }
 
+/**
+ * axis_halt - 请求减速停车并保持使能
+ * @a: 轴对象；NULL 安全
+ *
+ * Return: 设备请求结果；@a 为 NULL 时返回 -1。
+ */
 int axis_halt(struct cats_axis *a)
 {
 	return (a == NULL) ? -1 : cia402_device_halt(&a->dev);
 }
 
+/**
+ * axis_abort_code - 读取轴最近一次 SDO abort 码
+ * @a: 轴对象；NULL 安全
+ *
+ * Return: abort 码；无记录或 @a 为 NULL 时返回 0。
+ */
 uint32_t axis_abort_code(const struct cats_axis *a)
 {
 	return (a == NULL) ? 0U : cia402_device_abort_code(&a->dev);
 }
 
-/* pulse → mm，与 scale_mm() 方向相反；同样用 double 算，结果可复现 */
-static float unscale_mm(int32_t pulse)
-{
-	return (float)(((double)pulse * (double)CATS_AXIS_MM_PER_REV) /
-		       (double)CATS_AXIS_PULSES_PER_REV);
-}
-
+/**
+ * axis_sample - 读取最近一次反馈并换算为业务单位
+ * @a: 轴对象；NULL 时输出无效样本
+ * @out: 输出样本；NULL 时直接返回
+ *
+ * 不触发总线传输，各有效位由设备反馈有效位映射而来。
+ */
 void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 {
 	uint8_t valid;
@@ -98,6 +113,12 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 	}
 }
 
+/**
+ * axis_take_motion - 取走轴运动结论并查询在途状态
+ * @a: 轴对象；NULL 安全
+ *
+ * Return: DONE、FAILED、BUSY 或 NONE；@a 为 NULL 时返回 NONE。
+ */
 enum axis_motion axis_take_motion(struct cats_axis *a)
 {
 	enum cia402_device_result r;
@@ -115,8 +136,13 @@ enum axis_motion axis_take_motion(struct cats_axis *a)
 	return cia402_device_busy(&a->dev) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
 }
 
-/* ---- 批量动作：一组轴 = 数组 + 条数 ---- */
-
+/**
+ * axis_config_all - 逐轴调用配置请求
+ * @axes: 轴数组
+ * @count: 轴数量
+ *
+ * Return: 0 数组有效，不表示每轴均受理；-1 数组为空或数量为 0。
+ */
 int axis_config_all(struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -131,6 +157,13 @@ int axis_config_all(struct cats_axis *axes, uint8_t count)
 	return 0;
 }
 
+/**
+ * axis_enable_all - 逐轴调用使能请求
+ * @axes: 轴数组
+ * @count: 轴数量
+ *
+ * Return: 0 数组有效，不表示每轴均受理；-1 数组为空或数量为 0。
+ */
 int axis_enable_all(struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -145,6 +178,11 @@ int axis_enable_all(struct cats_axis *axes, uint8_t count)
 	return 0;
 }
 
+/**
+ * axis_quick_stop_all - 请求所有轴快速停止并断使能
+ * @axes: 轴数组；NULL 时直接返回
+ * @count: 轴数量
+ */
 void axis_quick_stop_all(struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -157,6 +195,13 @@ void axis_quick_stop_all(struct cats_axis *axes, uint8_t count)
 	}
 }
 
+/**
+ * axis_all_configured - 检查是否所有轴均已配置
+ * @axes: 轴数组
+ * @count: 轴数量
+ *
+ * Return: 1 全部配置；0 存在未配置轴或参数无效。
+ */
 int axis_all_configured(const struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -172,6 +217,13 @@ int axis_all_configured(const struct cats_axis *axes, uint8_t count)
 	return 1;
 }
 
+/**
+ * axis_all_enabled - 检查是否所有轴均已使能
+ * @axes: 轴数组
+ * @count: 轴数量
+ *
+ * Return: 1 全部使能；0 存在未使能轴或参数无效。
+ */
 int axis_all_enabled(const struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -187,6 +239,13 @@ int axis_all_enabled(const struct cats_axis *axes, uint8_t count)
 	return 1;
 }
 
+/**
+ * axis_any_failed - 检查是否存在失败轴
+ * @axes: 轴数组；NULL 安全
+ * @count: 轴数量
+ *
+ * Return: 1 至少一轴失败；0 无失败轴或数组为空。
+ */
 int axis_any_failed(const struct cats_axis *axes, uint8_t count)
 {
 	uint8_t i;
@@ -200,4 +259,24 @@ int axis_any_failed(const struct cats_axis *axes, uint8_t count)
 		}
 	}
 	return 0;
+}
+
+static int32_t scale_mm(float mm)
+{
+	double p = ((double)mm * (double)CATS_AXIS_PULSES_PER_REV) / (double)CATS_AXIS_MM_PER_REV;
+
+	p += (p >= 0.0) ? 0.5 : -0.5;
+	if (p >= 2147483647.0) {
+		return INT32_MAX;
+	}
+	if (p <= -2147483647.0) {
+		return -INT32_MAX;
+	}
+	return (int32_t)p;
+}
+
+static float unscale_mm(int32_t pulse)
+{
+	return (float)(((double)pulse * (double)CATS_AXIS_MM_PER_REV) /
+		       (double)CATS_AXIS_PULSES_PER_REV);
 }

@@ -1,17 +1,21 @@
 /*
- * state_root.c — 层次状态机的根（父状态 = 框架的 sm_top）
+ * state_root.c — 处理业务状态机的全局急停与故障出口
  *
- * 只做三件事：
- *   1. 急停出口：CATS_SIG_ESTOP 在任何状态下都由这里统一迁 ESTOP；
- *   2. 统一故障出口：每拍 TICK 冒泡到这里时，只要 fault_code != NONE 就迁 FAULT。
- *      子状态只负责"置码"，全库不再有第二处 SM_TRAN(&st_fault)；
- *   3. 其余没人认的事件交给 sm_top（返回 IGNORED，事件被忽略）。
+ * 急停在任何状态下都迁移到 ESTOP；子状态设置的故障码在节拍中统一进入 FAULT。
+ * 全局规则属于业务层，不属于通用 HSM 内核。
  *
- * 根放在控制层而不是内核：根上挂哪些"全局规则"是业务决定，内核不该知道。
+ * Author: zager
  */
 
 #include "states.h"
 
+/**
+ * st_root - 处理全局急停、故障迁移和事件上抛
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 急停或故障迁移结果；其他事件交给 sm_top。
+ */
 sm_ret_t st_root(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

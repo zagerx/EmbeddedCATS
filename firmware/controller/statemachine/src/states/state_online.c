@@ -1,20 +1,21 @@
 /*
- * state_online.c — 通信建立之后的运行期父状态
+ * state_online.c — 为运行期子状态提供统一心跳检查
  *
- * 只做一件事：心跳。任一被监控节点掉线 ⇒ 置 HEARTBEAT_LOST，
- * 由 ROOT 统一迁 FAULT（本状态不自己迁移）。
+ * 任一被监控节点掉线时设置 HEARTBEAT_LOST，再由 ROOT 迁移到 FAULT。
+ * PREPARING 不属于 ONLINE，因此启动期没有心跳不会触发运行期掉线规则。
  *
- * 规则用"是不是 online 的子状态"表达：新增运行期状态自动继承，不用改任何名单。
- *
- * PREPARING 故意不挂在 ONLINE 下：那时心跳还没有是正常的，
- * "掉线就是故障"对它不成立。层次结构本身就说明了这件事。
- *
- * 约定：子状态的 TICK 处理完自己的事后返回 SM_SUPER(&st_online)，
- *       依次让 ONLINE（心跳）和 ROOT（故障码）补做公共判定。
+ * Author: zager
  */
 
 #include "states.h"
 
+/**
+ * st_online - 执行运行期父状态的心跳检查
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 节拍处理后上抛 ROOT；未识别事件上抛父状态。
+ */
 sm_ret_t st_online(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

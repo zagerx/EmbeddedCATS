@@ -1,12 +1,20 @@
 /*
- * evt_queue.c — 定长环形事件队列的实现
+ * evt_queue.c — 实现定长多生产者、单消费者环形事件队列
  *
- * 环形规则：head 指向第一个元素，tail 指向"下一个写入位置"，
- *           count 记录有效元素数 ⇒ 空（count==0）与满（count==LEN）可区分。
+ * head 指向首个元素，tail 指向下一个写入位置，count 用于区分空与满。
+ * 事件按值保存，队列锁只保护索引、计数和元素拷贝。
+ *
+ * Author: zager
  */
 
 #include "evt_queue.h"
 
+/**
+ * cats_evtq_init - 清空并初始化事件队列
+ * @q: 队列对象；NULL 时直接返回
+ *
+ * 只能在装配期调用一次，初始化互斥锁。
+ */
 void cats_evtq_init(struct cats_evtq *q)
 {
 	if (q == NULL) {
@@ -18,6 +26,13 @@ void cats_evtq_init(struct cats_evtq *q)
 	pthread_mutex_init(&q->lock, NULL);
 }
 
+/**
+ * cats_evtq_push - 将普通事件放入队尾
+ * @q: 队列对象
+ * @e: 待拷贝事件
+ *
+ * Return: true 入队成功；false 队列满或参数为 NULL。
+ */
 bool cats_evtq_push(struct cats_evtq *q, const struct cats_evt *e)
 {
 	bool ok = true;
@@ -38,6 +53,13 @@ bool cats_evtq_push(struct cats_evtq *q, const struct cats_evt *e)
 	return ok;
 }
 
+/**
+ * cats_evtq_push_front - 将停止或急停事件插入队头
+ * @q: 队列对象；NULL 时直接返回
+ * @e: 待拷贝事件；NULL 时直接返回
+ *
+ * 队列满时替换当前队头，保证新事件优先被取出。
+ */
 void cats_evtq_push_front(struct cats_evtq *q, const struct cats_evt *e)
 {
 	if (q == NULL || e == NULL) {
@@ -59,6 +81,13 @@ void cats_evtq_push_front(struct cats_evtq *q, const struct cats_evt *e)
 	pthread_mutex_unlock(&q->lock);
 }
 
+/**
+ * cats_evtq_pop - 从队头取出并移除一个事件
+ * @q: 队列对象
+ * @out: 输出事件副本
+ *
+ * Return: true 取出成功；false 队列为空或参数为 NULL。
+ */
 bool cats_evtq_pop(struct cats_evtq *q, struct cats_evt *out)
 {
 	bool ok = false;
@@ -78,6 +107,10 @@ bool cats_evtq_pop(struct cats_evtq *q, struct cats_evt *out)
 	return ok;
 }
 
+/**
+ * cats_evtq_clear - 清空队列中的全部待处理事件
+ * @q: 队列对象；NULL 时直接返回
+ */
 void cats_evtq_clear(struct cats_evtq *q)
 {
 	if (q == NULL) {

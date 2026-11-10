@@ -1,16 +1,21 @@
 /*
- * state_estop.c — 急停态
+ * state_estop.c — 抢占在途流程并保持急停终态
  *
- * ENTRY：各轴 quick stop → 断使能（两段式，由 402 层异步走完）。
- *        急停是安全动作，**抢占**任何在途过程（运动、停车、使能都不排队）。
- * 之后：停住不动。没有出口事件，只能重启程序——自动恢复会把风险带回来。
+ * 入口请求所有轴 Quick Stop 后断使能，实际流程由 CiA 402 层异步完成。
+ * ESTOP 没有退出事件，只能重启程序，避免自动恢复引入风险。
  *
- * 进本状态不走"允许/拒绝"判断：CATS_SIG_ESTOP 由 st_root 统一接管，
- * 而 cats_control_poll() 里急停请求优先于一切。
+ * Author: zager
  */
 
 #include "states.h"
 
+/**
+ * st_estop - 处理急停入口、运行命令和节拍
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: MOVE、STOP 和 TICK 被消费；其他事件上抛 ROOT。
+ */
 sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

@@ -1,4 +1,11 @@
-/* 业务状态机：事件入队、周期推进和事实查询。 */
+/*
+ * statemachine.c — 管理业务事件入队、周期推进和事实查询
+ *
+ * 状态机只由控制线程推进，外部线程通过自带锁的事件队列提交命令。
+ * 本层只读取轴事实并下发轴请求，不接触 CANopen 或传输协议。
+ *
+ * Author: zager
+ */
 
 #include "statemachine_internal.h"
 
@@ -9,16 +16,34 @@
 
 static struct stm s_app;
 
+/**
+ * stm_instance - 获取进程内业务状态机单例
+ *
+ * Return: 静态状态机对象指针。
+ */
 struct stm *stm_instance(void)
 {
 	return &s_app;
 }
 
+/**
+ * stm_now_ms - 读取注入给状态机的当前时刻
+ * @a: 状态机对象；NULL 安全
+ *
+ * Return: 注入时钟的毫秒计数；对象或时钟回调为空时返回 0。
+ */
 uint32_t stm_now_ms(struct stm *a)
 {
 	return (a != NULL && a->ops.now_ms != NULL) ? a->ops.now_ms(a->ops.ctx) : 0u;
 }
 
+/**
+ * stm_init - 装配并初始化业务状态机
+ * @a: 状态机对象；NULL 时直接返回
+ * @axes: 轴数组，由组合根持有
+ * @axis_count: 轴数量
+ * @ops: NMT 与时钟回调；NULL 时保留零初始化回调
+ */
 void stm_init(struct stm *a, struct cats_axis *axes, uint8_t axis_count, const struct stm_ops *ops)
 {
 	if (a == NULL) {
@@ -37,6 +62,14 @@ void stm_init(struct stm *a, struct cats_axis *axes, uint8_t axis_count, const s
 	a->state_since_ms = stm_now_ms(a);
 }
 
+/**
+ * stm_poll - 消费外部事件并推进一次周期节拍
+ * @a: 状态机对象；NULL 时直接返回
+ * @hb_ok: 本拍所有被监控轴的心跳事实
+ * @now_ms: 当前单调毫秒时刻
+ *
+ * 只能由控制线程调用；每拍消费事件数受 CATS_EVTQ_DRAIN_MAX 限制。
+ */
 void stm_poll(struct stm *a, uint8_t hb_ok, uint32_t now_ms)
 {
 	static const struct sm_event evt_tick = {CATS_SIG_TICK};
@@ -49,7 +82,7 @@ void stm_poll(struct stm *a, uint8_t hb_ok, uint32_t now_ms)
 	}
 	a->hb_ok = hb_ok;
 
-	/* 1. 先消费外部事件：停止/急停插在队头，所以这一步永远先于本拍推进 */
+	/* 停止和急停插在队头，外部事件先于本拍节拍处理。 */
 	for (n = 0u; n < CATS_EVTQ_DRAIN_MAX; n++) {
 		if (!cats_evtq_pop(&a->evtq, &evt)) {
 			break;
@@ -61,7 +94,7 @@ void stm_poll(struct stm *a, uint8_t hb_ok, uint32_t now_ms)
 		}
 	}
 
-	/* 2. 一拍一次节拍事件 */
+	/* 外部事件处理完后投递一次周期节拍。 */
 	before = sm_hsm_state(&a->hsm);
 	sm_hsm_dispatch(&a->hsm, &evt_tick);
 	if (sm_hsm_state(&a->hsm) != before) {
@@ -69,6 +102,15 @@ void stm_poll(struct stm *a, uint8_t hb_ok, uint32_t now_ms)
 	}
 }
 
+/**
+ * stm_command - 将业务命令按值放入事件队列
+ * @a: 状态机对象
+ * @kind: 命令类别
+ * @mv: 位置参数；MOVE 必填，其他命令忽略
+ *
+ * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数错误；
+ * CATS_ERR_STATE 状态机为空。
+ */
 enum cats_result stm_command(struct stm *a, enum stm_cmd kind, const struct stm_move *mv)
 {
 	struct cats_evt e;
@@ -106,6 +148,12 @@ enum cats_result stm_command(struct stm *a, enum stm_cmd kind, const struct stm_
 	}
 }
 
+/**
+ * stm_state - 将当前 HSM 叶子状态映射为业务状态
+ * @a: 状态机对象；NULL 安全
+ *
+ * Return: 当前业务状态；对象为空或状态未注册时返回 PREPARING。
+ */
 enum cats_state stm_state(const struct stm *a)
 {
 	int i;
@@ -121,6 +169,12 @@ enum cats_state stm_state(const struct stm *a)
 	return CATS_STATE_PREPARING;
 }
 
+/**
+ * stm_fault - 读取当前业务故障码
+ * @a: 状态机对象；NULL 安全
+ *
+ * Return: 当前故障码；对象为空时返回 CATS_FAULT_NONE。
+ */
 enum cats_fault stm_fault(const struct stm *a)
 {
 	return (a == NULL) ? CATS_FAULT_NONE : a->fault_code;

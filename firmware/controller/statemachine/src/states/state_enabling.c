@@ -1,9 +1,22 @@
-/* 使能中：广播 NMT Start 并请求各轴使能，全部完成后转 HOLDING。 */
+/*
+ * state_enabling.c — 广播 NMT Start 并等待所有轴使能
+ *
+ * 全部使能完成后进入 HOLDING；失败或超时由 ROOT 统一迁移到 FAULT。
+ *
+ * Author: zager
+ */
 
 #include "states.h"
 
 #define ENABLE_TIMEOUT_MS 3000u /* 从进入本状态算起，这么久还没全部使能上就判失败 */
 
+/**
+ * st_enabling - 驱动各轴使能并监视完成、失败和超时
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 全部使能迁移 HOLDING；其他结果按状态层次处理或上抛。
+ */
 sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

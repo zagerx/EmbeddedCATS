@@ -1,4 +1,11 @@
-/* 主站节点表及 CANopenNode 收发推进。 */
+/*
+ * master.c — 管理主站节点表并推进 CANopenNode 收发
+ *
+ * 节点登记顺序对应对象字典中的 SDO 客户端通道。
+ * 协议栈与总线只能由 I/O 线程推进，本层不认识 CiA 402 或业务状态。
+ *
+ * Author: zager
+ */
 
 #include <master/master.h>
 
@@ -16,22 +23,16 @@
 #define MASTER_SDO_SRV_TIMEOUT_MS 1000u
 #define MASTER_SDO_CLI_TIMEOUT_MS 500u
 
-/* 站号 → 下标；未登记返回 -1 */
-static int master_index(const struct master *m, uint8_t node_id)
-{
-	uint8_t i;
+/* 将站号映射到节点表下标，未登记时返回 -1 */
+static int master_index(const struct master *m, uint8_t node_id);
 
-	if (m == NULL || node_id == 0u) {
-		return -1;
-	}
-	for (i = 0u; i < m->node_count; i++) {
-		if (m->node_id[i] == node_id) {
-			return (int)i;
-		}
-	}
-	return -1;
-}
-
+/**
+ * master_init - 绑定总线并初始化 CANopenNode
+ * @m: 主站对象
+ * @bus: CAN 通道，由调用方持有
+ *
+ * 初始化过程不主动发送 NMT 帧；@m 为 NULL 时直接返回。
+ */
 void master_init(struct master *m, struct can_io *bus)
 {
 	if (m == NULL) {
@@ -52,6 +53,13 @@ void master_init(struct master *m, struct can_io *bus)
 			     MASTER_NODE_ID, NULL);
 }
 
+/**
+ * master_add_node - 登记一个从站并分配对应 SDO 通道
+ * @m: 主站对象
+ * @node_id: 从站站号，范围为 1 至 127
+ *
+ * Return: 1 登记成功；0 参数无效、重复登记或通道已满。
+ */
 int master_add_node(struct master *m, uint8_t node_id)
 {
 	if (m == NULL || m->co == NULL || node_id == 0u || node_id > 0x7Fu) {
@@ -68,11 +76,24 @@ int master_add_node(struct master *m, uint8_t node_id)
 	return 1;
 }
 
+/**
+ * master_node_count - 获取已登记从站数量
+ * @m: 主站对象；NULL 安全
+ *
+ * Return: 从站数量；@m 为 NULL 时返回 0。
+ */
 uint8_t master_node_count(const struct master *m)
 {
 	return (m == NULL) ? 0u : m->node_count;
 }
 
+/**
+ * master_node_id - 按登记下标读取从站站号
+ * @m: 主站对象；NULL 安全
+ * @idx: 登记下标
+ *
+ * Return: 站号；主站为空或下标越界时返回 0。
+ */
 uint8_t master_node_id(const struct master *m, uint8_t idx)
 {
 	if (m == NULL || idx >= m->node_count) {
@@ -81,6 +102,13 @@ uint8_t master_node_id(const struct master *m, uint8_t idx)
 	return m->node_id[idx];
 }
 
+/**
+ * master_sdo - 获取从站对应的 SDO 客户端
+ * @m: 主站对象
+ * @node_id: 已登记的从站站号
+ *
+ * Return: SDO 客户端指针；未登记或主站未初始化时返回 NULL。
+ */
 CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id)
 {
 	int idx = master_index(m, node_id);
@@ -91,11 +119,25 @@ CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id)
 	return &m->co->SDOclient[idx];
 }
 
+/**
+ * master_bus - 获取主站绑定的 CAN 通道
+ * @m: 主站对象；NULL 安全
+ *
+ * Return: 借用通道指针；@m 为 NULL 时返回 NULL。
+ */
 struct can_io *master_bus(struct master *m)
 {
 	return (m == NULL) ? NULL : m->bus;
 }
 
+/**
+ * master_set_state - 发送一条 NMT 命令
+ * @m: 主站对象
+ * @node_id: 目标站号，0 表示所有从站
+ * @cmd: NMT 命令
+ *
+ * Return: 0 已交给协议栈发送；-1 主站未初始化或发送失败。
+ */
 int master_set_state(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
 {
 	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
@@ -107,6 +149,13 @@ int master_set_state(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
 	return 0;
 }
 
+/**
+ * master_recv_step - 非阻塞抽取本拍 CAN 帧并交给协议栈
+ * @m: 主站对象
+ * @now_ms: 本拍单调毫秒时刻
+ *
+ * 只能由 I/O 线程调用，每拍最多处理 MASTER_RX_BUDGET 帧。
+ */
 void master_recv_step(struct master *m, uint32_t now_ms)
 {
 	struct can_io_frame frame;
@@ -127,6 +176,13 @@ void master_recv_step(struct master *m, uint32_t now_ms)
 	}
 }
 
+/**
+ * master_send_step - 推进协议栈并发送本拍待发帧
+ * @m: 主站对象
+ * @now_ms: 本拍单调毫秒时刻
+ *
+ * 只能由 I/O 线程调用，并与 master_recv_step 保持固定顺序。
+ */
 void master_send_step(struct master *m, uint32_t now_ms)
 {
 	uint32_t now_us;
@@ -144,6 +200,13 @@ void master_send_step(struct master *m, uint32_t now_ms)
 	(void)CO_process(m->co, false, dt_us, NULL);
 }
 
+/**
+ * master_node_alive - 检查从站心跳是否处于 ACTIVE
+ * @m: 主站对象
+ * @node_id: 从站站号
+ *
+ * Return: 0 心跳正常；非 0 未登记、未配置监控、未知或已超时。
+ */
 int master_node_alive(const struct master *m, uint8_t node_id)
 {
 	int8_t hb_idx;
@@ -158,4 +221,19 @@ int master_node_alive(const struct master *m, uint8_t node_id)
 	}
 	state = CO_HBconsumer_getState(m->co->HBcons, (uint8_t)hb_idx);
 	return (state == CO_HBconsumer_ACTIVE) ? 0 : 1;
+}
+
+static int master_index(const struct master *m, uint8_t node_id)
+{
+	uint8_t i;
+
+	if (m == NULL || node_id == 0u) {
+		return -1;
+	}
+	for (i = 0u; i < m->node_count; i++) {
+		if (m->node_id[i] == node_id) {
+			return (int)i;
+		}
+	}
+	return -1;
 }

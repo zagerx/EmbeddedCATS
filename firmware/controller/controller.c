@@ -1,54 +1,54 @@
 /*
- * controller.c — 组合根：把各层装配起来，并提供三个"推进一步"的入口
+ * controller.c — 装配控制层并提供 I/O 与服务推进入口
  *
- * 只做两件事：
- *   1. 装配：主站 → 每轴对象访问通道 → CiA 402 设备 → 轴 → 业务状态机；
- *   2. 推进：io_poll（收/搬/发）、svc_poll（跑同步流程）。
+ * 组合根连接主站、每轴对象访问通道、CiA 402 设备、轴和业务状态机。
+ * 状态机指令与查询接口位于 control_api.c；本文件不创建线程，节拍由宿主编排。
  *
- * 状态机相关的对外 API（指令、状态、故障、样本）在 control_api.c。
- * **本文件不创建线程**，节拍由宿主编排。
+ * Author: zager
  */
 
 #include "controller_internal.h"
 
-static struct cats_control s_ctl = {.lock = PTHREAD_MUTEX_INITIALIZER};
+static struct cats_control s_ctl;
 
+/* 向状态机注入 NMT Start 请求 */
+static void nmt_start_cb(void *ctx);
+
+/* 向状态机注入 NMT Reset Communication 请求 */
+static void nmt_reset_cb(void *ctx);
+
+/* 向状态机注入总线侧单调毫秒时钟 */
+static uint32_t now_ms_cb(void *ctx);
+
+/**
+ * control_ctx - 获取控制层单例上下文
+ *
+ * Return: 全局控制上下文指针，进程生命周期内有效。
+ */
 struct cats_control *control_ctx(void)
 {
 	return &s_ctl;
 }
 
-/* ---- 注入给状态机的能力：它不认识 master，也不自己取时钟 ---- */
-
-static void nmt_start_cb(void *ctx)
-{
-	struct cats_control *ctl = ctx;
-
-	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
-}
-
-static void nmt_reset_cb(void *ctx)
-{
-	struct cats_control *ctl = ctx;
-
-	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
-}
-
-static uint32_t now_ms_cb(void *ctx)
-{
-	struct cats_control *ctl = ctx;
-	struct can_io *bus = master_bus(ctl->master);
-
-	return bus != NULL ? can_io_now_ms(bus) : 0u;
-}
-
+/**
+ * now_ms - 读取控制层当前时刻
+ * @ctl: 控制上下文
+ *
+ * Return: 总线侧单调毫秒计数；未绑定总线时返回 0。
+ */
 uint32_t now_ms(struct cats_control *ctl)
 {
 	return now_ms_cb(ctl);
 }
 
-/* ---- 装配 ---- */
-
+/**
+ * cats_control_init - 装配控制层并进入初始业务状态
+ * @master: 已绑定总线并登记节点的主站，由调用方持有
+ *
+ * 只能在控制线程调用且只能成功初始化一次；不创建工作线程。
+ *
+ * Return: CATS_OK 成功；CATS_ERR_PARAM 参数无效；CATS_ERR_STATE 重复初始化。
+ */
 enum cats_result cats_control_init(struct master *master)
 {
 	uint8_t i;
@@ -92,8 +92,11 @@ enum cats_result cats_control_init(struct master *master)
 	return CATS_OK;
 }
 
-/* ---- 推进：本层只提供"推进一步"，线程与节拍归宿主 ---- */
-
+/**
+ * cats_control_io_poll - 推进一次总线收发与各轴 SDO 通道
+ *
+ * 只能由独占总线的 I/O 线程调用；收帧、事务推进和发帧的顺序固定。
+ */
 void cats_control_io_poll(void)
 {
 	struct cats_control *ctl = &s_ctl;
@@ -105,10 +108,8 @@ void cats_control_io_poll(void)
 	}
 	now = now_ms(ctl);
 
-	/* 一拍三件事，顺序有意义：
-	 *   ① 收：应答落到各从站的事务槽里
-	 *   ② 搬：服务线程的请求提交给协议 / 结果搬回 sdo_client
-	 *   ③ 发：该发的帧当拍发出去（放在 ② 之后，请求不用多等一拍） */
+	/* 收：应答落到各从站的事务槽里；搬：服务请求交给协议栈；
+	 * 发：请求在当拍发出，不用多等一拍。 */
 	master_recv_step(ctl->master, now);
 	for (i = 0u; i < ctl->axis_count; i++) {
 		sdo_client_io_poll(&ctl->sdo[i], now);
@@ -116,6 +117,11 @@ void cats_control_io_poll(void)
 	master_send_step(ctl->master, now);
 }
 
+/**
+ * cats_control_svc_poll - 推进一次各轴同步 CiA 402 流程
+ *
+ * 只能由服务线程调用；对象访问可能阻塞至 SDO 超时。
+ */
 void cats_control_svc_poll(void)
 {
 	struct cats_control *ctl = &s_ctl;
@@ -130,3 +136,27 @@ void cats_control_svc_poll(void)
 		cia402_device_service(&ctl->axes[i].dev, now);
 	}
 }
+
+static void nmt_start_cb(void *ctx)
+{
+	struct cats_control *ctl = ctx;
+
+	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
+}
+
+static void nmt_reset_cb(void *ctx)
+{
+	struct cats_control *ctl = ctx;
+
+	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
+}
+
+static uint32_t now_ms_cb(void *ctx)
+{
+	struct cats_control *ctl = ctx;
+	struct can_io *bus = master_bus(ctl->master);
+
+	return bus != NULL ? can_io_now_ms(bus) : 0u;
+}
+
+static struct cats_control s_ctl = {.lock = PTHREAD_MUTEX_INITIALIZER};

@@ -1,4 +1,11 @@
-/* can_io 的 Linux SocketCAN 实现。 */
+/*
+ * can_io_socketcan.c — 使用 Linux SocketCAN 实现 CAN 帧收发
+ *
+ * 后端同步发送标准数据帧，接收侧通过 poll 实现有界等待。
+ * 通道由调用方打开和关闭，协议语义由上层负责。
+ *
+ * Author: zager
+ */
 
 #include <socketcan/can_io_socketcan.h>
 
@@ -12,6 +19,63 @@
 #include <linux/can.h>
 #include <linux/can/raw.h>
 #include <sys/socket.h>
+
+/* 发送一帧并映射为统一 CAN I/O 返回码 */
+static enum can_io_status sc_send(void *ctx, const struct can_io_frame *frame);
+
+/* 等待并接收一帧，过滤非标准数据帧 */
+static enum can_io_status sc_recv(void *ctx, struct can_io_frame *frame, uint32_t timeout_ms);
+
+/* 关闭通道并记录失效描述符 */
+static void sc_close(void *ctx);
+
+/* 读取单调毫秒时钟 */
+static uint32_t sc_now_ms(void *ctx);
+
+static const struct can_io_ops SOCKETCAN_OPS;
+
+/**
+ * socketcan_open - 打开并绑定 SocketCAN 通道
+ * @io: 待填充的通用 CAN 句柄
+ * @dev: 调用方持有的 SocketCAN 描述符存储
+ * @ifname: CAN 接口名，例如 can0
+ *
+ * Return: CAN_IO_OK 成功；CAN_IO_ERR_INVAL 参数无效；CAN_IO_ERR_BUS 打开或绑定失败。
+ */
+enum can_io_status socketcan_open(struct can_io *io, struct socketcan_dev *dev, const char *ifname)
+{
+	struct sockaddr_can addr;
+	unsigned ifindex;
+	int fd;
+
+	if (io == NULL || dev == NULL || ifname == NULL) {
+		return CAN_IO_ERR_INVAL;
+	}
+
+	fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+	if (fd < 0) {
+		return CAN_IO_ERR_BUS;
+	}
+
+	ifindex = if_nametoindex(ifname); /* 接口不存在或未 up 时这里就失败 */
+	if (ifindex == 0) {
+		close(fd);
+		return CAN_IO_ERR_BUS;
+	}
+
+	memset(&addr, 0, sizeof addr);
+	addr.can_family = AF_CAN;
+	addr.can_ifindex = (int)ifindex;
+	if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
+		close(fd);
+		return CAN_IO_ERR_BUS;
+	}
+
+	dev->fd = fd;
+	io->ops = &SOCKETCAN_OPS;
+	io->ctx = dev;
+	return CAN_IO_OK;
+}
 
 static enum can_io_status sc_send(void *ctx, const struct can_io_frame *frame)
 {
@@ -85,38 +149,3 @@ static const struct can_io_ops SOCKETCAN_OPS = {
 	.close = sc_close,
 	.now_ms = sc_now_ms,
 };
-
-enum can_io_status socketcan_open(struct can_io *io, struct socketcan_dev *dev, const char *ifname)
-{
-	struct sockaddr_can addr;
-	unsigned ifindex;
-	int fd;
-
-	if (io == NULL || dev == NULL || ifname == NULL) {
-		return CAN_IO_ERR_INVAL;
-	}
-
-	fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
-	if (fd < 0) {
-		return CAN_IO_ERR_BUS;
-	}
-
-	ifindex = if_nametoindex(ifname); /* 接口不存在或未 up 时这里就失败 */
-	if (ifindex == 0) {
-		close(fd);
-		return CAN_IO_ERR_BUS;
-	}
-
-	memset(&addr, 0, sizeof addr);
-	addr.can_family = AF_CAN;
-	addr.can_ifindex = (int)ifindex;
-	if (bind(fd, (struct sockaddr *)&addr, sizeof addr) < 0) {
-		close(fd);
-		return CAN_IO_ERR_BUS;
-	}
-
-	dev->fd = fd;
-	io->ops = &SOCKETCAN_OPS;
-	io->ctx = dev;
-	return CAN_IO_OK;
-}

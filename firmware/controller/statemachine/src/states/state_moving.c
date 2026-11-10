@@ -1,18 +1,23 @@
-/* 运动中：下发一条 PP 运动并等待结论；新位置指令丢弃，STOP 转 HALTING。 */
+/*
+ * state_moving.c — 下发一条 PP 运动并等待运动结论
+ *
+ * 运动期间的新位置指令被丢弃，STOP 迁移到 HALTING。
+ *
+ * Author: zager
+ */
 
 #include "states.h"
 
-/* 把 ctl->move 下发给对应的轴 */
-static int issue_move(struct stm *ctl)
-{
-	const struct cats_move_cmd *m = &ctl->move;
+/* 将当前运动事件参数下发到目标轴 */
+static int issue_move(struct stm *ctl);
 
-	if (m->axis >= ctl->axis_count) {
-		return -1;
-	}
-	return axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2);
-}
-
+/**
+ * st_moving - 处理运动发起、停止请求和运动结论
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 到位迁移 HOLDING；停止迁移 HALTING；失败交由 ROOT 处理。
+ */
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);
@@ -52,4 +57,14 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	}
 
 	return SM_HANDLED();
+}
+
+static int issue_move(struct stm *ctl)
+{
+	const struct cats_move_cmd *m = &ctl->move;
+
+	if (m->axis >= ctl->axis_count) {
+		return -1;
+	}
+	return axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2);
 }

@@ -1,6 +1,10 @@
 /*
- * PP 绝对位置运动：写运动参数和目标，以 6040 bit4 上升沿触发。
- * 等待 6041 bit10 到位；同步执行并可被取消。
+ * device_pp.c — 执行可取消的 CiA 402 PP 绝对位置运动
+ *
+ * 写入运动参数后以 6040 bit4 上升沿触发，并等待 6041 bit10 到位。
+ * 本流程由服务线程同步执行。
+ *
+ * Author: zager
  */
 
 #include "device_internal.h"
@@ -8,7 +12,18 @@
 #include <cia402/od.h>
 #include <cia402/pds.h>
 
-int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc, int32_t dec)
+/**
+ * cia402_device_pp_move - 执行一次 PP 绝对位置运动
+ * @d: 设备对象
+ * @target: 目标位置
+ * @vel: 轮廓速度
+ * @acc: 轮廓加速度
+ * @dec: 轮廓减速度
+ *
+ * Return: 0 到位；-1 对象访问失败、驱动器故障、取消或超时。
+ */
+int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc,
+			  int32_t dec)
 {
 	const uint32_t deadline = cia402_device_now_ms(d) + CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS;
 	uint8_t seen_low = 0u;
@@ -28,7 +43,8 @@ int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, 
 	}
 
 	/* bit4 上升沿触发新目标，紧接着落沿（DS 402 要求边沿而非电平） */
-	if (cia402_device_write_controlword(d, (uint16_t)(d->controlword | CIA402_CW_NEW_SETPOINT)) != 0) {
+	if (cia402_device_write_controlword(
+		    d, (uint16_t)(d->controlword | CIA402_CW_NEW_SETPOINT)) != 0) {
 		return -1;
 	}
 	if (cia402_device_write_controlword(
@@ -58,7 +74,8 @@ int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, 
 			 * bit10 一开始就是 1：可能目标等于当前位置（距离 0），
 			 * 也可能是上一条运动的旧值。读 6064 分辨。
 			 */
-			if (cia402_device_od_read(d, CIA402_OD_POSITION_ACTUAL, 0u, &v, &len) != 0) {
+			if (cia402_device_od_read(d, CIA402_OD_POSITION_ACTUAL, 0u, &v, &len) !=
+			    0) {
 				return -1;
 			}
 			pthread_mutex_lock(&d->lock);

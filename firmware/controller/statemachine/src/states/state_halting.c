@@ -1,10 +1,20 @@
 /*
- * 减速停：通过 6040 bit8 停车并保持使能。
- * 停车期间忽略 MOVE/STOP，完成后转 HOLDING。
+ * state_halting.c — 通过 6040 bit8 减速停车并保持使能
+ *
+ * 停车期间忽略 MOVE 和 STOP，完成后迁移到 HOLDING。
+ *
+ * Author: zager
  */
 
 #include "states.h"
 
+/**
+ * st_halting - 处理减速停发起与停车结论
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: 停稳迁移 HOLDING；停车期间命令被消费；失败交由 ROOT 处理。
+ */
 sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

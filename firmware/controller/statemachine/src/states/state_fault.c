@@ -1,14 +1,21 @@
 /*
- * state_fault.c — 故障态
+ * state_fault.c — 保持业务故障终态并丢弃运行命令
  *
- * ENTRY：无动作（原因已由出事的那个位置写进 fault_code，查询接口可读）；
- * 之后停住不动：没有出口事件，只能重启程序。
+ * 故障原因由触发位置写入 fault_code；本状态没有退出事件，只能重启程序。
+ * FAULT 直接挂在 ROOT 下，不继承 ONLINE 的运行期语义。
  *
- * 父状态是 st_root 而不是 st_online：故障态不继承运行期语义。
+ * Author: zager
  */
 
 #include "states.h"
 
+/**
+ * st_fault - 处理故障态入口、命令和节拍
+ * @me: 状态机内核对象
+ * @e: 待处理事件
+ *
+ * Return: MOVE、STOP 和 TICK 被消费；其他事件上抛 ROOT。
+ */
 sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct stm *ctl = container_of(me, struct stm, hsm);

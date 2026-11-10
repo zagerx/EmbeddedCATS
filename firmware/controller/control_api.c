@@ -1,18 +1,21 @@
 /*
- * control_api.c — 状态机侧：把对外 API 翻译成状态机操作，并把事实发布出去
+ * control_api.c — 将控制 API 翻译成状态机操作并发布只读快照
  *
- * 这里只有"业务状态机"相关的东西：
- *   1. 每拍一次：算心跳事实 → 状态机走一拍 → 发布只读快照；
- *   2. 指令：move_to / stop / estop → 入队（由控制线程消费）；
- *   3. 查询：状态、故障码、abort 码、各轴样本。
+ * 外部指令经事件队列进入控制线程，查询接口读取发布值或轴事实。
+ * 装配以及 I/O、服务推进位于 controller.c。
  *
- * 装配与三个推进步骤在 controller.c（组合根）。
+ * Author: zager
  */
 
 #include "controller_internal.h"
 
-/*
- * 把"其他线程可以看"的值发布出去。**只在控制线程里调用**
+/* 汇总所有已装配轴的心跳事实，供每次状态机推进共用 */
+static uint8_t heartbeat_fact(const struct cats_control *ctl);
+
+/**
+ * cats_control_publish - 发布整机状态、故障和各轴反馈快照
+ *
+ * 只能由控制线程调用；轴单位换算在发布锁外完成。
  */
 void cats_control_publish(void)
 {
@@ -45,31 +48,13 @@ void cats_control_publish(void)
 	pthread_mutex_unlock(&app->lock);
 }
 
-/*
- * 心跳：本函数只把**事实**算好（每拍一次，所有状态读同一个值）。
+/**
+ * cats_control_poll - 推进一次业务状态机并发布快照
  *
- * “掉线就进 FAULT”的判定不在这里，而在 st_online（运行期父状态）：
- * 它是 ONLINE 子状态的公共规则，写成层次比写成状态白名单可靠——
- * 新增一个运行期状态时不需要回来改任何名单。
- * FAULT / ESTOP 挂在 root 下，自然也拿不到这条规则。
+ * 只能由控制线程调用；本函数不执行总线收发或阻塞式对象访问。
+ *
+ * Return: CATS_OK 推进成功；CATS_ERR_STATE 尚未初始化。
  */
-static uint8_t heartbeat_fact(const struct cats_control *ctl)
-{
-	uint8_t ok = ctl->axis_count > 0 ? 1u : 0u;
-	uint8_t i;
-
-	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
-	for (i = 0; i < ctl->axis_count; i++) {
-		if (master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
-			ok = 0u;
-			break;
-		}
-	}
-	return ok;
-}
-
-/* ---- 每拍一次：状态机走一拍 + 发布 ---- */
-
 enum cats_result cats_control_poll(void)
 {
 	struct cats_control *ctl = control_ctx();
@@ -80,16 +65,18 @@ enum cats_result cats_control_poll(void)
 	}
 	now = now_ms(ctl);
 
-	/* 1. 收帧在 I/O 线程、402/SDO 推进在服务线程：本拍只读事实 */
-	/* 2. 事实交给业务状态机：它自己消费事件、走一拍节拍 */
+	/* 收帧和 402/SDO 推进由其他入口执行，本拍只向状态机提供事实。 */
 	stm_poll(ctl->stm, heartbeat_fact(ctl), now);
 
 	cats_control_publish();
 	return CATS_OK;
 }
 
-/* ---- 指令：入队，由控制线程在下一拍消费 ---- */
-
+/**
+ * cats_control_estop - 请求所有轴急停
+ *
+ * 任意线程均可调用；事件插入队头，ESTOP 只能重启退出。
+ */
 void cats_control_estop(void)
 {
 	struct cats_control *ctl = control_ctx();
@@ -101,6 +88,15 @@ void cats_control_estop(void)
 	(void)stm_command(ctl->stm, STM_CMD_ESTOP, NULL);
 }
 
+/**
+ * cats_control_move_to - 提交绝对位置指令
+ * @axis: 轴索引
+ * @mm: 目标位置，单位 mm
+ * @mm_s: 速度，单位 mm/s
+ * @mm_s2: 加速度和减速度，单位 mm/s²
+ *
+ * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数或状态无效。
+ */
 enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
 {
 	struct cats_control *ctl = control_ctx();
@@ -122,6 +118,11 @@ enum cats_result cats_control_move_to(uint8_t axis, float mm, float mm_s, float 
 	return stm_command(ctl->stm, STM_CMD_MOVE, &mv);
 }
 
+/**
+ * cats_control_stop - 请求减速停并保持使能
+ *
+ * 任意线程均可调用；停止事件插入队头，由控制线程消费。
+ */
 void cats_control_stop(void)
 {
 	struct cats_control *ctl = control_ctx();
@@ -133,8 +134,11 @@ void cats_control_stop(void)
 	(void)stm_command(ctl->stm, STM_CMD_STOP, NULL);
 }
 
-/* ---- 查询：只读发布值 / 轴事实 ---- */
-
+/**
+ * cats_control_fault_code - 读取已发布的整机故障码
+ *
+ * Return: 最近一次发布的故障码。
+ */
 enum cats_fault cats_control_fault_code(void)
 {
 	struct cats_control *ctl = control_ctx();
@@ -146,6 +150,11 @@ enum cats_fault cats_control_fault_code(void)
 	return f;
 }
 
+/**
+ * cats_control_state - 读取已发布的整机业务状态
+ *
+ * Return: 最近一次发布的业务状态。
+ */
 enum cats_state cats_control_state(void)
 {
 	struct cats_control *ctl = control_ctx();
@@ -157,6 +166,12 @@ enum cats_state cats_control_state(void)
 	return s;
 }
 
+/**
+ * cats_control_axis_abort - 读取轴最近一次 SDO abort 码
+ * @axis: 轴索引
+ *
+ * Return: abort 码；没有记录或轴索引越界时返回 0。
+ */
 uint32_t cats_control_axis_abort(uint8_t axis)
 {
 	struct cats_control *ctl = control_ctx();
@@ -167,6 +182,13 @@ uint32_t cats_control_axis_abort(uint8_t axis)
 	return axis_abort_code(&ctl->axes[axis]);
 }
 
+/**
+ * cats_control_axis_sample - 拷贝一轴已发布的反馈样本
+ * @axis: 轴索引，范围为 0 至 CATS_MAX_AXES-1
+ * @out: 输出样本；NULL 时拒绝
+ *
+ * Return: CATS_OK 成功；CATS_ERR_PARAM 输出为空或轴索引越界。
+ */
 enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample *out)
 {
 	struct cats_control *ctl = control_ctx();
@@ -180,13 +202,39 @@ enum cats_result cats_control_axis_sample(uint8_t axis, struct cats_axis_sample 
 	return CATS_OK;
 }
 
-/* 名字表：状态机侧定义，界面与日志共用同一份 */
+/**
+ * cats_control_state_name - 获取业务状态名称
+ * @s: 业务状态枚举
+ *
+ * Return: 静态名称字符串；未知状态返回 "?"。
+ */
 const char *cats_control_state_name(enum cats_state s)
 {
 	return stm_state_name(s);
 }
 
+/**
+ * cats_control_fault_name - 获取整机故障名称
+ * @f: 故障枚举
+ *
+ * Return: 静态名称字符串；未知故障返回 "?"。
+ */
 const char *cats_control_fault_name(enum cats_fault f)
 {
 	return stm_fault_name(f);
+}
+
+static uint8_t heartbeat_fact(const struct cats_control *ctl)
+{
+	uint8_t ok = ctl->axis_count > 0 ? 1u : 0u;
+	uint8_t i;
+
+	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
+	for (i = 0; i < ctl->axis_count; i++) {
+		if (master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
+			ok = 0u;
+			break;
+		}
+	}
+	return ok;
 }
