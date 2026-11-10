@@ -121,9 +121,9 @@ void controller_io_poll(void)
 }
 
 /**
- * controller_svc_poll - 推进一次各轴同步 CiA 402 流程
+ * controller_svc_poll - 推进一次各轴非阻塞 CiA 402 状态机
  *
- * 只能由服务线程调用；对象访问可能阻塞至 SDO 超时。
+ * 只能由服务线程调用；每次只推进到下一个异步事件。
  */
 void controller_svc_poll(void)
 {

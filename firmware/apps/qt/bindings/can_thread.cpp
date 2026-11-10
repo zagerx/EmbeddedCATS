@@ -69,7 +69,7 @@ bool CanThread::start(struct can_io *bus, QString *err)
 		[this, done = std::move(init_done)]() mutable { run(std::move(done)); });
 
 	if (init_result.get()) {
-		/* 宿主职责：I/O 线程独占总线收发，服务线程跑会阻塞的 402 流程。
+		/* 宿主职责：I/O 线程独占总线收发，服务线程推进非阻塞 402 状态机。
 		 * 两者都在 controller_init 成功后才起：master 必须先装配好 */
 		io_thread_ = std::thread([this]() { run_io(); });
 		svc_thread_ = std::thread([this]() { run_svc(); });
@@ -108,7 +108,7 @@ CanThread::Stats CanThread::stats() const
 void CanThread::run_io()
 {
 	while (!stop_.load(std::memory_order_relaxed)) {
-		/* 收帧 → 推进各轴 SDO 事务 → 发本拍待发帧。非阻塞，不在总线��等 */
+		/* 收帧、推进 SDO 和发帧均不等待总线 */
 		controller_io_poll();
 		std::this_thread::sleep_for(std::chrono::microseconds(kPeriodUs));
 	}
@@ -119,7 +119,7 @@ void CanThread::run_io()
 void CanThread::run_svc()
 {
 	while (!stop_.load(std::memory_order_relaxed)) {
-		controller_svc_poll(); /* 会阻塞：最长一个 SDO 超时 */
+		controller_svc_poll(); /* 非阻塞推进各轴状态机 */
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 }

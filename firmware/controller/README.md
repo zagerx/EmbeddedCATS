@@ -44,6 +44,6 @@ FAULT / ESTOP 为终态。
 |---|---|---|---|
 | `controller_io_poll()` | I/O，独占总线 | 1 ms | 否 |
 | `controller_poll()` | 控制，可与 I/O 同线程且后调用 | 1 ms | 否 |
-| `controller_svc_poll()` | 独立服务线程 | 约 1 ms | 是 |
+| `controller_svc_poll()` | 独立服务线程 | 约 1 ms | 否 |
 
 参考实现：`apps/qt/bindings/can_thread.cpp`、`apps/tools/master_probe/main.c`。

@@ -3,7 +3,7 @@
  *
  * 这一层不认识总线、时间、线程、单位；只有标准里写着的东西。
  *
- * enum cia402_state 是**从站（驱动器）PDS 状态**的投影：主站不维护自己的
+ * enum cia402_pds_state 是**从站（驱动器）PDS 状态**的投影：主站不维护自己的
  * 迁移，只看 6041 解析出来的事实。主机的业务状态在 statemachine/。
  * 这些状态只描述从站，不与整机业务状态混用。
  */
@@ -16,7 +16,7 @@ extern "C" {
 #endif
 
 /* 状态机所处状态（由状态字 6041 解析得到） */
-enum cia402_state {
+enum cia402_pds_state {
 	CIA402_NOT_READY = 0,      /* 未准备好（bit6 = 0） */
 	CIA402_SWITCH_ON_DISABLED, /* 禁止启动 0x0040 */
 	CIA402_READY,              /* 准备启动 0x0021 */

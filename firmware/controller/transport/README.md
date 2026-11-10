@@ -1,32 +1,33 @@
-# transport/ — 对象字典访问与传输后端
+# transport/ — 异步对象访问与 SDO 后端
 
 ## 结构
 
 ```text
 transport/
 ├── include/transport/
-│   ├── sdo_access.h  对象访问契约
-│   └── sdo_client.h     CANopen SDO 后端接口
+│   ├── sdo_access.h  异步对象访问契约
+│   └── sdo_client.h  CANopenNode 客户端封装
 └── src/sdo_client.c
 ```
 
-`sdo_access` 为设备层提供阻塞式 `xfer`（读/写共用一个入口），以及 `abort/now_ms/last_error`。它不认识 DS402 对象语义，也不要求底层必须是 CANopen。
+`sdo_access` 提供三个操作：
 
-`sdo_client` 使用 CANopenNode 客户端实现该契约：
+- `start()`：排队一笔读写，立即返回；
+- `take_result()`：有结果时取走，没有结果时立即返回；
+- `abort()`：请求取消当前事务，取消结果仍通过 `take_result()` 收取。
 
-- 服务线程提交一笔读写并等待条件变量；
-- I/O 线程调用 `sdo_client_io_poll()` 步进 SDO 协议栈；
-- `sdo_client_abort()` 唤醒等待方，由 I/O 线程关闭在途事务；
-- 每条通道同时只执行一笔事务。
+`sdo_client` 将该契约接到 CANopenNode：
 
-一条通道 = 一个对象：函数表内嵌在 `struct sdo_client` 里，`sdo_client_access()`
-返回的指针与对象同生命周期，调用方不必另存一份。
+```text
+服务线程：start() / take_result()
+I/O 线程：sdo_client_io_poll() → CO_SDOclient*()
+```
 
-依赖方向：
+每条通道同时最多一笔事务。互斥锁只保护通道字段，不用于等待；I/O 线程独占协议栈，并在成功、失败和取消时生成结果。每笔事务结束都会关闭 CANopenNode 的本次通信状态。
 
 ```text
 canopen_sdo → sdo_access + CANopenNode
 cia402      → sdo_access
 ```
 
-因此 CiA 402 核心不依赖 CANopenNode，替换传输后端无需修改设备流程。
+CiA 402 设备层不认识 CANopenNode，替换对象访问实现不需要修改设备状态机。

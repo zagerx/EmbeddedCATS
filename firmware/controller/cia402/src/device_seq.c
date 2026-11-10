@@ -1,328 +1,276 @@
 /*
- * device_seq.c — 执行 CiA 402 对象读写与同步控制字序列
+ * device_seq.c — 推进配置、PDS 使能、断使能和停止状态
  *
- * 所有流程只能由服务线程执行，等待对象应答时可能阻塞。
- * 序列支持故障复位、起点快进、取消和步骤超时。
+ * 每个状态对应一笔异步对象事务，状态字响应决定下一条控制字。
+ * 业务等待期限与单次 SDO 超时分别计算。
  *
  * Author: zager
  */
 
 #include "device_internal.h"
 
-#include <cia402/od.h>
-#include <cia402/pds.h>
-
-#include <stddef.h>
-
-/* 利用故障复位位的上升沿清除故障，并等待退出 FAULT */
-static int cia402_device_seq_reset(struct cia402_device *d, uint32_t timeout_ms);
+static void enable_route(struct cia402_device *d, enum cia402_pds_state pds);
+static void cache_statusword(struct cia402_device *d, uint16_t statusword);
+static void enable_wait(struct cia402_device *d, uint16_t statusword,
+			enum cia402_pds_state expected, enum cia402_state next,
+			enum cia402_state read_state);
 
 /**
- * cia402_device_od_write - 写入一个设备对象
+ * cia402_device_seq_begin - 启动一个非 PP 流程
  * @d: 设备对象
- * @index: 对象索引
- * @sub: 子索引
- * @value: 待写值
- * @size: 字节数
- * Return: 0 成功；-1 访问接口缺失或传输失败。
+ * @req: 已受理的请求类型
  */
-int cia402_device_od_write(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
-			   uint8_t size)
+void cia402_device_seq_begin(struct cia402_device *d, enum cia402_device_req req)
 {
-	if (d->access == NULL || d->access->xfer == NULL) {
-		return -1;
+	switch (req) {
+	case CIA402_DEVICE_REQ_CONFIG:
+		cia402_device_start_write(d, CIA402_ST_CONFIG_WRITE_MODE, CIA402_OD_MODE,
+					  CIA402_MODE_PP, 1u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_DEVICE_REQ_ENABLE:
+		cia402_device_start_read(d, CIA402_ST_ENABLE_READ_PDS, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_DEVICE_REQ_DISABLE:
+		cia402_device_start_write(d, CIA402_ST_DISABLE_WRITE, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_DISABLE, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_DEVICE_REQ_HALT:
+		cia402_device_start_write(d, CIA402_ST_HALT_WRITE, CIA402_OD_CONTROLWORD,
+					  d->controlword | CIA402_CW_HALT, 2u,
+					  CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_DEVICE_REQ_QUICK_STOP:
+		cia402_device_start_write(d, CIA402_ST_QUICK_STOP_WRITE, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_QUICK_STOP, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	default:
+		cia402_device_finish(d, -1, 0u);
+		break;
 	}
-	return d->access->xfer(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, NULL, NULL,
-			       CIA402_DEVICE_SDO_TIMEOUT_MS);
 }
 
 /**
- * cia402_device_od_read - 读取一个设备对象
+ * cia402_device_seq_complete - 处理一次成功的对象事务
  * @d: 设备对象
- * @index: 对象索引
- * @sub: 子索引
- * @value: 输出值
- * @len: 输出字节数
- * Return: 0 成功；-1 访问接口缺失或传输失败。
+ * @result: 已完成的结果，读事务携带最新值
  */
-int cia402_device_od_read(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t *value,
-			  uint8_t *len)
+void cia402_device_seq_complete(struct cia402_device *d, const struct sdo_result *result)
 {
-	if (d->access == NULL || d->access->xfer == NULL) {
-		return -1;
+	switch (d->state) {
+	case CIA402_ST_CONFIG_WRITE_MODE:
+		cia402_device_start_read(d, CIA402_ST_CONFIG_READ_MODE, CIA402_OD_MODE_ACTUAL,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_CONFIG_READ_MODE:
+		cia402_device_finish(d, (result->value & 0xFFu) == CIA402_MODE_PP ? 0 : -1, 0u);
+		break;
+	case CIA402_ST_ENABLE_READ_PDS:
+		enable_route(d, cia402_parse((uint16_t)result->value));
+		break;
+	case CIA402_ST_ENABLE_READ_RESET: {
+		enum cia402_pds_state pds = cia402_parse((uint16_t)result->value);
+
+		cache_statusword(d, (uint16_t)result->value);
+		if (pds != CIA402_FAULT) {
+			enable_route(d, pds);
+		} else if ((int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+			cia402_device_finish(d, -1, 0u);
+		} else {
+			cia402_device_start_read(d, CIA402_ST_ENABLE_READ_RESET,
+						 CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		}
+		break;
 	}
-	return d->access->xfer(d->access->ctx, SDO_DIR_READ, index, sub, 0u, 0u, value, len,
-			       CIA402_DEVICE_SDO_TIMEOUT_MS);
+	case CIA402_ST_ENABLE_RESET_LOW:
+		cia402_device_start_write(d, CIA402_ST_ENABLE_RESET_HIGH, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_FAULT_RESET, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_ENABLE_RESET_HIGH:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_STEP_TIMEOUT_MS * 2u;
+		cia402_device_start_read(d, CIA402_ST_ENABLE_READ_RESET, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_ENABLE_WRITE_SHUTDOWN:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_STEP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_ENABLE_READ_READY, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_ENABLE_READ_READY:
+		enable_wait(d, (uint16_t)result->value, CIA402_READY,
+			    CIA402_ST_ENABLE_WRITE_SWITCH_ON, CIA402_ST_ENABLE_READ_READY);
+		break;
+	case CIA402_ST_ENABLE_WRITE_SWITCH_ON:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_STEP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_ENABLE_READ_SWITCHED_ON,
+					 CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_ENABLE_READ_SWITCHED_ON:
+		enable_wait(d, (uint16_t)result->value, CIA402_SWITCHED_ON,
+			    CIA402_ST_ENABLE_WRITE_ENABLE_OP, CIA402_ST_ENABLE_READ_SWITCHED_ON);
+		break;
+	case CIA402_ST_ENABLE_WRITE_ENABLE_OP:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_STEP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_ENABLE_READ_ENABLED, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_ENABLE_READ_ENABLED:
+		enable_wait(d, (uint16_t)result->value, CIA402_OP_ENABLED,
+			    CIA402_ST_IDLE, CIA402_ST_ENABLE_READ_ENABLED);
+		break;
+	case CIA402_ST_DISABLE_WRITE:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_STEP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_DISABLE_READ, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_DISABLE_READ: {
+		enum cia402_pds_state pds = cia402_parse((uint16_t)result->value);
+
+		if (pds == CIA402_SWITCH_ON_DISABLED) {
+			cia402_device_finish(d, 0, 0u);
+		} else if ((int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+			cia402_device_finish(d, -1, 0u);
+		} else {
+			cia402_device_start_read(d, CIA402_ST_DISABLE_READ, CIA402_OD_STATUSWORD,
+						 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		}
+		break;
+	}
+	case CIA402_ST_HALT_WRITE:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_HALT_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_HALT_READ, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_HALT_READ:
+		cache_statusword(d, (uint16_t)result->value);
+		if ((result->value & CIA402_SW_TARGET_REACHED) != 0u) {
+			cia402_device_start_write(d, CIA402_ST_HALT_CLEAR, CIA402_OD_CONTROLWORD,
+						  d->controlword & (uint16_t)~CIA402_CW_HALT, 2u,
+						  CIA402_DEVICE_SDO_TIMEOUT_MS);
+		} else if (cia402_parse((uint16_t)result->value) == CIA402_FAULT ||
+			   (int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+			cia402_device_finish(d, -1, 0u);
+		} else {
+			cia402_device_start_read(d, CIA402_ST_HALT_READ, CIA402_OD_STATUSWORD,
+						 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		}
+		break;
+	case CIA402_ST_HALT_CLEAR:
+		cia402_device_finish(d, 0, 0u);
+		break;
+	case CIA402_ST_QUICK_STOP_WRITE:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_QUICK_STOP_READ, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_ST_QUICK_STOP_READ: {
+		enum cia402_pds_state pds = cia402_parse((uint16_t)result->value);
+
+		cache_statusword(d, (uint16_t)result->value);
+		if (pds == CIA402_SWITCH_ON_DISABLED || pds == CIA402_NOT_READY ||
+		    (int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+			cia402_device_start_write(d, CIA402_ST_QUICK_STOP_DISABLE,
+						  CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
+						  CIA402_DEVICE_SDO_TIMEOUT_MS);
+		} else {
+			cia402_device_start_read(d, CIA402_ST_QUICK_STOP_READ,
+						 CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		}
+		break;
+	}
+	case CIA402_ST_QUICK_STOP_DISABLE:
+		cia402_device_finish(d, 0, 0u);
+		break;
+	default:
+		cia402_device_finish(d, -1, 0u);
+		break;
+	}
 }
 
 /**
- * cia402_device_now_ms - 读取设备访问通道的单调时钟
+ * cia402_device_seq_on_failure - 处理需要继续收尾的停止失败
  * @d: 设备对象
  *
- * Return: 毫秒计数；时钟接口缺失时返回 0。
+ * Quick Stop 写失败仍读状态，状态读取失败仍尝试断使能。
+ *
+ * Return: 1 已发起后续动作；0 当前流程应直接失败。
  */
-uint32_t cia402_device_now_ms(struct cia402_device *d)
+int cia402_device_seq_on_failure(struct cia402_device *d)
 {
-	return (d->access != NULL && d->access->now_ms != NULL) ? d->access->now_ms(d->access->ctx)
-								: 0u;
+	switch (d->state) {
+	case CIA402_ST_QUICK_STOP_WRITE:
+		d->wait_deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		cia402_device_start_read(d, CIA402_ST_QUICK_STOP_READ, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return 1;
+	case CIA402_ST_QUICK_STOP_READ:
+		cia402_device_start_write(d, CIA402_ST_QUICK_STOP_DISABLE, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_DISABLE, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return 1;
+	default:
+		return 0;
+	}
 }
 
-/**
- * cia402_device_cancelled - 检查当前流程是否收到取消请求
- * @d: 设备对象
- *
- * Return: 非 0 已取消；0 未取消。
- */
-int cia402_device_cancelled(struct cia402_device *d)
+static void enable_route(struct cia402_device *d, enum cia402_pds_state pds)
 {
-	int c;
+	switch (pds) {
+	case CIA402_FAULT:
+		cia402_device_start_write(d, CIA402_ST_ENABLE_RESET_LOW, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_DISABLE, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_NOT_READY:
+	case CIA402_SWITCH_ON_DISABLED:
+		cia402_device_start_write(d, CIA402_ST_ENABLE_WRITE_SHUTDOWN, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_SHUTDOWN, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_READY:
+		cia402_device_start_write(d, CIA402_ST_ENABLE_WRITE_SWITCH_ON, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_SWITCH_ON, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_SWITCHED_ON:
+		cia402_device_start_write(d, CIA402_ST_ENABLE_WRITE_ENABLE_OP, CIA402_OD_CONTROLWORD,
+					  CIA402_CW_ENABLE_OP, 2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case CIA402_OP_ENABLED:
+		cia402_device_finish(d, 0, 0u);
+		break;
+	default:
+		cia402_device_finish(d, -1, 0u);
+		break;
+	}
+}
 
+static void enable_wait(struct cia402_device *d, uint16_t statusword,
+			enum cia402_pds_state expected, enum cia402_state next,
+			enum cia402_state read_state)
+{
+	enum cia402_pds_state pds = cia402_parse(statusword);
+
+	cache_statusword(d, statusword);
+	if (pds == expected) {
+		if (next == CIA402_ST_IDLE) {
+			cia402_device_finish(d, 0, 0u);
+		} else if (next == CIA402_ST_ENABLE_WRITE_SWITCH_ON) {
+			cia402_device_start_write(d, next, CIA402_OD_CONTROLWORD, CIA402_CW_SWITCH_ON,
+						  2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		} else {
+			cia402_device_start_write(d, next, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP,
+						  2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		}
+	} else if (pds == CIA402_FAULT) {
+		enable_route(d, pds);
+	} else if ((int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+		cia402_device_finish(d, -1, 0u);
+	} else {
+		cia402_device_start_read(d, read_state, CIA402_OD_STATUSWORD,
+					 CIA402_DEVICE_SDO_TIMEOUT_MS);
+	}
+}
+
+static void cache_statusword(struct cia402_device *d, uint16_t statusword)
+{
 	pthread_mutex_lock(&d->lock);
-	c = d->cancel != 0u;
+	d->statusword = statusword;
 	pthread_mutex_unlock(&d->lock);
-	return c;
-}
-
-/**
- * cia402_device_write_controlword - 写入并缓存 6040 控制字
- * @d: 设备对象
- * @value: 控制字
- *
- * Return: 0 写入并缓存成功；-1 对象访问失败。
- */
-int cia402_device_write_controlword(struct cia402_device *d, uint16_t value)
-{
-	if (cia402_device_od_write(d, CIA402_OD_CONTROLWORD, 0u, (uint32_t)value, 2u) != 0) {
-		return -1;
-	}
-	pthread_mutex_lock(&d->lock);
-	d->controlword = value;
-	pthread_mutex_unlock(&d->lock);
-	return 0;
-}
-
-/**
- * cia402_device_read_statusword - 读取并缓存 6041 状态字
- * @d: 设备对象
- * @out: 输出状态字
- *
- * Return: 0 读取并缓存成功；-1 对象访问失败。
- */
-int cia402_device_read_statusword(struct cia402_device *d, uint16_t *out)
-{
-	uint32_t v = 0u;
-	uint8_t len = 0u;
-
-	if (cia402_device_od_read(d, CIA402_OD_STATUSWORD, 0u, &v, &len) != 0) {
-		return -1;
-	}
-	*out = (uint16_t)(v & 0xFFFFu);
-	pthread_mutex_lock(&d->lock);
-	d->statusword = *out;
-	pthread_mutex_unlock(&d->lock);
-	return 0;
-}
-
-/**
- * cia402_device_seq_run - 从当前状态执行控制字序列
- * @d: 设备对象
- * @seq: 控制字序列表
- * @count: 序列长度
- * @step_timeout_ms: 单步超时
- * Return: 0 全部完成；-1 参数、访问、故障复位、取消或超时失败。
- */
-int cia402_device_seq_run(struct cia402_device *d, const struct cia402_seq_step *seq, uint8_t count,
-			  uint32_t step_timeout_ms)
-{
-	uint16_t sw = 0u;
-	uint8_t i;
-
-	if (seq == NULL || count == 0u) {
-		return -1;
-	}
-	if (cia402_device_read_statusword(d, &sw) != 0) {
-		return -1;
-	}
-	/* 在故障里：先复位，之后重新规划（序列不替设备决定怎么复位） */
-	if (cia402_parse(sw) == CIA402_FAULT) {
-		if (cia402_device_seq_reset(d, step_timeout_ms * 2u) != 0) {
-			return -1;
-		}
-		if (cia402_device_read_statusword(d, &sw) != 0) {
-			return -1;
-		}
-	}
-
-	/* 起点快进：已经走过的不再走一遍 */
-	i = cia402_seq_skip(sw, seq, count);
-	for (; i < count; i++) {
-		const uint32_t deadline = cia402_device_now_ms(d) + step_timeout_ms;
-
-		if (cia402_device_cancelled(d) != 0) {
-			return -1;
-		}
-		if (cia402_device_write_controlword(d, seq[i].cw) != 0) {
-			return -1;
-		}
-		for (;;) {
-			if (cia402_device_read_statusword(d, &sw) != 0) {
-				return -1;
-			}
-			if ((sw & seq[i].exp_mask) == seq[i].exp_value) {
-				break; /* 这一步到位 */
-			}
-			if (cia402_parse(sw) == CIA402_FAULT) {
-				return -1;
-			}
-			if (cia402_device_cancelled(d) != 0) {
-				return -1;
-			}
-			if ((int32_t)(cia402_device_now_ms(d) - deadline) >= 0) {
-				return -1; /* 卡在这一步 */
-			}
-		}
-	}
-	return 0;
-}
-
-/**
- * cia402_device_do_config - 配置并校验 PP 操作模式
- * @d: 设备对象
- *
- * Return: 0 模式一致；-1 写入、读回或校验失败。
- */
-int cia402_device_do_config(struct cia402_device *d)
-{
-	uint32_t v = 0u;
-	uint8_t len = 0u;
-
-	if (cia402_device_od_write(d, CIA402_OD_MODE, 0u, CIA402_MODE_PP, 1u) != 0) {
-		return -1;
-	}
-	if (cia402_device_od_read(d, CIA402_OD_MODE_ACTUAL, 0u, &v, &len) != 0) {
-		return -1;
-	}
-	return ((v & 0xFFu) == CIA402_MODE_PP) ? 0 : -1;
-}
-
-/**
- * cia402_device_do_enable - 执行使能控制字序列
- * @d: 设备对象
- *
- * Return: 0 已使能；-1 流程失败、取消或超时。
- */
-int cia402_device_do_enable(struct cia402_device *d)
-{
-	uint8_t n = 0u;
-	const struct cia402_seq_step *seq = cia402_seq_enable(&n);
-
-	return cia402_device_seq_run(d, seq, n, CIA402_DEVICE_STEP_TIMEOUT_MS);
-}
-
-/**
- * cia402_device_do_disable - 执行断使能控制字序列
- * @d: 设备对象
- *
- * Return: 0 已断使能；-1 流程失败、取消或超时。
- */
-int cia402_device_do_disable(struct cia402_device *d)
-{
-	uint8_t n = 0u;
-	const struct cia402_seq_step *seq = cia402_seq_disable(&n);
-
-	return cia402_device_seq_run(d, seq, n, CIA402_DEVICE_STEP_TIMEOUT_MS);
-}
-
-/**
- * cia402_device_do_halt - 减速停车并保持使能
- * @d: 设备对象
- *
- * Return: 0 停稳并清除 Halt 位；-1 访问失败、故障、取消或超时。
- */
-int cia402_device_do_halt(struct cia402_device *d)
-{
-	const uint32_t deadline = cia402_device_now_ms(d) + CIA402_DEVICE_HALT_TIMEOUT_MS;
-	uint16_t sw = 0u;
-
-	if (cia402_device_write_controlword(d, (uint16_t)(d->controlword | CIA402_CW_HALT)) != 0) {
-		return -1;
-	}
-	for (;;) {
-		if (cia402_device_read_statusword(d, &sw) != 0) {
-			return -1;
-		}
-		if (cia402_parse(sw) == CIA402_FAULT) {
-			return -1;
-		}
-		if ((sw & CIA402_SW_TARGET_REACHED) != 0u) {
-			break; /* 停稳 */
-		}
-		if (cia402_device_cancelled(d) != 0) {
-			return -1;
-		}
-		if ((int32_t)(cia402_device_now_ms(d) - deadline) >= 0) {
-			return -1;
-		}
-	}
-	/* 停稳后清 bit8：保持使能（有保持力矩），可以立刻接下一句运动 */
-	return cia402_device_write_controlword(
-		d, (uint16_t)(d->controlword & (uint16_t)~CIA402_CW_HALT));
-}
-
-/**
- * cia402_device_do_quick_stop - 快速停止后断使能
- * @d: 设备对象
- *
- * 读状态失败或等待超时后仍尝试写断使能控制字。
- *
- * Return: 0 断使能写入成功；-1 最终断使能写入失败。
- */
-int cia402_device_do_quick_stop(struct cia402_device *d)
-{
-	const uint32_t deadline = cia402_device_now_ms(d) + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
-	uint16_t sw = 0u;
-
-	(void)cia402_device_write_controlword(d, CIA402_CW_QUICK_STOP); /* 写不进去也继续往下 */
-
-	for (;;) {
-		if (cia402_device_read_statusword(d, &sw) != 0) {
-			break; /* 读不到也要断使能 */
-		}
-		if (cia402_parse(sw) == CIA402_SWITCH_ON_DISABLED ||
-		    cia402_parse(sw) == CIA402_NOT_READY) {
-			break; /* 已无输出力矩 */
-		}
-		if ((int32_t)(cia402_device_now_ms(d) - deadline) >= 0) {
-			break;
-		}
-	}
-	/* 出口是"没有力矩" */
-	return cia402_device_write_controlword(d, CIA402_CW_DISABLE);
-}
-
-static int cia402_device_seq_reset(struct cia402_device *d, uint32_t timeout_ms)
-{
-	const uint32_t deadline = cia402_device_now_ms(d) + timeout_ms;
-	uint16_t sw = 0u;
-
-	if (cia402_device_write_controlword(d, CIA402_CW_DISABLE) != 0) {
-		return -1;
-	}
-	if (cia402_device_write_controlword(d, CIA402_CW_FAULT_RESET) != 0) {
-		return -1;
-	}
-	for (;;) {
-		if (cia402_device_read_statusword(d, &sw) != 0) {
-			return -1;
-		}
-		if (cia402_parse(sw) != CIA402_FAULT) {
-			return 0;
-		}
-		if (cia402_device_cancelled(d) != 0) {
-			return -1;
-		}
-		if ((int32_t)(cia402_device_now_ms(d) - deadline) >= 0) {
-			return -1;
-		}
-	}
 }

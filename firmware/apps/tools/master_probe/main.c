@@ -120,7 +120,7 @@ static void *svc_thread_main(void *arg)
 {
 	(void)arg;
 	while (s_run_threads != 0) {
-		controller_svc_poll(); /* 会阻塞（最长一个 SDO 超时） */
+		controller_svc_poll(); /* 非阻塞推进设备状态机 */
 		struct timespec ts = {0, 1000000L};
 		(void)nanosleep(&ts, NULL);
 	}

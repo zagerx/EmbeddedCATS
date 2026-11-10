@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 
+int cia402_device_tests(void);
+
 static int s_fail;
 
 #define CHECK(cond)                                                                                \
@@ -51,6 +53,7 @@ int main(void)
 {
 	test_parse();
 	test_skip();
+	s_fail += cia402_device_tests();
 
 	if (s_fail == 0) {
 		printf("cia402_selftest: 全部通过\n");

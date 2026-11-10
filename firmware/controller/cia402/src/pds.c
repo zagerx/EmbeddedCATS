@@ -24,7 +24,7 @@ static const struct cia402_seq_step k_seq_disable[1];
  *
  * Return: 匹配的 PDS 状态；未知位组合返回 CIA402_STATE_UNKNOWN。
  */
-enum cia402_state cia402_parse(uint16_t statusword)
+enum cia402_pds_state cia402_parse(uint16_t statusword)
 {
 	if ((statusword & SW_FAULT_MASK) == 0x0008u || (statusword & SW_FAULT_MASK) == 0x000Fu) {
 		return CIA402_FAULT;
@@ -53,7 +53,7 @@ enum cia402_state cia402_parse(uint16_t statusword)
  *
  * Return: 静态名称字符串；未知状态返回 "UNKNOWN"。
  */
-const char *cia402_state_name(enum cia402_state s)
+const char *cia402_state_name(enum cia402_pds_state s)
 {
 	switch (s) {
 	case CIA402_NOT_READY:

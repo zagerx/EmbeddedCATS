@@ -1,5 +1,5 @@
 /*
- * 控制与服务线程宿主。控制线程使用 1 ms 绝对节拍，服务线程执行阻塞流程。
+ * 控制与服务线程宿主。控制线程使用 1 ms 绝对节拍，服务线程推进非阻塞设备状态机。
  * CAN 通道由 AppBinder 持有，本类只借用。
  */
 
@@ -43,14 +43,14 @@ class CanThread
       private:
 	void run(std::promise<bool> init_done);
 	void run_io();  /* ② I/O 线程：独占总线，收帧与发帧都在这里 */
-	void run_svc(); /* ③ 服务线程：跑会阻塞的 402 流程 */
+	void run_svc(); /* ③ 服务线程：推进非阻塞 402 状态机 */
 
 	struct can_io *bus_ = nullptr;
 	struct master master_ {
 	};
 	std::thread thread_;     /* ① 控制线程：业务状态机 */
 	std::thread io_thread_;  /* ② I/O 线程（不阻塞） */
-	std::thread svc_thread_; /* ③ 服务线程（会阻塞，独立一线程） */
+	std::thread svc_thread_; /* ③ 服务线程（独立固定节拍） */
 	std::atomic<bool> stop_{false};
 	std::atomic<uint32_t> ticks_{0};
 	std::atomic<uint32_t> max_gap_us_{0};

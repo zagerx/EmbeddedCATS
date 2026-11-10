@@ -4,7 +4,7 @@
  * 调用约束：
  *   - controller_init/controller_poll：仅控制线程；
  *   - controller_io_poll：仅 I/O 线程，独占总线，约 1 ms 一拍；
- *   - controller_svc_poll：仅服务线程，可能阻塞至 SDO 超时；
+ *   - controller_svc_poll：仅服务线程，非阻塞推进设备状态机；
  *   - 状态查询与指令接口：任意线程。
  *
  * 控制层不创建线程。跨线程指令通过事件队列传递，查询读取发布快照。
@@ -36,7 +36,7 @@ enum cats_result controller_poll(void);
 /* 收帧、推进各节点 SDO 通道并发帧；非阻塞。 */
 void controller_io_poll(void);
 
-/* 执行配置、使能、运动和停止等同步 402 流程。 */
+/* 非阻塞推进配置、使能、运动和停止等设备状态机。 */
 void controller_svc_poll(void);
 
 enum cats_state controller_state(void);

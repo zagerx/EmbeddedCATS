@@ -1,14 +1,8 @@
 /*
- * sdo_access — SDO 类对象访问契约。
+ * sdo_access — 异步 SDO 对象访问契约。
  *
- * 语义就是 SDO 的语义：**请求—响应、按 index/sub 寻址、可阻塞**，
- * 失败原因是 abort 码。实现可以是 CANopen SDO，也可以是别的总线上
- * 同语义的服务（如 CoE SDO）。
- *
- * 周期性映射（PDO 一类）不属于本接口：它没有 index/sub 寻址、
- * 没有请求—响应、也没有 abort 码，需要另立接口。
- *
- * 读写是阻塞的，只能由服务线程调用。
+ * 调用方发起事务后立即返回，之后通过 take_result 取完成事件。
+ * 每条通道同时最多一笔事务；PDO 等周期映射不属于本接口。
  */
 
 #ifndef TRANSPORT_SDO_ACCESS_H
@@ -25,20 +19,21 @@ enum sdo_dir {
 	SDO_DIR_WRITE = 1,
 };
 
+struct sdo_result {
+	int8_t status; /* 0 成功；-1 失败、取消或超时 */
+	uint8_t len;
+	uint32_t value;
+	uint32_t abort_code;
+};
+
 struct sdo_access {
-	/*
-	 * 一次 SDO 事务（阻塞）：
-	 *   dir = SDO_DIR_READ ：结果写进 out_value/out_len
-	 *   dir = SDO_DIR_WRITE：把 in_value（size 字节，小端）写下去
-	 * 返回 0 成功；-1 失败（原因读 last_error）。
-	 */
-	int (*xfer)(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t in_value,
-		    uint8_t size, uint32_t *out_value, uint8_t *out_len, uint32_t timeout_ms);
-	/* 立即唤醒等待方并作废当前事务。 */
+	/* 0 = 已排队；-1 = 参数错误、通道忙或实现不可用。 */
+	int (*start)(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
+		     uint8_t size, uint32_t timeout_ms);
+	/* 0 = 取走一笔结果；1 = 尚无结果。 */
+	int (*take_result)(void *ctx, struct sdo_result *result);
+	/* 请求取消当前事务；结果仍通过 take_result 返回。 */
 	void (*abort)(void *ctx);
-	uint32_t (*now_ms)(void *ctx);
-	/* 最近一次 abort 码；超时/总线错返回 0。 */
-	uint32_t (*last_error)(void *ctx);
 	void *ctx;
 };
 

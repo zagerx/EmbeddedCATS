@@ -82,16 +82,16 @@ target_compile_definitions(canopen_node PUBLIC
 target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
 
 # 对象访问契约与 CANopen SDO 后端。契约不认识具体协议，后端不实现 DS402 语义。
-add_library(object_access INTERFACE)
-target_include_directories(object_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
+add_library(sdo_access INTERFACE)
+target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
 
 add_library(canopen_sdo STATIC controller/transport/src/sdo_client.c)
 target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
-target_link_libraries(canopen_sdo PUBLIC object_access canopen_node Threads::Threads)
+target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node Threads::Threads)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 
-# CiA 402：pds.c 为纯标准知识；device*.c 为请求、同步流程和反馈。
-# 本模块只依赖 object_access 契约，不依赖 CANopenNode。
+# CiA 402：pds.c 为纯标准知识；device*.c 为请求、事件状态机和反馈。
+# 本模块只依赖 sdo_access 契约，不依赖 CANopenNode。
 add_library(cia402 STATIC
 	controller/cia402/src/pds.c
 	controller/cia402/src/device.c
@@ -99,10 +99,12 @@ add_library(cia402 STATIC
 	controller/cia402/src/device_pp.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
-target_link_libraries(cia402 PUBLIC object_access Threads::Threads)
+target_link_libraries(cia402 PUBLIC sdo_access Threads::Threads)
 
 # 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
-add_executable(cia402_selftest apps/tools/cia402_selftest/main.c)
+add_executable(cia402_selftest
+	apps/tools/cia402_selftest/main.c
+	apps/tools/cia402_selftest/device_test.c)
 target_link_libraries(cia402_selftest PRIVATE cia402)
 
 # 轴层：单位换算与多轴请求转发；每节点使用独立对象访问通道
