@@ -6,6 +6,7 @@
 #include "ui/log_panel.h"
 #include "ui/state_bar.h"
 
+#include <QComboBox>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -74,6 +75,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	auto *reserved_layout = new QHBoxLayout(reserved_area_);
 	reserved_layout->setContentsMargins(16, 10, 16, 10);
 	reserved_layout->setSpacing(8);
+
+	/* 轴选择：只决定「运动」下发到哪一轴；暂停 / 急停本身就是全局的 */
+	auto *axis_selector = new QComboBox(reserved_area_);
+	axis_selector->setObjectName(QStringLiteral("axisSelector"));
+	axis_selector->addItem(QStringLiteral("轴 1"));
+	axis_selector->addItem(QStringLiteral("轴 2"));
+	axis_selector->addItem(QStringLiteral("双轴"));
+	axis_selector->setCurrentIndex(2); /* 默认双轴：一台驱动器带一个机构 */
+	reserved_layout->addWidget(axis_selector, 0, Qt::AlignVCenter);
 
 	auto *btn_estop = new QPushButton(QStringLiteral("急停"), reserved_area_);
 	btn_estop->setObjectName(QStringLiteral("btn_estop"));

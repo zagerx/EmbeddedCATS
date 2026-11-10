@@ -7,6 +7,8 @@
 #include "ui/state_bar.h"
 
 #include <QLatin1Char>
+#include <QComboBox>
+#include <QPushButton>
 #include <QString>
 #include <QTimer>
 
@@ -24,8 +26,8 @@ QString hex16(uint16_t v)
 	       QString::number(v, 16).rightJustified(4, QLatin1Char('0')).toUpper();
 }
 
-/* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */
-StateBar::State to_bar_state(enum cats_state s)
+/* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */ StateBar::State
+to_bar_state(enum cats_state s)
 {
 	switch (s) {
 	case CATS_STATE_PREPARING:
@@ -49,6 +51,22 @@ StateBar::State to_bar_state(enum cats_state s)
 	}
 	return StateBar::State::Preparing;
 }
+
+/* 指令受理结果 → 日志里的说法 */
+QString result_text(enum cats_result r)
+{
+	switch (r) {
+	case CATS_OK:
+		return QStringLiteral("已入队");
+	case CATS_ERR_BUSY:
+		return QStringLiteral("命令队列满，稍后重试");
+	case CATS_ERR_PARAM:
+		return QStringLiteral("当前状态不接受位置指令或参数无效");
+	case CATS_ERR_STATE:
+		return QStringLiteral("控制层未初始化");
+	}
+	return QStringLiteral("未知结果");
+}
 } // namespace
 
 AppBinder::AppBinder(QObject *parent) : QObject(parent)
@@ -66,6 +84,7 @@ AppBinder::~AppBinder()
 void AppBinder::attach(QWidget *root, const QString &ifname)
 {
 	findWidgets(root);
+	bindCommands(); /* 按钮先接上：通道打不开时也能看到拒绝理由 */
 	if (!openChannel(ifname)) {
 		return; /* 没通道就不起节拍 */
 	}
@@ -94,6 +113,106 @@ void AppBinder::findWidgets(QWidget *root)
 	if (axis_cards_[0] == nullptr || axis_cards_[1] == nullptr) {
 		pushLog(QStringLiteral("绑定：找不到轴卡片，实时反馈不会刷新"));
 	}
+
+	axis_selector_ = root->findChild<QComboBox *>(QStringLiteral("axisSelector"));
+	btn_move_ = root->findChild<QPushButton *>(QStringLiteral("btn_move"));
+	btn_halt_ = root->findChild<QPushButton *>(QStringLiteral("btn_halt"));
+	btn_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_estop"));
+}
+
+void AppBinder::bindCommands()
+{
+	if (btn_move_ == nullptr || btn_halt_ == nullptr || btn_estop_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到 2.1 的按钮，指令无法下发"));
+		return;
+	}
+
+	connect(btn_move_, &QPushButton::clicked, this, &AppBinder::onMove);
+	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
+	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
+	updateCommands(controller_state());
+}
+
+void AppBinder::updateCommands(enum cats_state s)
+{
+	if (btn_move_ != nullptr) {
+		/* 只有 HOLDING 接受位置指令；其余状态点下去只会被丢弃 */
+		btn_move_->setEnabled(s == CATS_STATE_HOLDING);
+	}
+	if (btn_halt_ != nullptr) {
+		btn_halt_->setEnabled(s == CATS_STATE_HOLDING || s == CATS_STATE_MOVING);
+	}
+	if (btn_estop_ != nullptr) {
+		btn_estop_->setEnabled(s != CATS_STATE_ESTOP);
+	}
+}
+
+void AppBinder::onMove()
+{
+	/* 选择器决定下发到哪一轴；「双轴」= 两条指令放进同一个请求，一起启动 */
+	const int choice = (axis_selector_ == nullptr) ? 2 : axis_selector_->currentIndex();
+	struct stm_move_axis reqs[2];
+	uint8_t count = 0u;
+
+	if (choice == 0 || choice == 2) {
+		if (fillMove(0U, &reqs[count])) {
+			count++;
+		}
+	}
+	if (choice == 1 || choice == 2) {
+		if (fillMove(1U, &reqs[count])) {
+			count++;
+		}
+	}
+	if (count == 0u) {
+		return; /* 全被拦下：fillMove 已经写过原因 */
+	}
+
+	const enum cats_result r = controller_move(reqs, count);
+
+	if (r == CATS_OK) {
+		for (uint8_t i = 0u; i < count; i++) {
+			pushLog(QStringLiteral("axis%1 运动 → %2 mm / %3 mm/s / %4 mm/s²")
+					.arg(reqs[i].axis + 1)
+					.arg(static_cast<double>(reqs[i].mm), 0, 'f', 3)
+					.arg(static_cast<double>(reqs[i].mm_s), 0, 'f', 3)
+					.arg(static_cast<double>(reqs[i].mm_s2), 0, 'f', 3));
+		}
+	} else {
+		pushLog(QStringLiteral("运动指令被拒：%1").arg(result_text(r)));
+	}
+}
+
+bool AppBinder::fillMove(uint8_t axis, struct stm_move_axis *out)
+{
+	AxisCard *card = axis_cards_[axis];
+
+	if (card == nullptr || out == nullptr) {
+		return false;
+	}
+	out->axis = axis;
+	out->mm = static_cast<float>(card->targetPosition());
+	out->mm_s = static_cast<float>(card->targetVelocity());
+	out->mm_s2 = static_cast<float>(card->targetAcceleration());
+
+	/* 速度 / 加速度为 0 的指令等于原地不动，到驱动器那里可能报错，入口拦住 */
+	if (out->mm_s <= 0.0f || out->mm_s2 <= 0.0f) {
+		pushLog(QStringLiteral("axis%1 未下发：速度和加速度必须大于 0").arg(axis + 1));
+		return false;
+	}
+	return true;
+}
+
+void AppBinder::onHalt()
+{
+	controller_stop();
+	pushLog(QStringLiteral("已请求暂停：减速停在当前位置"));
+}
+
+void AppBinder::onEStop()
+{
+	controller_estop();
+	pushLog(QStringLiteral("已请求急停：所有轴 quick stop 并断使能"));
 }
 
 bool AppBinder::openChannel(const QString &ifname)
@@ -125,6 +244,36 @@ void AppBinder::onRefresh()
 {
 	publish();
 	updateAxisCards();
+	tickPrefill();
+}
+
+void AppBinder::tickPrefill()
+{
+	/* 首次进入 HOLDING：把目标位置填成当前实际位置。
+	 * 否则框里默认 0，一点“运动”就命令驱动器冲回原点。只做一次，
+	 * 之后不覆盖：人要重复执行同一条指令时，目标值得留着。 */
+	bool all_ready = true;
+
+	if (prefilled_ || controller_state() != CATS_STATE_HOLDING) {
+		return;
+	}
+	for (uint8_t i = 0; i < 2; i++) {
+		struct cats_axis_sample sample;
+
+		if (axis_cards_[i] == nullptr) {
+			continue;
+		}
+		/* 状态字为 0 说明这一轴还没读到过反馈：等下一拍再填，别填个假值 */
+		if (controller_axis_sample(i, &sample) != CATS_OK || sample.statusword == 0U) {
+			all_ready = false;
+			continue;
+		}
+		axis_cards_[i]->setTargetPosition(static_cast<double>(sample.position_mm));
+	}
+	if (all_ready) {
+		prefilled_ = true;
+		pushLog(QStringLiteral("已就绪：目标位置已按当前实际位置填好"));
+	}
 }
 
 void AppBinder::updateAxisCards()
@@ -189,6 +338,8 @@ void AppBinder::publish()
 	}
 	last_state_ = state;
 	last_fault_ = fault;
+
+	updateCommands(state);
 
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(state),

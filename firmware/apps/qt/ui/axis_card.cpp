@@ -46,6 +46,26 @@ void AxisCard::setError(const QString &text)
 	error_code_value_->setText(text);
 }
 
+double AxisCard::targetPosition() const
+{
+	return target_position_->value();
+}
+
+double AxisCard::targetVelocity() const
+{
+	return target_velocity_->value();
+}
+
+double AxisCard::targetAcceleration() const
+{
+	return target_acceleration_->value();
+}
+
+void AxisCard::setTargetPosition(double value)
+{
+	target_position_->setValue(value);
+}
+
 QGroupBox *AxisCard::build_command_group()
 {
 	auto *group = new QGroupBox(QStringLiteral("命令"), this);

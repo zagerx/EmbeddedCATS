@@ -121,6 +121,18 @@ QDoubleSpinBox:focus {
 	border-color: @primary;
 }
 
+/* 2.1 行首的轴选择：与按钮同高、同色系 */
+QComboBox {
+	background: @deep;
+	border: 1px solid @border;
+	border-radius: 4px;
+	padding: 4px 8px;
+}
+
+QComboBox:hover {
+	border-color: @primary;
+}
+
 #value {
 	color: @fg;
 	font-family: "DejaVu Sans Mono", monospace;

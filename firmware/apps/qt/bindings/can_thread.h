@@ -42,12 +42,14 @@ class CanThread
 
       private:
 	void run(std::promise<bool> init_done);
+	void run_io();  /* ② I/O 线程：独占总线，收帧与发帧都在这里 */
 	void run_svc(); /* ③ 服务线程：跑会阻塞的 402 流程 */
 
 	struct can_io *bus_ = nullptr;
 	struct master master_ {
 	};
-	std::thread thread_;
+	std::thread thread_;     /* ① 控制线程：业务状态机 */
+	std::thread io_thread_;  /* ② I/O 线程（不阻塞） */
 	std::thread svc_thread_; /* ③ 服务线程（会阻塞，独立一线程） */
 	std::atomic<bool> stop_{false};
 	std::atomic<uint32_t> ticks_{0};

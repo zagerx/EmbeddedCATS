@@ -69,7 +69,9 @@ bool CanThread::start(struct can_io *bus, QString *err)
 		[this, done = std::move(init_done)]() mutable { run(std::move(done)); });
 
 	if (init_result.get()) {
-		/* 宿主职责：服务线程跑会阻塞的 402 流程 */
+		/* 宿主职责：I/O 线程独占总线收发，服务线程跑会阻塞的 402 流程。
+		 * 两者都在 controller_init 成功后才起：master 必须先装配好 */
+		io_thread_ = std::thread([this]() { run_io(); });
 		svc_thread_ = std::thread([this]() { run_svc(); });
 		return true;
 	}
@@ -84,6 +86,9 @@ bool CanThread::start(struct can_io *bus, QString *err)
 void CanThread::stop()
 {
 	stop_.store(true, std::memory_order_relaxed);
+	if (io_thread_.joinable()) {
+		io_thread_.join(); /* 它只在自己的 socket 上收发，先停它 */
+	}
 	if (svc_thread_.joinable()) {
 		svc_thread_.join();
 	}
@@ -96,6 +101,17 @@ CanThread::Stats CanThread::stats() const
 {
 	return {ticks_.load(std::memory_order_relaxed), max_gap_us_.load(std::memory_order_relaxed),
 		late_ticks_.load(std::memory_order_relaxed)};
+}
+
+/* ---- I/O 线程本体 ---- */
+
+void CanThread::run_io()
+{
+	while (!stop_.load(std::memory_order_relaxed)) {
+		/* 收帧 → 推进各轴 SDO 事务 → 发本拍待发帧。非阻塞，不在总线��等 */
+		controller_io_poll();
+		std::this_thread::sleep_for(std::chrono::microseconds(kPeriodUs));
+	}
 }
 
 /* ---- 服务线程本体 ---- */

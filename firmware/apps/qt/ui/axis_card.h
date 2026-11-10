@@ -21,6 +21,12 @@ class AxisCard : public QFrame
 	void setVelocity(const QString &text);
 	void setStatusword(const QString &text);
 	void setError(const QString &text);
+
+	/* 命令区读写：只交数值，不认业务语义（单位由界面自己标） */
+	double targetPosition() const;
+	double targetVelocity() const;
+	double targetAcceleration() const;
+	void setTargetPosition(double value);
 	QGroupBox *build_command_group();
 	QGroupBox *build_feedback_group();
 	QWidget *make_command_row(QDoubleSpinBox *spin, const QString &unit);
