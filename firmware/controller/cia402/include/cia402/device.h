@@ -1,5 +1,5 @@
 /*
- * 一个 CiA 402 从站的运行控制：请求投递、同步流程、结果和反馈。
+ * 一个 CiA 402 从站的运行控制：请求投递、流程推进、结果和反馈。
  * 调用者提交请求，服务线程通过 sdo_access 执行；本层不认识 CAN 帧和业务状态机。
  */
 
@@ -73,6 +73,11 @@ struct cia402_device {
 	uint16_t controlword;
 	uint8_t mon_slot;
 	uint32_t mon_last_ms;
+	/* PP 等待进度：触发后每拍推进一步，其它轴在同一拍里照常推进 */
+	uint8_t pp_run;       /* 已触发，等 6041 bit10 */
+	uint8_t pp_seen_low;  /* 见过 bit10 = 0：之后变 1 才算到位 */
+	int32_t pp_tgt;       /* 本次 PP 的目标（不受调用方提前改 tgt 影响） */
+	uint32_t pp_deadline; /* 到位超时时刻 */
 };
 
 void cia402_device_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id);
@@ -89,7 +94,7 @@ int cia402_device_quick_stop(struct cia402_device *d);
 /* 中断当前对象事务并取消在途流程，供停止和急停使用。 */
 void cia402_device_cancel(struct cia402_device *d);
 
-/* 仅服务线程调用；同步执行一个完整请求。 */
+/* 仅服务线程调用；执行到下一次等待点就返回（PP 的到位等待分散到后续拍）。 */
 void cia402_device_service(struct cia402_device *d, uint32_t now_ms);
 
 int cia402_device_is_configured(const struct cia402_device *d);

@@ -151,7 +151,7 @@ void AppBinder::onMove()
 {
 	/* 选择器决定下发到哪一轴；「双轴」= 两条指令放进同一个请求，一起启动 */
 	const int choice = (axis_selector_ == nullptr) ? 2 : axis_selector_->currentIndex();
-	struct stm_move_axis reqs[2];
+	struct stm_move reqs[2];
 	uint8_t count = 0u;
 
 	if (choice == 0 || choice == 2) {
@@ -183,7 +183,7 @@ void AppBinder::onMove()
 	}
 }
 
-bool AppBinder::fillMove(uint8_t axis, struct stm_move_axis *out)
+bool AppBinder::fillMove(uint8_t axis, struct stm_move *out)
 {
 	AxisCard *card = axis_cards_[axis];
 

@@ -168,17 +168,19 @@ void cia402_device_cancel(struct cia402_device *d)
 }
 
 /**
- * cia402_device_service - 执行一个待处理请求或刷新一次反馈
+ * cia402_device_service - 推进一步：受理请求、推进 PP 或刷新一次反馈
  * @d: 设备对象
  * @now_ms: 当前单调毫秒时刻
  *
- * 只能由服务线程调用；执行请求时可能阻塞等待对象访问。
+ * 只能由服务线程调用。配置、使能、停止是同步流程（阻塞到出结论）；
+ * PP 只在这里触发，到位判定分散到后续每拍一次读写，因此一个轴在等位时
+ * 不会占住服务线程，多个轴能在同一拍里各自推进。
  */
 void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 {
 	enum cia402_device_req req;
 	int32_t t, v, a, dc;
-	int running;
+	int used = 0; /* 本拍已用过对象通道 */
 
 	if (d == NULL || d->access == NULL) {
 		return;
@@ -195,11 +197,14 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 	v = d->vel;
 	a = d->acc;
 	dc = d->dec;
-	running = d->running != CIA402_DEVICE_REQ_NONE;
 	pthread_mutex_unlock(&d->lock);
 
 	if (req != CIA402_DEVICE_REQ_NONE) {
 		int ok = -1;
+
+		/* 新流程接手：上一段 PP 的进度作废（含被 Halt/Quick Stop 抢占） */
+		d->pp_run = 0u;
+		used = 1;
 
 		/* 下面这些调用会阻塞（等状态字/等应答），但都是睡眠不是空转 */
 		switch (req) {
@@ -213,7 +218,8 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 			ok = cia402_device_do_disable(d);
 			break;
 		case CIA402_DEVICE_REQ_PP:
-			ok = cia402_device_pp_move(d, t, v, a, dc);
+			/* 只触发就返回；到没到位由下面的 pp_step 逐拍判定 */
+			ok = cia402_device_pp_begin(d, t, v, a, dc, now_ms);
 			break;
 		case CIA402_DEVICE_REQ_HALT:
 			ok = cia402_device_do_halt(d);
@@ -224,12 +230,21 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 		default:
 			break;
 		}
-		finish_request(d, ok);
-		running = 0;
+		if (req != CIA402_DEVICE_REQ_PP || ok != 0) {
+			finish_request(d, ok); /* PP 成功触发时结论留给出位判定 */
+		}
+	} else if (d->pp_run != 0u) {
+		int r = cia402_device_pp_step(d, now_ms);
+
+		used = 1;
+		if (r != 1) { /* 1 = 还在走，下一拍继续 */
+			d->pp_run = 0u;
+			finish_request(d, (r == 0) ? 0 : -1);
+		}
 	}
 
 	/* 空闲才刷反馈：避免和业务事务抢同一对 COB-ID */
-	if (running == 0) {
+	if (used == 0) {
 		monitor_step(d, now_ms);
 	}
 }

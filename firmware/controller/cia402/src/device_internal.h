@@ -32,7 +32,14 @@ int cia402_device_do_enable(struct cia402_device *d);
 int cia402_device_do_disable(struct cia402_device *d);
 int cia402_device_do_halt(struct cia402_device *d);
 int cia402_device_do_quick_stop(struct cia402_device *d);
-int cia402_device_pp_move(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc,
-			  int32_t dec);
+
+/*
+ * PP 分两段：begin 下发参数并触发目标后立即返回，step 每拍读一次状态字判定到位。
+ * 这样服务线程不会为一个轴的到位而卡住另一个轴。
+ */
+int cia402_device_pp_begin(struct cia402_device *d, int32_t target, int32_t vel, int32_t acc,
+			   int32_t dec, uint32_t now_ms);
+/* 1 = 还在走；0 = 到位；-1 = 失败、取消或超时 */
+int cia402_device_pp_step(struct cia402_device *d, uint32_t now_ms);
 
 #endif /* CIA402_DEVICE_INTERNAL_H */

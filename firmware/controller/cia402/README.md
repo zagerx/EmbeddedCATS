@@ -34,15 +34,25 @@ cia402/
 
 ## 设备运行模型
 
-控制线程只提交请求，服务线程同步执行完整流程：
+控制线程只提交请求，服务线程通过 `cia402_device_service()` 推进：
 
 ```text
 cia402_device_request_* / cia402_device_pp_start
                 ↓
-cia402_device_service（服务线程）
+cia402_device_service（服务线程，每拍一次）
                 ↓
-sdo_access.read/write（阻塞等待）
+sdo_access.xfer（阻塞等待，单笔事务）
 ```
+
+配置、使能、停止是同步流程（一次 `service` 走到出结论）；**PP 运动不阻塞**：
+
+```text
+cia402_device_pp_begin()  写参数 + 6040 bit4 边沿，触发后立刻返回
+cia402_device_pp_step()   之后每拍读一次 6041，看 bit10 是否到位
+```
+
+这样服务线程逐轴轮转时，一个轴在等位期间不会占住循环，多个轴能在同一拍里各自推进，
+真正同时运动；`st_moving` 以位图记录各轴结论，全部到位才回 HOLDING。
 
 普通请求一次只执行一个；Halt 和 Quick Stop 会取消在途流程并优先占用请求槽。反馈轮转只在设备空闲时读取，避免与业务流程争用同一通道。
 

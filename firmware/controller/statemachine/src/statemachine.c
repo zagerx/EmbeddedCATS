@@ -106,14 +106,17 @@ void stm_poll(struct stm *a, uint8_t hb_ok, uint32_t now_ms)
  * stm_command - 将业务命令按值放入事件队列
  * @a: 状态机对象
  * @kind: 命令类别
- * @mv: 位置参数；MOVE 必填，其他命令忽略
+ * @mv: 位置参数数组；MOVE 必填，其他命令传 NULL
+ * @count: @mv 的条数（1..CATS_MAX_AXES）；其他命令传 0
  *
  * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数错误；
  * CATS_ERR_STATE 状态机为空。
  */
-enum cats_result stm_command(struct stm *a, enum stm_cmd kind, const struct stm_move *mv)
+enum cats_result stm_command(struct stm *a, enum stm_cmd kind, const struct stm_move *mv,
+			     uint8_t count)
 {
 	struct cats_evt e;
+	uint8_t i;
 
 	if (a == NULL) {
 		return CATS_ERR_STATE;
@@ -122,14 +125,14 @@ enum cats_result stm_command(struct stm *a, enum stm_cmd kind, const struct stm_
 
 	switch (kind) {
 	case STM_CMD_MOVE:
-		if (mv == NULL) {
+		if (mv == NULL || count == 0u || count > CATS_MAX_AXES) {
 			return CATS_ERR_PARAM;
 		}
 		e.super.sig = CATS_SIG_MOVE;
-		e.u.move.axis = mv->axis;
-		e.u.move.mm = mv->mm;
-		e.u.move.mm_s = mv->mm_s;
-		e.u.move.mm_s2 = mv->mm_s2;
+		e.u.move.count = count;
+		for (i = 0u; i < count; i++) {
+			e.u.move.axis[i] = mv[i];
+		}
 		/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
 		return cats_evtq_push(&a->evtq, &e) ? CATS_OK : CATS_ERR_BUSY;
 

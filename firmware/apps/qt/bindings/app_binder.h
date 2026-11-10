@@ -47,7 +47,7 @@ class AppBinder : public QObject
 	bool openChannel(const QString &ifname); /* 只开通道；建主站在控制线程里做 */
 	void startTimers();                      /* 刷新与统计两个界面定时器 */
 	void bindCommands();                     /* 2.1 的轴选择与三个按钮 */
-	bool fillMove(uint8_t axis, struct stm_move_axis *out); /* 读卡片参数并校验 */
+	bool fillMove(uint8_t axis, struct stm_move *out); /* 读卡片参数并校验 */
 	void updateCommands(enum cats_state s);                 /* 按钮可用性跟随状态 */
 	void tickPrefill();                /* 首次进 HOLDING：目标位置 = 实际位置 */
 	void publish();                    /* app 状态 → 界面（状态没变就不碰） */

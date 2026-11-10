@@ -1,6 +1,7 @@
 /*
- * state_moving.c — 下发一条 PP 运动并等待运动结论
+ * state_moving.c — 下发一批 PP 运动（可多轴）并等待全部到位
  *
+ * 同一批里的轴一起启动，任何一轴失败即整体失败；全部到位才回 HOLDING。
  * 运动期间的新位置指令被丢弃，STOP 迁移到 HALTING。
  *
  * Author: zager
@@ -8,7 +9,7 @@
 
 #include "states.h"
 
-/* 将当前运动事件参数下发到目标轴 */
+/* 把本批请求逐轴下发；有轴被拒就返回 -1（由 ENTRY 置故障） */
 static int issue_move(struct stm *ctl);
 
 /**
@@ -16,7 +17,7 @@ static int issue_move(struct stm *ctl);
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: 到位迁移 HOLDING；停止迁移 HALTING；失败交由 ROOT 处理。
+ * Return: 全部到位迁 HOLDING；停止迁 HALTING；失败交由 ROOT 处理。
  */
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -24,7 +25,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		/* <0 = 真失败（没使能/参数非法）；>0 = 忙，不会发生在这里 */
+		ctl->move_done = 0u;
 		if (issue_move(ctl) < 0) {
 			ctl->fault_code = CATS_FAULT_MOTION_FAILED;
 		}
@@ -38,13 +39,27 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_halting); /* Halt 动作在 HALTING 的 ENTRY */
 
 	case CATS_SIG_TICK: {
-		enum axis_motion m = axis_take_motion(&ctl->axes[ctl->move.axis]);
+		const uint8_t all = (uint8_t)((1u << ctl->move.count) - 1u);
+		uint8_t i;
 
-		if (m == AXIS_MOTION_DONE) {
-			return SM_TRAN(&st_holding);
+		for (i = 0u; i < ctl->move.count; i++) {
+			if ((ctl->move_done & (uint8_t)(1u << i)) != 0u) {
+				continue; /* 这一轴已到位，结论已经取走 */
+			}
+			switch (axis_take_motion(&ctl->axes[ctl->move.axis[i].axis])) {
+			case AXIS_MOTION_FAILED:
+				ctl->fault_code = CATS_FAULT_MOTION_FAILED;
+				return SM_SUPER(&st_online);
+			case AXIS_MOTION_DONE:
+				ctl->move_done |= (uint8_t)(1u << i);
+				break;
+			default:
+				break;
+			}
 		}
-		if (m == AXIS_MOTION_FAILED) {
-			ctl->fault_code = CATS_FAULT_MOTION_FAILED;
+		/* count 最多 CATS_MAX_AXES(2) 条，位图每一位对应一条指令 */
+		if (ctl->move_done == all) {
+			return SM_TRAN(&st_holding);
 		}
 		return SM_SUPER(&st_online);
 	}
@@ -61,10 +76,21 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 
 static int issue_move(struct stm *ctl)
 {
-	const struct cats_move_cmd *m = &ctl->move;
+	uint8_t i;
 
-	if (m->axis >= ctl->axis_count) {
+	if (ctl->move.count == 0u || ctl->move.count > CATS_MAX_AXES) {
 		return -1;
 	}
-	return axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2);
+	for (i = 0u; i < ctl->move.count; i++) {
+		const struct stm_move *m = &ctl->move.axis[i];
+
+		if (m->axis >= ctl->axis_count) {
+			return -1;
+		}
+		/* 非 0（拒绝或忙）都算失败：一批要么一起启动，要么整体报错 */
+		if (axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2) != 0) {
+			return -1;
+		}
+	}
+	return 0;
 }

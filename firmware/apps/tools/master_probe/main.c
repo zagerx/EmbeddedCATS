@@ -172,6 +172,7 @@ int main(int argc, char **argv)
 	uint32_t now;
 	int moved = 0;
 	int moved2 = 0;
+	int batch = 0;
 	int spammed = 0;
 	int stopped = 0;
 	int estopped = 0;
@@ -221,6 +222,29 @@ int main(int argc, char **argv)
 		if (cmd.armed) {
 			long t = (long)(now - s_base_ms);
 
+			/* 两轴同一时刻下发：走批量接口，一起启动（这才是"同时动"） */
+			if (cmd.has_move && cmd.has_move2 && !batch && cmd.move2_at_ms == cmd.move_at_ms &&
+			    t >= cmd.move_at_ms) {
+				struct stm_move reqs[2];
+
+				batch = 1;
+				moved = 1;
+				moved2 = 1;
+				reqs[0].axis = 0u;
+				reqs[0].mm = (float)cmd.move_mm;
+				reqs[0].mm_s = (float)cmd.vel_mm_s;
+				reqs[0].mm_s2 = (float)cmd.acc_mm_s2;
+				reqs[1].axis = 1u;
+				reqs[1].mm = (float)cmd.move2_mm;
+				reqs[1].mm_s = (float)cmd.vel_mm_s;
+				reqs[1].mm_s2 = (float)cmd.acc_mm_s2;
+				printf("[%6ld] 指令：move 双轴 %.3f / %.3f mm\n", t, cmd.move_mm,
+				       cmd.move2_mm);
+				if (controller_move(reqs, 2u) != CATS_OK) {
+					printf("          —— 入队失败（参数错或队列满）\n");
+				}
+				fflush(stdout);
+			}
 			if (cmd.has_move && !moved && t >= cmd.move_at_ms) {
 				moved = 1;
 				printf("[%6ld] 指令：move_to %.3f mm\n", t, cmd.move_mm);
@@ -233,7 +257,7 @@ int main(int argc, char **argv)
 			if (cmd.has_move2 && !moved2 && t >= cmd.move2_at_ms) {
 				moved2 = 1;
 				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
-				if (controller_move_to(0, (float)cmd.move2_mm, (float)cmd.vel_mm_s,
+				if (controller_move_to(1, (float)cmd.move2_mm, (float)cmd.vel_mm_s,
 						       (float)cmd.acc_mm_s2) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}

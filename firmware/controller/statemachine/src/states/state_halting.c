@@ -20,11 +20,18 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 	struct stm *ctl = container_of(me, struct stm, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		if (axis_halt(&ctl->axes[ctl->move.axis]) != 0) {
-			ctl->fault_code = CATS_FAULT_STOP_FAILED; /* ENTRY 里不迁移，交 ROOT */
+	case SM_SIG_ENTRY: {
+		uint8_t i;
+
+		ctl->move_done = 0u;
+		for (i = 0u; i < ctl->move.count; i++) {
+			/* ENTRY 里不迁移，失败交给 ROOT */
+			if (axis_halt(&ctl->axes[ctl->move.axis[i].axis]) != 0) {
+				ctl->fault_code = CATS_FAULT_STOP_FAILED;
+			}
 		}
 		break;
+	}
 
 	case CATS_SIG_MOVE:
 	case CATS_SIG_STOP:
@@ -32,14 +39,24 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_HANDLED();
 
 	case CATS_SIG_TICK: {
-		enum axis_motion m;
+		const uint8_t all = (uint8_t)((1u << ctl->move.count) - 1u);
+		uint8_t i;
 
-		m = axis_take_motion(&ctl->axes[ctl->move.axis]);
-		if (m == AXIS_MOTION_DONE) {
-			return SM_TRAN(&st_holding);
+		for (i = 0u; i < ctl->move.count; i++) {
+			enum axis_motion m;
+
+			if ((ctl->move_done & (uint8_t)(1u << i)) != 0u) {
+				continue; /* 这一轴已停稳 */
+			}
+			m = axis_take_motion(&ctl->axes[ctl->move.axis[i].axis]);
+			if (m == AXIS_MOTION_FAILED) {
+				ctl->fault_code = CATS_FAULT_STOP_FAILED;
+			} else if (m == AXIS_MOTION_DONE) {
+				ctl->move_done |= (uint8_t)(1u << i);
+			}
 		}
-		if (m == AXIS_MOTION_FAILED) {
-			ctl->fault_code = CATS_FAULT_STOP_FAILED;
+		if (ctl->move_done == all) {
+			return SM_TRAN(&st_holding);
 		}
 		return SM_SUPER(&st_online); /* 公共判定交 ONLINE */
 	}

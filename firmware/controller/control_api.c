@@ -84,11 +84,43 @@ void controller_estop(void)
 		return;
 	}
 	/* 插到队头：优先于已排队的所有命令 */
-	(void)stm_command(ctl->stm, STM_CMD_ESTOP, NULL);
+	(void)stm_command(ctl->stm, STM_CMD_ESTOP, NULL, 0u);
 }
 
 /**
- * controller_move_to - 提交绝对位置指令
+ * controller_move - 同时提交一批绝对位置指令
+ * @reqs: 指令数组，每条含轴号与目标位置/速度/加速度
+ * @count: 条数（1..CATS_MAX_AXES）
+ *
+ * 一批轴一起启动，全部到位才回 HOLDING。
+ *
+ * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数或状态无效。
+ */
+enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
+{
+        struct controller *ctl = control_ctx();
+        uint8_t i;
+
+        if (ctl->master == NULL || reqs == NULL || count == 0u || count > CATS_MAX_AXES) {
+                return CATS_ERR_PARAM;
+        }
+        for (i = 0u; i < count; i++) {
+                const struct stm_move *m = &reqs[i];
+
+                if (m->axis >= ctl->axis_count) {
+                        return CATS_ERR_PARAM;
+                }
+                /* NaN 进到整数换算就是未定义行为：入口就拦住（±inf 由轴层饱和） */
+                if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
+                        return CATS_ERR_PARAM;
+                }
+        }
+        /* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
+        return stm_command(ctl->stm, STM_CMD_MOVE, reqs, count);
+}
+
+/**
+ * controller_move_to - 提交单轴绝对位置指令
  * @axis: 轴索引
  * @mm: 目标位置，单位 mm
  * @mm_s: 速度，单位 mm/s
@@ -98,23 +130,13 @@ void controller_estop(void)
  */
 enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
 {
-	struct controller *ctl = control_ctx();
-	struct stm_move mv;
+        struct stm_move mv;
 
-	if (ctl->master == NULL || axis >= ctl->axis_count) {
-		return CATS_ERR_PARAM;
-	}
-	/* NaN 进到整数换算就是未定义行为：在入口就拦住（±inf 由轴层饱和处理） */
-	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
-		return CATS_ERR_PARAM;
-	}
-
-	mv.axis = axis;
-	mv.mm = mm;
-	mv.mm_s = mm_s;
-	mv.mm_s2 = mm_s2;
-	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
-	return stm_command(ctl->stm, STM_CMD_MOVE, &mv);
+        mv.axis = axis;
+        mv.mm = mm;
+        mv.mm_s = mm_s;
+        mv.mm_s2 = mm_s2;
+        return controller_move(&mv, 1u);
 }
 
 /**
@@ -130,7 +152,7 @@ void controller_stop(void)
 		return;
 	}
 	/* 停止也插队：排在已有序命令前面 */
-	(void)stm_command(ctl->stm, STM_CMD_STOP, NULL);
+	(void)stm_command(ctl->stm, STM_CMD_STOP, NULL, 0u);
 }
 
 /**

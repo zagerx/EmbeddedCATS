@@ -89,10 +89,17 @@ void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 	s->last_us = now_us;
 
 	if (s->cancel != 0u) {
-		/* 调用方已放弃：关掉在途事务，通道立刻可用 */
+		/*
+		 * 上一笔被放弃：只收尾协议栈，不碰 state。
+		 * abort 的等待方已经把 state 置 IDLE，新事务可能已经排上队（QUEUED）；
+		 * 这里再改 state 会把它吞掉，让新事务等到超时。
+		 */
 		s->cancel = 0u;
-		s->state = SDO_CLIENT_IDLE;
+		if (s->state == SDO_CLIENT_RUNNING) {
+			s->state = SDO_CLIENT_IDLE; /* 超时残留：旧事务确实要收尾 */
+		}
 		CO_SDOclientClose(s->co);
+		pthread_cond_broadcast(&s->cv);
 		pthread_mutex_unlock(&s->lock);
 		return;
 	}
@@ -247,6 +254,11 @@ static int sc_xfer(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t
 	s->size = size;
 	s->txn_ms = (uint16_t)txn;
 	s->status = -1;
+	/*
+	 * 提交前清掉残留的打断请求：abort 只在"提交时已有事务在等"才有意义。
+	 * 否则上一笔刚结束时的打断标志会把这一笔立刻打掉，直接报失败。
+	 */
+	s->abort = 0u;
 	s->state = SDO_CLIENT_QUEUED;
 
 	rc = sc_wait(s, txn);

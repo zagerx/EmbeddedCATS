@@ -41,6 +41,7 @@ struct stm {
 	/* ---- 控制线程私有 ---- */
 	uint8_t hb_ok;             /* 本拍所有轴心跳都正常；状态只读不算 */
 	struct cats_move_cmd move; /* 当前运动事件的参数副本 */
+	uint8_t move_done;         /* 本批已到位的轴（bit = move.axis[] 下标） */
 	struct sm_hsm hsm;         /* 纯状态机机制 */
 	uint32_t state_since_ms;   /* 进入当前状态的时刻 */
 	enum cats_fault fault_code;

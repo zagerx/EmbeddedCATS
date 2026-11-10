@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include <statemachine/state_types.h>
+#include <statemachine/statemachine.h>
 #include <master/master.h>
 
 #ifdef __cplusplus
@@ -41,10 +42,14 @@ void controller_svc_poll(void);
 enum cats_state controller_state(void);
 
 /*
- * 绝对位置指令，单位为 mm、mm/s、mm/s²。
- * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、初始化状态或参数无效。
+ * 同时下发 1..CATS_MAX_AXES 条绝对位置指令（mm、mm/s、mm/s²）：
+ * 这批轴一起启动，全部到位才回 HOLDING。
+ * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、条数或参数无效。
  * 只有 HOLDING 接受位置指令，MOVING/HALTING 中的新位置指令被丢弃。
  */
+enum cats_result controller_move(const struct stm_move *reqs, uint8_t count);
+
+/* 单轴便捷封装：等价于 count = 1 的 controller_move() */
 enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2);
 
 /* 减速停在当前位置并保持使能；事件插到队头。 */
