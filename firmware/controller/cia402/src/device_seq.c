@@ -11,18 +11,20 @@
 
 int cia402_device_od_write(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value, uint8_t size)
 {
-	if (d->access == NULL || d->access->write == NULL) {
+	if (d->access == NULL || d->access->xfer == NULL) {
 		return -1;
 	}
-	return d->access->write(d->access->ctx, index, sub, value, size, CIA402_DEVICE_SDO_TIMEOUT_MS);
+	return d->access->xfer(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, NULL, NULL,
+			       CIA402_DEVICE_SDO_TIMEOUT_MS);
 }
 
 int cia402_device_od_read(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t *value, uint8_t *len)
 {
-	if (d->access == NULL || d->access->read == NULL) {
+	if (d->access == NULL || d->access->xfer == NULL) {
 		return -1;
 	}
-	return d->access->read(d->access->ctx, index, sub, value, len, CIA402_DEVICE_SDO_TIMEOUT_MS);
+	return d->access->xfer(d->access->ctx, SDO_DIR_READ, index, sub, 0u, 0u, value, len,
+			       CIA402_DEVICE_SDO_TIMEOUT_MS);
 }
 
 uint32_t cia402_device_now_ms(struct cia402_device *d)

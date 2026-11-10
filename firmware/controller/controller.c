@@ -70,8 +70,7 @@ enum cats_result cats_control_init(struct master *master)
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
 		sdo_client_init(&s_ctl.sdo[i], sdo);
-		s_ctl.access[i] = sdo_client_iface(&s_ctl.sdo[i]);
-		cia402_device_init(&s_ctl.axes[i].dev, &s_ctl.access[i], node_id);
+		cia402_device_init(&s_ctl.axes[i].dev, sdo_client_access(&s_ctl.sdo[i]), node_id);
 		axis_init(&s_ctl.axes[i], node_id);
 	}
 
@@ -112,7 +111,7 @@ void cats_control_io_poll(void)
 	 *   ③ 发：该发的帧当拍发出去（放在 ② 之后，请求不用多等一拍） */
 	master_recv_step(ctl->master, now);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		sdo_client_io_step(&ctl->sdo[i], now);
+		sdo_client_io_poll(&ctl->sdo[i], now);
 	}
 	master_send_step(ctl->master, now);
 }

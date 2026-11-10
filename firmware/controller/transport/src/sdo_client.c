@@ -1,5 +1,11 @@
 /*
- * object_access 的 SDO 实现：服务线程等待条件变量，I/O 线程步进协议栈。
+ * sdo_client.c — sdo_access 的 SDO 实现
+ *
+ * 两边各做一半：
+ *   I/O 线程：sdo_client_io_poll()  把请求交给 CANopenNode，逐拍推进
+ *   服务线程：sc_xfer()             提交 + 睡在条件变量上等结果（让出 CPU）
+ *
+ * 只有 I/O 线程碰协议栈，所以栈本身不需要锁；本文件的锁只保护自己的字段。
  */
 
 #include <transport/sdo_client.h>
@@ -8,20 +14,107 @@
 #include <string.h>
 #include <time.h>
 
-#define SDO_CLIENT_DEFAULT_TXN_MS 200u
-/* 给协议栈完成事务或判定超时留出余量 */
-#define SDO_CLIENT_WAIT_SLACK_MS 100u
+#define DEFAULT_TXN_MS 200u
+/* 给协议栈自己先判超时留的余量 */
+#define WAIT_SLACK_MS 100u
 
-static void deadline_after(struct timespec *ts, uint32_t ms)
+/* ---------------- 服务线程侧 ---------------- */
+
+/* 进入时持锁，返回时仍持锁 */
+static int sc_wait(struct sdo_client *s, uint32_t timeout_ms)
 {
-	clock_gettime(CLOCK_MONOTONIC, ts);
-	ts->tv_sec += (time_t)(ms / 1000u);
-	ts->tv_nsec += (long)(ms % 1000u) * 1000000L;
-	if (ts->tv_nsec >= 1000000000L) {
-		ts->tv_sec += 1;
-		ts->tv_nsec -= 1000000000L;
+	struct timespec dl;
+	uint32_t wait_ms = timeout_ms + WAIT_SLACK_MS;
+
+	clock_gettime(CLOCK_MONOTONIC, &dl);
+	dl.tv_sec += (time_t)(wait_ms / 1000u);
+	dl.tv_nsec += (long)(wait_ms % 1000u) * 1000000L;
+	if (dl.tv_nsec >= 1000000000L) {
+		dl.tv_sec += 1;
+		dl.tv_nsec -= 1000000000L;
 	}
+
+	/* 到期由 timedwait 自己返回 ETIMEDOUT；这里只处理"结果到了"和"被打断" */
+	while (s->done == 0u && s->abort == 0u) {
+		if (pthread_cond_timedwait(&s->cv, &s->lock, &dl) == ETIMEDOUT) {
+			break;
+		}
+	}
+	if (s->abort != 0u) {
+		/* 外部打断（安全动作）：这一笔作废，事务由 I/O 线程关掉 */
+		s->abort = 0u;
+		s->cancel = 1u;
+		s->pending = 0u;
+		return -1;
+	}
+	if (s->done == 0u) {
+		s->cancel = 1u; /* 超时：让 I/O 线程收尾，通道不占用 */
+		return -1;
+	}
+	return s->status;
 }
+
+/* 一次事务（阻塞）：提交 → 等 → 取结果。读/写共用，方向由 dir 决定 */
+static int sc_xfer(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t in_value,
+		   uint8_t size, uint32_t *out_value, uint8_t *out_len, uint32_t timeout_ms)
+{
+	struct sdo_client *s = ctx;
+	uint32_t txn = (timeout_ms == 0u) ? DEFAULT_TXN_MS : timeout_ms;
+	int rc;
+
+	if (s == NULL) {
+		return -1;
+	}
+	pthread_mutex_lock(&s->lock);
+	if (s->co == NULL || s->pending != 0u || s->busy != 0u || s->done != 0u) {
+		pthread_mutex_unlock(&s->lock);
+		return -1; /* 通道忙：一笔没结束 */
+	}
+	s->is_write = (uint8_t)(dir == SDO_DIR_WRITE ? 1u : 0u);
+	s->index = index;
+	s->sub = sub;
+	s->value = in_value;
+	s->size = size;
+	s->txn_ms = txn;
+	s->status = -1;
+	s->pending = 1u;
+
+	rc = sc_wait(s, txn);
+	if (rc == 0 && out_value != NULL) {
+		*out_value = s->data;
+	}
+	if (rc == 0 && out_len != NULL) {
+		*out_len = s->len;
+	}
+	s->done = 0u;
+	pthread_mutex_unlock(&s->lock);
+	return rc;
+}
+
+/* ---------------- 函数表适配（本文件私有） ---------------- */
+
+static void sc_abort(void *ctx)
+{
+	sdo_client_abort((struct sdo_client *)ctx);
+}
+
+static uint32_t sc_now_ms(void *ctx)
+{
+	struct timespec ts;
+
+	(void)ctx;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
+}
+
+static uint32_t sc_last_error(void *ctx)
+{
+	struct sdo_client *s = ctx;
+
+	return (s == NULL) ? 0u : s->last_code;
+}
+
+/* ---------------- 装配与 I/O 线程侧 ---------------- */
 
 void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client)
 {
@@ -38,20 +131,25 @@ void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client)
 
 	s->co = client;
 	s->status = -1;
+	/* 函数表随对象一起备好：调用方拿到的是稳定指针，不必自己存一份 */
+	s->access.xfer = sc_xfer;
+	s->access.abort = sc_abort;
+	s->access.now_ms = sc_now_ms;
+	s->access.last_error = sc_last_error;
+	s->access.ctx = s;
 }
 
-/* ---------------- I/O 线程侧 ---------------- */
-
-void sdo_client_io_step(struct sdo_client *s, uint32_t now_ms)
+void sdo_client_io_poll(struct sdo_client *s, uint32_t now_ms)
 {
 	uint32_t now_us = now_ms * 1000u;
 	uint32_t dt_us;
 	CO_SDO_abortCode_t abort_code = CO_SDO_AB_NONE;
-	CO_SDO_return_t r;
+	CO_SDO_return_t r = CO_SDO_RT_waitingResponse;
+	int ok = 0;
+	int failed = 0;
 
 	/* 全程持锁：栈是单线程的（收发都在 I/O 线程），这把锁只串行化本文件的字段 */
 	pthread_mutex_lock(&s->lock);
-
 	dt_us = (s->last_us == 0u) ? 0u : (uint32_t)(now_us - s->last_us);
 	s->last_us = now_us;
 
@@ -66,50 +164,43 @@ void sdo_client_io_step(struct sdo_client *s, uint32_t now_ms)
 		return;
 	}
 
-	/* ① 有新请求：交给栈（Initiate 只准备，不推进） */
-	if (s->pending != 0u && s->busy == 0u && s->done == 0u) {
+	/* ① 发起：Initiate 只做准备；写事务要先把值放进发送缓冲 */
+	if (s->pending != 0u && s->busy == 0u) {
 		if (s->is_write != 0u) {
-			r = CO_SDOclientDownloadInitiate(s->co, s->index, s->sub,
-							 (size_t)s->size, (uint16_t)s->txn_ms,
-							 false);
-		} else {
-			r = CO_SDOclientUploadInitiate(s->co, s->index, s->sub,
-						       (uint16_t)s->txn_ms, false);
-		}
-		if (r < 0) {
-			s->pending = 0u;
-			s->done = 1u;
-			s->status = -1;
-			s->last_code = 0u;
-			pthread_cond_broadcast(&s->cv);
-		} else {
-			/* 写事务：把值小端写进栈的发送缓冲（读事务从缓冲里取） */
-			if (s->is_write != 0u) {
-				uint8_t buf[4];
-				uint8_t i;
+			uint8_t buf[4];
+			uint8_t i;
 
-				for (i = 0u; i < s->size; i++) {
-					buf[i] = (uint8_t)((s->value >> (8u * i)) & 0xFFu);
-				}
+			r = CO_SDOclientDownloadInitiate(s->co, s->index, s->sub, (size_t)s->size,
+							 (uint16_t)s->txn_ms, false);
+			for (i = 0u; i < s->size && i < 4u; i++) {
+				buf[i] = (uint8_t)((s->value >> (8u * i)) & 0xFFu);
+			}
+			if (r >= 0) {
 				(void)CO_SDOclientDownloadBufWrite(s->co, buf, (size_t)s->size);
 			}
+		} else {
+			r = CO_SDOclientUploadInitiate(s->co, s->index, s->sub, (uint16_t)s->txn_ms,
+						       false);
+		}
+		if (r < 0) {
+			failed = 1;
+		} else {
 			s->pending = 0u;
 			s->busy = 1u;
 		}
 	}
 
-	/* ② 事务在途：推进一格（发帧 / 收应答 / 判超时都在栈里） */
-	if (s->busy != 0u) {
+	/* ② 推进：发帧 / 收应答 / 判超时都在栈里 */
+	if (failed == 0 && s->busy != 0u) {
 		if (s->is_write != 0u) {
-			/* download 多一个 bufferPartial 参数（不用分段传，固定 false） */
+			/* download 多一个 bufferPartial（不分段传，固定 false） */
 			r = CO_SDOclientDownload(s->co, dt_us, false, false, &abort_code, NULL,
 						 NULL);
 		} else {
-			r = CO_SDOclientUpload(s->co, dt_us, false, &abort_code, NULL, NULL,
-					       NULL);
+			r = CO_SDOclientUpload(s->co, dt_us, false, &abort_code, NULL, NULL, NULL);
 		}
 		if (r == CO_SDO_RT_ok_communicationEnd) {
-			/* 成功：读事务要把数据从栈的缓冲里取出来 */
+			/* 读事务：把栈缓冲里的数据取出来 */
 			if (s->is_write == 0u) {
 				uint8_t data[4] = {0, 0, 0, 0};
 				size_t n = CO_SDOclientUploadBufRead(s->co, data, sizeof(data));
@@ -118,124 +209,24 @@ void sdo_client_io_step(struct sdo_client *s, uint32_t now_ms)
 					  ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
 				s->len = (uint8_t)n;
 			}
-			s->busy = 0u;
-			s->done = 1u;
-			s->status = 0;
-			s->code = 0u;
-			s->last_code = 0u;
-			pthread_cond_broadcast(&s->cv);
+			ok = 1;
 		} else if (r < 0) {
-			s->busy = 0u;
-			s->done = 1u;
-			s->status = -1;
-			s->code = (uint32_t)abort_code;
-			s->last_code = s->code;
-			pthread_cond_broadcast(&s->cv);
+			failed = 1;
 		}
 		/* r > 0：还在进行（waitingResponse 等），下一拍继续 */
 	}
 
+	/* ③ 唯一的收尾点：写结论并唤醒等待者 */
+	if (ok != 0 || failed != 0) {
+		s->pending = 0u;
+		s->busy = 0u;
+		s->done = 1u;
+		s->status = (ok != 0) ? 0 : -1;
+		s->last_code = (ok != 0) ? 0u : (uint32_t)abort_code;
+		pthread_cond_broadcast(&s->cv);
+	}
+
 	pthread_mutex_unlock(&s->lock);
-}
-
-/* ---------------- 服务线程侧（阻塞） ---------------- */
-
-static int od_wait(struct sdo_client *s, uint32_t timeout_ms)
-{
-	struct timespec dl;
-	struct timespec now;
-	int rc;
-
-	deadline_after(&dl, timeout_ms + SDO_CLIENT_WAIT_SLACK_MS);
-	/* 每一轮重新算剩余时间：abort 可能已经很晚了，不能再用固定的 dl */
-	for (;;) {
-		long ms;
-
-		if (s->done != 0u) {
-			break;
-		}
-		if (s->abort != 0u) {
-			/* 外部打断（安全动作）：这一笔作废，让 I/O 线程关掉事务 */
-			s->abort = 0u;
-			s->cancel = 1u;
-			s->pending = 0u;
-			s->done = 0u;
-			return -1;
-		}
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		ms = (long)(dl.tv_sec - now.tv_sec) * 1000L +
-		     (long)(dl.tv_nsec - now.tv_nsec) / 1000000L;
-		if (ms <= 0) {
-			s->cancel = 1u; /* 让 I/O 线程收尾，通道不占用 */
-			return -1;
-		}
-		if (pthread_cond_timedwait(&s->cv, &s->lock, &dl) == ETIMEDOUT) {
-			s->cancel = 1u;
-			return -1;
-		}
-	}
-	rc = s->status;
-	s->done = 0u;
-	return rc;
-}
-
-static int od_do(struct sdo_client *s, int is_write, uint16_t index, uint8_t sub, uint32_t value,
-		 uint8_t size, uint32_t *out, uint8_t *len, uint32_t timeout_ms)
-{
-	uint32_t txn = (timeout_ms == 0u) ? SDO_CLIENT_DEFAULT_TXN_MS : timeout_ms;
-	int rc;
-
-	pthread_mutex_lock(&s->lock);
-	if (s->co == NULL || s->pending != 0u || s->busy != 0u || s->done != 0u) {
-		pthread_mutex_unlock(&s->lock);
-		return -1; /* 通道忙：一笔没结束 */
-	}
-	s->is_write = (uint8_t)(is_write ? 1 : 0);
-	s->index = index;
-	s->sub = sub;
-	s->value = value;
-	s->size = size;
-	s->txn_ms = txn;
-	s->status = -1;
-	s->pending = 1u;
-
-	rc = od_wait(s, txn);
-	if (rc == 0 && out != NULL) {
-		*out = s->data;
-	}
-	if (rc == 0 && len != NULL) {
-		*len = s->len;
-	}
-	pthread_mutex_unlock(&s->lock);
-	return rc;
-}
-
-static int od_read(void *ctx, uint16_t index, uint8_t sub, uint32_t *value, uint8_t *len,
-		   uint32_t timeout_ms)
-{
-	return od_do((struct sdo_client *)ctx, 0, index, sub, 0u, 0u, value, len, timeout_ms);
-}
-
-static int od_write(void *ctx, uint16_t index, uint8_t sub, uint32_t value, uint8_t size,
-		    uint32_t timeout_ms)
-{
-	return od_do((struct sdo_client *)ctx, 1, index, sub, value, size, NULL, NULL, timeout_ms);
-}
-
-static uint32_t od_now_ms(void *ctx)
-{
-	struct timespec ts;
-
-	(void)ctx;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (uint32_t)((uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u);
-}
-
-static uint32_t od_last_error(void *ctx)
-{
-	struct sdo_client *s = ctx;
-
-	return s->last_code;
 }
 
 /* 任意线程：打断在途事务（等待方立刻返回，事务由 I/O 线程关掉） */
@@ -250,20 +241,7 @@ void sdo_client_abort(struct sdo_client *s)
 	pthread_mutex_unlock(&s->lock);
 }
 
-static void od_abort(void *ctx)
+const struct sdo_access *sdo_client_access(const struct sdo_client *s)
 {
-	sdo_client_abort((struct sdo_client *)ctx);
-}
-
-struct object_access sdo_client_iface(struct sdo_client *s)
-{
-	struct object_access a;
-
-	a.read = od_read;
-	a.write = od_write;
-	a.abort = od_abort;
-	a.now_ms = od_now_ms;
-	a.last_error = od_last_error;
-	a.ctx = s;
-	return a;
+	return (s == NULL) ? NULL : &s->access;
 }

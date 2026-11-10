@@ -1,12 +1,12 @@
 /*
  * 一个 CiA 402 从站的运行控制：请求投递、同步流程、结果和反馈。
- * 调用者提交请求，服务线程通过 object_access 执行；本层不认识 CAN 帧和业务状态机。
+ * 调用者提交请求，服务线程通过 sdo_access 执行；本层不认识 CAN 帧和业务状态机。
  */
 
 #ifndef CIA402_DEVICE_H
 #define CIA402_DEVICE_H
 
-#include <transport/object_access.h>
+#include <transport/sdo_access.h>
 
 #include <pthread.h>
 #include <stdint.h>
@@ -53,7 +53,7 @@ enum {
 
 struct cia402_device {
 	/* 装配后只读 */
-	const struct object_access *access;
+	const struct sdo_access *access;
 	uint8_t node_id;
 
 	/* 跨线程共享的请求、结果和反馈 */
@@ -81,7 +81,7 @@ struct cia402_device {
 	uint32_t mon_last_ms;
 };
 
-void cia402_device_init(struct cia402_device *d, const struct object_access *access, uint8_t node_id);
+void cia402_device_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id);
 
 /* 0 = 已受理；1 = 已有请求或已完成；-1 = 参数或装配错误。 */
 int cia402_device_request_config(struct cia402_device *d);

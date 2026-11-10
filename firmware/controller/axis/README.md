@@ -13,7 +13,7 @@
 ## 边界
 
 ```text
-statemachine → axis → cia402 → object_access
+statemachine → axis → cia402 → sdo_access
 ```
 
 轴层不解释控制字、状态字或对象号，不直接访问 SDO/CAN，也不创建线程。多轴函数只是逐个转发请求；实际服务调度由宿主的调用方式决定。

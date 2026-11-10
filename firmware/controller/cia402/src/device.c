@@ -20,7 +20,7 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms);
 
 /* ---- 装配 ---- */
 
-void cia402_device_init(struct cia402_device *d, const struct object_access *access, uint8_t node_id)
+void cia402_device_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
 	pthread_mutex_init(&d->lock, NULL);
@@ -269,7 +269,8 @@ static void monitor_step(struct cia402_device *d, uint32_t now_ms)
 		return; /* 都读到过了：按间隔刷新 */
 	}
 	d->mon_last_ms = now_ms;
-	if (d->access->read(d->access->ctx, kIndex[slot], 0u, &v, &len, CIA402_DEVICE_MON_TIMEOUT_MS) != 0) {
+	if (d->access->xfer(d->access->ctx, SDO_DIR_READ, kIndex[slot], 0u, 0u, 0u, &v, &len,
+			    CIA402_DEVICE_MON_TIMEOUT_MS) != 0) {
 		d->mon_slot = (uint8_t)((slot + 1u) % 4u); /* 读失败保留旧值 */
 		return;
 	}

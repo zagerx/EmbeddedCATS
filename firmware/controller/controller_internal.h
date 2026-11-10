@@ -15,7 +15,6 @@
 #include <statemachine/statemachine.h>
 #include <axis/axis.h>
 #include <cia402/device.h>
-#include <transport/object_access.h>
 #include <transport/sdo_client.h>
 
 #include <pthread.h>
@@ -33,7 +32,6 @@ struct cats_control {
 	struct master *master; /* 主站层：一条总线 + 登记的从站；只借用，不归本层拥有 */
 	struct cats_axis axes[CATS_MAX_AXES];
 	struct sdo_client sdo[CATS_MAX_AXES]; /* 每轴一条 SDO 通道（服务线程 ↔ I/O 线程） */
-	struct object_access access[CATS_MAX_AXES]; /* 每轴的对象访问接口，设备层只保存指针 */
 	uint8_t axis_count; /* 实际装配了几条轴（= 主站登记数，上限 MAX_AXES） */
 
 	/* ---- 业务状态机（内部对象，只由控制线程调用） ---- */
