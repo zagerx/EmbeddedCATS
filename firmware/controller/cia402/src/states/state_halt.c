@@ -19,7 +19,7 @@ sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, d->xfer.cw_ok | CIA402_CW_HALT, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, d->sdo.cw_ok | CIA402_CW_HALT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -87,7 +87,7 @@ sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, d->xfer.cw_ok & (uint16_t)~CIA402_CW_HALT, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, d->sdo.cw_ok & (uint16_t)~CIA402_CW_HALT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 

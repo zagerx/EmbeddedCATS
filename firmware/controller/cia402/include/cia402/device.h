@@ -108,33 +108,8 @@ enum cia402_cancel_reason {
 	CIA402_CANCEL_TIMEOUT  /* 单笔事务超时：报失败 */
 };
 
-/* 请求槽：跨线程，lock 保护 */
-struct cia402_slot {
-	pthread_mutex_t lock;
-	struct cia402_request req; /* 待处理 */
-	uint8_t has_req;
-	struct cia402_request running; /* 在执行 */
-	uint8_t busy;                  /* running 有效 */
-	uint8_t cancel;                /* enum cia402_cancel_reason */
-};
-
-/* 事实：poll 整块拷出去 */
-struct cia402_facts {
-	enum cia402_phase phase;
-	enum cia402_result result;
-	enum cia402_fail fail;
-	uint32_t abort_code;
-	uint8_t configured;
-	uint8_t enabled;
-	uint8_t failed;
-	uint16_t statusword;
-	int32_t position;
-	int32_t velocity;
-	uint16_t error_code;
-};
-
-/* 传输上下文：一笔事务的账，仅服务线程使用 */
-struct cia402_xfer {
+/* 当前这笔对象事务的账，仅服务线程使用 */
+struct cia402_sdo {
 	uint8_t pending;          /* 有在途事务 */
 	uint8_t rejected;         /* 上一笔发起被拒：下一拍补一个失败事件 */
 	struct sdo_result result; /* 最近一笔结果 */
@@ -160,7 +135,7 @@ struct cia402_job {
 };
 
 /* 反馈轮转：仅服务线程使用 */
-struct cia402_mon {
+struct cia402_monitor {
 	uint8_t slot;
 	uint32_t last_ms;
 };
@@ -170,17 +145,29 @@ struct cia402_device {
 	const struct sdo_access *access;
 	uint8_t node_id;
 
-	/* 状态机：当前状态由 hsm 维护 */
-	struct sm_hsm hsm;
+	/* ==== 跨线程：lock 保护 mailbox 与 outbox 的全部字段 ==== */
+	pthread_mutex_t lock;
 
-	/* 服务线程每拍写入，用于算期限 */
-	uint32_t now_ms;
+	/* 控制线程 → 服务线程 */
+	struct {
+		struct cia402_request req; /* 待办的便条 */
+		uint8_t pending;           /* 有待办 */
+		uint8_t executing; /* 服务线程正拿着上一张；控制线程读它判 BUSY */
+		uint8_t cancel;    /* enum cia402_cancel_reason */
+	} mailbox;
 
-	struct cia402_slot slot;   /* 跨线程：请求槽 */
-	struct cia402_facts facts; /* 跨线程：事实快照（slot.lock 保护写）*/
-	struct cia402_xfer xfer;   /* 仅服务线程 */
-	struct cia402_job job;     /* 仅服务线程 */
-	struct cia402_mon mon;     /* 仅服务线程 */
+	/* 服务线程 → 控制线程 */
+	struct {
+		struct cia402_status status; /* 每拍整块刷新 */
+	} outbox;
+
+	/* ==== 以下仅服务线程访问，不加锁 ==== */
+	struct sm_hsm hsm;             /* 状态机：当前状态由 hsm 维护 */
+	uint32_t now_ms;               /* 本拍时刻，用来算期限 */
+	struct cia402_request running; /* 正在执行的请求 */
+	struct cia402_sdo sdo;         /* 当前这笔对象事务 */
+	struct cia402_job job;         /* 当前流程 */
+	struct cia402_monitor monitor; /* 反馈轮转 */
 };
 
 /* ---- 三个动词 ---- */

@@ -30,13 +30,13 @@ static void pend_failure(struct cia402_device *d);
  */
 void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	d->xfer.deadline = d->now_ms + timeout_ms;
-	d->xfer.cw_next_valid = 0u;
+	d->sdo.deadline = d->now_ms + timeout_ms;
+	d->sdo.cw_next_valid = 0u;
 	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
 		pend_failure(d);
 		return;
 	}
-	d->xfer.pending = 1u;
+	d->sdo.pending = 1u;
 }
 
 /**
@@ -53,20 +53,20 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms)
 {
-	d->xfer.deadline = d->now_ms + timeout_ms;
+	d->sdo.deadline = d->now_ms + timeout_ms;
 	if (index == CIA402_OD_CONTROLWORD) {
-		d->xfer.cw_next = (uint16_t)value;
-		d->xfer.cw_next_valid = 1u;
+		d->sdo.cw_next = (uint16_t)value;
+		d->sdo.cw_next_valid = 1u;
 	} else {
-		d->xfer.cw_next_valid = 0u;
+		d->sdo.cw_next_valid = 0u;
 	}
 	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms) !=
 	    0) {
-		d->xfer.cw_next_valid = 0u;
+		d->sdo.cw_next_valid = 0u;
 		pend_failure(d);
 		return;
 	}
-	d->xfer.pending = 1u;
+	d->sdo.pending = 1u;
 }
 
 /**
@@ -79,36 +79,36 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
  */
 void dev_finish(struct cia402_device *d, enum cia402_result result, enum cia402_fail fail)
 {
-	pthread_mutex_lock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
 	if (result == CIA402_RESULT_FAILED) {
-		d->facts.failed = 1u;
+		d->outbox.status.failed = 1u;
 	}
-	switch (d->slot.running.kind) {
+	switch (d->running.kind) {
 	case CIA402_REQ_CONFIG:
-		d->facts.configured = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.status.configured = (uint8_t)(result == CIA402_RESULT_DONE);
 		break;
 	case CIA402_REQ_ENABLE:
-		d->facts.enabled = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.status.enabled = (uint8_t)(result == CIA402_RESULT_DONE);
 		break;
 	case CIA402_REQ_DISABLE:
 		/* 只有确认断开才改；失败时保持原值，免得上层误以为已经断了 */
 		if (result == CIA402_RESULT_DONE) {
-			d->facts.enabled = 0u;
+			d->outbox.status.enabled = 0u;
 		}
 		break;
 	case CIA402_REQ_QUICK_STOP:
 		if (result == CIA402_RESULT_DONE) {
-			d->facts.enabled = 0u;
+			d->outbox.status.enabled = 0u;
 		}
 		break;
 	default:
 		break;
 	}
-	d->facts.result = result;
-	d->facts.fail = fail;
-	d->slot.busy = 0u;
-	pthread_mutex_unlock(&d->slot.lock);
-	d->xfer.cw_next_valid = 0u;
+	d->outbox.status.result = result;
+	d->outbox.status.fail = fail;
+	d->mailbox.executing = 0u;
+	pthread_mutex_unlock(&d->lock);
+	d->sdo.cw_next_valid = 0u;
 }
 
 /**
@@ -125,9 +125,9 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 	} else if (result->abort_code == 0u) {
 		fail = CIA402_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
 	}
-	pthread_mutex_lock(&d->slot.lock);
-	d->facts.abort_code = (result != NULL) ? result->abort_code : 0u;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	d->outbox.status.abort_code = (result != NULL) ? result->abort_code : 0u;
+	pthread_mutex_unlock(&d->lock);
 	dev_finish(d, CIA402_RESULT_FAILED, fail);
 }
 
@@ -138,9 +138,9 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
  */
 void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
 {
-	pthread_mutex_lock(&d->slot.lock);
-	d->facts.statusword = statusword;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	d->outbox.status.statusword = statusword;
+	pthread_mutex_unlock(&d->lock);
 }
 
 /**
@@ -148,11 +148,11 @@ void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
  * @d: 设备对象
  *
  * Return: 当前流程类别；没有流程时返回 CIA402_REQ_CONFIG（调用方应先用
- * slot.busy 判断）。
+ * mailbox.executing 判断）。
  */
 enum cia402_kind dev_running_kind(const struct cia402_device *d)
 {
-	return d->slot.running.kind;
+	return d->running.kind;
 }
 
 /**
@@ -183,8 +183,8 @@ enum cia402_phase dev_phase_of(enum cia402_kind kind)
 
 static void pend_failure(struct cia402_device *d)
 {
-	memset(&d->xfer.result, 0, sizeof(d->xfer.result));
-	d->xfer.result.status = -1;
-	d->xfer.rejected = 1u;
-	d->xfer.cw_next_valid = 0u;
+	memset(&d->sdo.result, 0, sizeof(d->sdo.result));
+	d->sdo.result.status = -1;
+	d->sdo.rejected = 1u;
+	d->sdo.cw_next_valid = 0u;
 }

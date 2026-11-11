@@ -42,7 +42,7 @@ static void snapshot(struct cia402_device *d, struct cia402_status *out);
 void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
-	pthread_mutex_init(&d->slot.lock, NULL);
+	pthread_mutex_init(&d->lock, NULL);
 	d->access = access;
 	d->node_id = node_id;
 	sm_hsm_init(&d->hsm, &device_initial);
@@ -94,42 +94,42 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 	d->now_ms = now_ms;
 
 	/* 取消值在一个短临界区里取走：后面全用副本，锁内不做 I/O 也不分发 */
-	pthread_mutex_lock(&d->slot.lock);
-	cancel = d->slot.cancel;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	cancel = d->mailbox.cancel;
+	pthread_mutex_unlock(&d->lock);
 
 	/* 抢占：先打断在途事务，让 take_result 尽快给出结论 */
-	if (cancel != CIA402_CANCEL_NONE && d->xfer.pending != 0u) {
+	if (cancel != CIA402_CANCEL_NONE && d->sdo.pending != 0u) {
 		d->access->abort(d->access->ctx);
 	}
 
 	/* 上一拍发起的动作被拒：补一个事件，让状态机照常往前走 */
-	if (d->xfer.rejected != 0u) {
-		d->xfer.rejected = 0u;
+	if (d->sdo.rejected != 0u) {
+		d->sdo.rejected = 0u;
 		if (cancel != CIA402_CANCEL_NONE) {
 			/* 已被抢占：旧流程的结论作废，不能再发完成事件，
 			 * 否则上层会把这次旧失败当成新一轮停车的失败。 */
 			set_cancel(d, cancel);
 			dispatch_cancel(d, cancel, NULL);
 		} else {
-			result = d->xfer.result;
+			result = d->sdo.result;
 			dispatch_done(d, &result);
 		}
 		goto done;
 	}
 
-	if (d->xfer.pending != 0u) {
+	if (d->sdo.pending != 0u) {
 		if (d->access->take_result(d->access->ctx, &result) != 0) {
 			/* 结果还没到：只判单笔事务的期限 */
 			if (cancel == CIA402_CANCEL_NONE &&
-			    (int32_t)(now_ms - d->xfer.deadline) >= 0) {
+			    (int32_t)(now_ms - d->sdo.deadline) >= 0) {
 				set_cancel(d, CIA402_CANCEL_TIMEOUT);
 				d->access->abort(d->access->ctx);
 			}
 			dispatch_tick(d);
 			goto done;
 		}
-		d->xfer.pending = 0u;
+		d->sdo.pending = 0u;
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result); /* 结论作废，abort 码留着 */
 		} else {
@@ -163,28 +163,28 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
 	int rc = CIA402_ACCEPTED;
 
-	pthread_mutex_lock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
 
 	/* 状态前提：未配置不能使能，未使能不能运动 */
-	if (req->kind == CIA402_REQ_ENABLE && d->facts.configured == 0u) {
+	if (req->kind == CIA402_REQ_ENABLE && d->outbox.status.configured == 0u) {
 		rc = CIA402_REFUSED;
-	} else if (req->kind == CIA402_REQ_MOVE && d->facts.enabled == 0u) {
+	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.status.enabled == 0u) {
 		rc = CIA402_REFUSED;
-	} else if (!urgent && (d->slot.busy != 0u || d->slot.has_req != 0u)) {
+	} else if (!urgent && (d->mailbox.executing != 0u || d->mailbox.pending != 0u)) {
 		rc = CIA402_BUSY; /* 普通请求排队：忙就拒，由调用方重试 */
 	}
 
 	if (rc == CIA402_ACCEPTED) {
-		d->slot.req = *req;
-		d->slot.has_req = 1u;
+		d->mailbox.req = *req;
+		d->mailbox.pending = 1u;
 		/* 新流程开始：上一条的结论作废，免得被当成这一条的结论读走 */
-		d->facts.result = CIA402_RESULT_NONE;
-		d->facts.fail = CIA402_FAIL_NONE;
+		d->outbox.status.result = CIA402_RESULT_NONE;
+		d->outbox.status.fail = CIA402_FAIL_NONE;
 		if (urgent) {
-			d->slot.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
+			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 		}
 	}
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_unlock(&d->lock);
 	return rc;
 }
 
@@ -192,13 +192,13 @@ static int pop_request(struct cia402_device *d, struct cia402_request *out)
 {
 	int has;
 
-	pthread_mutex_lock(&d->slot.lock);
-	has = d->slot.has_req;
+	pthread_mutex_lock(&d->lock);
+	has = d->mailbox.pending;
 	if (has != 0) {
-		*out = d->slot.req;
-		d->slot.has_req = 0u;
+		*out = d->mailbox.req;
+		d->mailbox.pending = 0u;
 	}
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_unlock(&d->lock);
 	return has;
 }
 
@@ -218,11 +218,11 @@ static void dispatch_done(struct cia402_device *d, const struct sdo_result *resu
 	struct dev_done_evt evt;
 
 	/* 控制字镜像只在事务成功后落地：所有写 6040 的状态共用这一处 */
-	if (d->xfer.cw_next_valid != 0u) {
+	if (d->sdo.cw_next_valid != 0u) {
 		if (result->status == 0) {
-			d->xfer.cw_ok = d->xfer.cw_next;
+			d->sdo.cw_ok = d->sdo.cw_next;
 		}
-		d->xfer.cw_next_valid = 0u;
+		d->sdo.cw_next_valid = 0u;
 	}
 	evt.super.sig = SIG_DEV_DONE;
 	evt.result = *result;
@@ -235,13 +235,13 @@ static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 	struct dev_cancel_evt evt;
 
 	if (result != NULL) {
-		d->xfer.result = *result; /* 留 abort 码给 st_idle */
+		d->sdo.result = *result; /* 留 abort 码给 st_idle */
 	} else {
-		memset(&d->xfer.result, 0, sizeof(d->xfer.result));
+		memset(&d->sdo.result, 0, sizeof(d->sdo.result));
 	}
-	pthread_mutex_lock(&d->slot.lock);
-	d->slot.cancel = CIA402_CANCEL_NONE;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	d->mailbox.cancel = CIA402_CANCEL_NONE;
+	pthread_mutex_unlock(&d->lock);
 	d->job.cancel = cancel;
 	evt.super.sig = SIG_DEV_CANCEL;
 	evt.reason = cancel;
@@ -257,24 +257,14 @@ static void dispatch_tick(struct cia402_device *d)
 
 static void set_cancel(struct cia402_device *d, uint8_t reason)
 {
-	pthread_mutex_lock(&d->slot.lock);
-	d->slot.cancel = reason;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	d->mailbox.cancel = reason;
+	pthread_mutex_unlock(&d->lock);
 }
 
 static void snapshot(struct cia402_device *d, struct cia402_status *out)
 {
-	pthread_mutex_lock(&d->slot.lock);
-	out->phase = d->facts.phase;
-	out->result = d->facts.result;
-	out->fail = d->facts.fail;
-	out->abort_code = d->facts.abort_code;
-	out->configured = d->facts.configured;
-	out->enabled = d->facts.enabled;
-	out->failed = d->facts.failed;
-	out->statusword = d->facts.statusword;
-	out->position = d->facts.position;
-	out->velocity = d->facts.velocity;
-	out->error_code = d->facts.error_code;
-	pthread_mutex_unlock(&d->slot.lock);
+	pthread_mutex_lock(&d->lock);
+	*out = d->outbox.status; /* 内部就是同一类型，整块抄走 */
+	pthread_mutex_unlock(&d->lock);
 }

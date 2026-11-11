@@ -205,7 +205,7 @@ static void test_request_rules(void)
 	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
 
 	/* 未使能不能运动 */
-	f.dev.facts.configured = 1u;
+	f.dev.outbox.status.configured = 1u;
 	req.kind = CIA402_REQ_MOVE;
 	req.pp.velocity = 10;
 	req.pp.accel = 20;
@@ -228,7 +228,7 @@ static void test_enable(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.configured = 1u;
+	f.dev.outbox.status.configured = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll(&f);
@@ -269,8 +269,8 @@ static void test_pp(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.enabled = 1u;
-	f.dev.xfer.cw_ok = CIA402_CW_ENABLE_OP;
+	f.dev.outbox.status.enabled = 1u;
+	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	fx_poll(&f);
@@ -300,7 +300,7 @@ static void test_pp(void)
 	fx_poll(&f);
 
 	CHECK(f.st.result == CIA402_RESULT_DONE);
-	CHECK(f.dev.xfer.cw_ok == CIA402_CW_ENABLE_OP);
+	CHECK(f.dev.sdo.cw_ok == CIA402_CW_ENABLE_OP);
 }
 
 /* Quick Stop 抢占在途 PP */
@@ -309,7 +309,7 @@ static void test_quick_stop_preempts(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.enabled = 1u;
+	f.dev.outbox.status.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -346,7 +346,7 @@ static void test_quick_stop_timeout_chain(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.enabled = 1u;
+	f.dev.outbox.status.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -387,7 +387,7 @@ static void test_start_rejected(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.enabled = 1u;
+	f.dev.outbox.status.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	f.fake.started = 1u; /* 让 fake_start 直接拒绝 */
@@ -405,8 +405,8 @@ static void test_cancel_beats_pending_failure(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.enabled = 1u;
-	f.dev.xfer.cw_ok = CIA402_CW_ENABLE_OP;
+	f.dev.outbox.status.enabled = 1u;
+	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	f.fake.started = 1u; /* 第一笔写被拒：rejected 置位 */
@@ -432,7 +432,7 @@ static void test_timeout(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.facts.configured = 1u;
+	f.dev.outbox.status.configured = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
