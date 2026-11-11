@@ -20,7 +20,7 @@
 /* 本层全部状态都挂在 sm_top 下，未处理事件直接上抛内核顶层 */
 #define DEV_IGNORE() return SM_SUPER(&sm_top)
 
-/* SIG_DEV_DONE 事件里的传输结果 */
-#define DEV_DONE_EVT(e_) (&SM_EVT_CAST(struct dev_done_evt, (e_))->result)
+/* CIA402_SIG_SDO_DONE 事件里的传输结果 */
+#define DEV_SDO_RESULT(e_) (&SM_EVT_CAST(struct sdo_done_evt, (e_))->result)
 
 #endif /* CIA402_STATES_H */

@@ -23,12 +23,12 @@ sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e)
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
-		d->job.deadline = d->now_ms + CIA402_DEVICE_HALT_TIMEOUT_MS;
+		d->operation.deadline = d->now_ms + CIA402_DEVICE_HALT_TIMEOUT_MS;
 		return SM_TRAN(&st_halt_read);
 
 	default:
@@ -52,8 +52,8 @@ sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -64,7 +64,7 @@ sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_halt_clear);
 		}
 		if (cia402_parse((uint16_t)r->value) == CIA402_FAULT ||
-		    (int32_t)(d->now_ms - d->job.deadline) >= 0) {
+		    (int32_t)(d->now_ms - d->operation.deadline) >= 0) {
 			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
 		}
@@ -91,9 +91,9 @@ sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e)
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 		} else {
 			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 		}

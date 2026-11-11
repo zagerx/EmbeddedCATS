@@ -53,6 +53,7 @@ static void test_quick_stop_timeout_chain(void);
 static void test_start_rejected(void);
 static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
+static void test_feedback(void);
 
 static int failures;
 
@@ -80,10 +81,9 @@ int cia402_device_tests(void)
 	test_start_rejected();
 	test_cancel_beats_pending_failure();
 	test_timeout();
+	test_feedback();
 	return failures;
 }
-
-/* ---- 假传输层 ---- */
 
 static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		      uint8_t size, uint32_t timeout_ms)
@@ -123,8 +123,6 @@ static void fake_abort(void *ctx)
 
 	fake->aborts++;
 }
-
-/* ---- 测试脚手架 ---- */
 
 static void fx_init(struct fx *f)
 {
@@ -181,8 +179,6 @@ static void expect_started(struct fx *f, uint8_t dir, uint16_t index, uint32_t v
 	}
 }
 
-/* ---- 用例 ---- */
-
 /* 投递规则：不合法、不允许、忙 */
 static void test_request_rules(void)
 {
@@ -205,7 +201,7 @@ static void test_request_rules(void)
 	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
 
 	/* 未使能不能运动 */
-	f.dev.outbox.status.configured = 1u;
+	f.dev.outbox.configured = 1u;
 	req.kind = CIA402_REQ_MOVE;
 	req.pp.velocity = 10;
 	req.pp.accel = 20;
@@ -228,7 +224,7 @@ static void test_enable(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.configured = 1u;
+	f.dev.outbox.configured = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll(&f);
@@ -269,7 +265,7 @@ static void test_pp(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.enabled = 1u;
+	f.dev.outbox.enabled = 1u;
 	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
@@ -309,7 +305,7 @@ static void test_quick_stop_preempts(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.enabled = 1u;
+	f.dev.outbox.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -346,7 +342,7 @@ static void test_quick_stop_timeout_chain(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.enabled = 1u;
+	f.dev.outbox.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -362,19 +358,19 @@ static void test_quick_stop_timeout_chain(void)
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
-	/* ① qstop 写超时：仍必须去读状态字 */
+	/* qstop 写超时：仍必须去读状态字 */
 	fx_poll_at(&f, f.t + 300u);
 	fx_complete(&f, -1, 0u);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
-	/* ② 读状态超时：仍必须写断使能 */
+	/* 读状态超时：仍必须写断使能 */
 	fx_poll_at(&f, f.t + 300u);
 	fx_complete(&f, -1, 0u);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
 
-	/* ③ 最后一步成功才收尾 */
+	/* 最后一步成功才收尾 */
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
 	CHECK(f.st.enabled == 0u);
@@ -387,7 +383,7 @@ static void test_start_rejected(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.enabled = 1u;
+	f.dev.outbox.enabled = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	f.fake.started = 1u; /* 让 fake_start 直接拒绝 */
@@ -405,7 +401,7 @@ static void test_cancel_beats_pending_failure(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.enabled = 1u;
+	f.dev.outbox.enabled = 1u;
 	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
@@ -432,7 +428,7 @@ static void test_timeout(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.status.configured = 1u;
+	f.dev.outbox.configured = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
@@ -444,4 +440,36 @@ static void test_timeout(void)
 	CHECK(f.st.result == CIA402_RESULT_FAILED);
 	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
+}
+
+static void test_feedback(void)
+{
+	struct fx f;
+	struct cia402_feedback feedback = {0};
+
+	fx_init(&f);
+	fx_poll_at(&f, 50u);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	fx_complete(&f, 0, 0x1234u);
+	fx_poll(&f);
+	cia402_get_feedback(&f.dev, &feedback);
+	CHECK(feedback.statusword == 0x1234u);
+
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_POSITION_ACTUAL, 0u);
+	fx_complete(&f, 0, 100u);
+	fx_poll(&f);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_VELOCITY_ACTUAL, 0u);
+	fx_complete(&f, 0, (uint32_t)-20);
+	fx_poll(&f);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_ERROR_CODE, 0u);
+	fx_complete(&f, 0, 0x0055u);
+	fx_poll(&f);
+
+	cia402_get_feedback(&f.dev, &feedback);
+	CHECK(feedback.position == 100);
+	CHECK(feedback.velocity == -20);
+	CHECK(feedback.error_code == 0x0055u);
 }

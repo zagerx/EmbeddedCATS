@@ -33,24 +33,24 @@
 
 /* ---- 业务事件 ---- */
 
-enum dev_sig {
-	SIG_DEV_START = SM_SIG_USER, /* 请求槽里有新请求，载荷 req */
-	SIG_DEV_DONE,                /* 一笔事务完成，载荷 result */
-	SIG_DEV_CANCEL,              /* 抢占/超时/取消，载荷 reason */
-	SIG_DEV_TICK                 /* 每拍一次，空闲时用于反馈节奏 */
+enum cia402_sig {
+	CIA402_SIG_REQUEST = SM_SIG_USER, /* 请求槽里有新请求，载荷 req */
+	CIA402_SIG_SDO_DONE,                /* 一笔事务完成，载荷 result */
+	CIA402_SIG_CANCEL,              /* 抢占/超时/取消，载荷 reason */
+	CIA402_SIG_TICK                 /* 每拍一次，空闲时用于反馈节奏 */
 };
 
-struct dev_start_evt {
+struct request_evt {
 	struct sm_event super;
 	struct cia402_request req;
 };
 
-struct dev_done_evt {
+struct sdo_done_evt {
 	struct sm_event super;
 	struct sdo_result result;
 };
 
-struct dev_cancel_evt {
+struct cancel_evt {
 	struct sm_event super;
 	uint8_t reason; /* enum cia402_cancel_reason */
 };

@@ -23,8 +23,8 @@
 
 static int admit(struct cia402_device *d, const struct cia402_request *req);
 static int pop_request(struct cia402_device *d, struct cia402_request *out);
-static void dispatch_start(struct cia402_device *d, const struct cia402_request *req);
-static void dispatch_done(struct cia402_device *d, const struct sdo_result *result);
+static void dispatch_request(struct cia402_device *d, const struct cia402_request *req);
+static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *result);
 static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 			    const struct sdo_result *result);
 static void dispatch_tick(struct cia402_device *d);
@@ -113,7 +113,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 			dispatch_cancel(d, cancel, NULL);
 		} else {
 			result = d->sdo.result;
-			dispatch_done(d, &result);
+			dispatch_sdo_done(d, &result);
 		}
 		goto done;
 	}
@@ -133,7 +133,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result); /* 结论作废，abort 码留着 */
 		} else {
-			dispatch_done(d, &result);
+			dispatch_sdo_done(d, &result);
 		}
 		goto done;
 	}
@@ -144,7 +144,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 	}
 
 	if (pop_request(d, &req) != 0) {
-		dispatch_start(d, &req);
+		dispatch_request(d, &req);
 		goto done;
 	}
 
@@ -156,7 +156,22 @@ done:
 	}
 }
 
-/* ---- 请求投递 ---- */
+/**
+ * cia402_get_feedback - 读取最新原始反馈
+ * @d: 设备对象；NULL 安全
+ * @out: 输出反馈；NULL 时直接返回
+ *
+ * 任意线程均可调用，不触发对象事务。
+ */
+void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out)
+{
+	if (d == NULL || out == NULL) {
+		return;
+	}
+	pthread_mutex_lock((pthread_mutex_t *)&d->lock);
+	*out = d->feedback;
+	pthread_mutex_unlock((pthread_mutex_t *)&d->lock);
+}
 
 static int admit(struct cia402_device *d, const struct cia402_request *req)
 {
@@ -166,9 +181,9 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	pthread_mutex_lock(&d->lock);
 
 	/* 状态前提：未配置不能使能，未使能不能运动 */
-	if (req->kind == CIA402_REQ_ENABLE && d->outbox.status.configured == 0u) {
+	if (req->kind == CIA402_REQ_ENABLE && d->outbox.configured == 0u) {
 		rc = CIA402_REFUSED;
-	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.status.enabled == 0u) {
+	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.enabled == 0u) {
 		rc = CIA402_REFUSED;
 	} else if (!urgent && (d->mailbox.executing != 0u || d->mailbox.pending != 0u)) {
 		rc = CIA402_BUSY; /* 普通请求排队：忙就拒，由调用方重试 */
@@ -178,8 +193,8 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 		d->mailbox.req = *req;
 		d->mailbox.pending = 1u;
 		/* 新流程开始：上一条的结论作废，免得被当成这一条的结论读走 */
-		d->outbox.status.result = CIA402_RESULT_NONE;
-		d->outbox.status.fail = CIA402_FAIL_NONE;
+		d->outbox.result = CIA402_RESULT_NONE;
+		d->outbox.fail = CIA402_FAIL_NONE;
 		if (urgent) {
 			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 		}
@@ -202,20 +217,18 @@ static int pop_request(struct cia402_device *d, struct cia402_request *out)
 	return has;
 }
 
-/* ---- 事件构造与分发 ---- */
-
-static void dispatch_start(struct cia402_device *d, const struct cia402_request *req)
+static void dispatch_request(struct cia402_device *d, const struct cia402_request *req)
 {
-	struct dev_start_evt evt;
+	struct request_evt evt;
 
-	evt.super.sig = SIG_DEV_START;
+	evt.super.sig = CIA402_SIG_REQUEST;
 	evt.req = *req;
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
 
-static void dispatch_done(struct cia402_device *d, const struct sdo_result *result)
+static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *result)
 {
-	struct dev_done_evt evt;
+	struct sdo_done_evt evt;
 
 	/* 控制字镜像只在事务成功后落地：所有写 6040 的状态共用这一处 */
 	if (d->sdo.cw_next_valid != 0u) {
@@ -224,7 +237,7 @@ static void dispatch_done(struct cia402_device *d, const struct sdo_result *resu
 		}
 		d->sdo.cw_next_valid = 0u;
 	}
-	evt.super.sig = SIG_DEV_DONE;
+	evt.super.sig = CIA402_SIG_SDO_DONE;
 	evt.result = *result;
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
@@ -232,7 +245,7 @@ static void dispatch_done(struct cia402_device *d, const struct sdo_result *resu
 static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 			    const struct sdo_result *result)
 {
-	struct dev_cancel_evt evt;
+	struct cancel_evt evt;
 
 	if (result != NULL) {
 		d->sdo.result = *result; /* 留 abort 码给 st_idle */
@@ -242,15 +255,15 @@ static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 	pthread_mutex_lock(&d->lock);
 	d->mailbox.cancel = CIA402_CANCEL_NONE;
 	pthread_mutex_unlock(&d->lock);
-	d->job.cancel = cancel;
-	evt.super.sig = SIG_DEV_CANCEL;
+	d->operation.cancel = cancel;
+	evt.super.sig = CIA402_SIG_CANCEL;
 	evt.reason = cancel;
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
 
 static void dispatch_tick(struct cia402_device *d)
 {
-	static const struct sm_event evt_tick = {SIG_DEV_TICK};
+	static const struct sm_event evt_tick = {CIA402_SIG_TICK};
 
 	sm_hsm_dispatch(&d->hsm, &evt_tick);
 }
@@ -265,6 +278,6 @@ static void set_cancel(struct cia402_device *d, uint8_t reason)
 static void snapshot(struct cia402_device *d, struct cia402_status *out)
 {
 	pthread_mutex_lock(&d->lock);
-	*out = d->outbox.status; /* 内部就是同一类型，整块抄走 */
+	*out = d->outbox; /* 内部就是同一类型，整块抄走 */
 	pthread_mutex_unlock(&d->lock);
 }

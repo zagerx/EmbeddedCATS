@@ -35,8 +35,8 @@ sm_ret_t st_enable_read_pds(struct sm_hsm *const me, const struct sm_event *cons
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -66,9 +66,9 @@ sm_ret_t st_enable_reset_low(struct sm_hsm *const me, const struct sm_event *con
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_enable_reset_high);
@@ -93,9 +93,9 @@ sm_ret_t st_enable_reset_high(struct sm_hsm *const me, const struct sm_event *co
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
 		arm_wait(d, CIA402_DEVICE_STEP_TIMEOUT_MS * 2u); /* 复位退出 FAULT 稍慢 */
@@ -122,8 +122,8 @@ sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *co
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 		enum cia402_pds_state pds;
 
 		if (r->status != 0) {
@@ -135,7 +135,7 @@ sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *co
 		if (pds != CIA402_FAULT) {
 			return SM_TRAN(route_from(d, pds));
 		}
-		if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
+		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
 			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_DRIVER); /* 一直是 FAULT：复位无效 */
 			return SM_TRAN(&st_idle);
 		}
@@ -162,9 +162,9 @@ sm_ret_t st_enable_write_shutdown(struct sm_hsm *const me, const struct sm_event
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
 		arm_wait(d, CIA402_DEVICE_STEP_TIMEOUT_MS);
@@ -190,8 +190,8 @@ sm_ret_t st_enable_read_ready(struct sm_hsm *const me, const struct sm_event *co
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -221,9 +221,9 @@ sm_ret_t st_enable_write_switch_on(struct sm_hsm *const me, const struct sm_even
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
 		arm_wait(d, CIA402_DEVICE_STEP_TIMEOUT_MS);
@@ -249,8 +249,8 @@ sm_ret_t st_enable_read_switched_on(struct sm_hsm *const me, const struct sm_eve
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -281,9 +281,9 @@ sm_ret_t st_enable_write_enable_op(struct sm_hsm *const me, const struct sm_even
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 			return SM_TRAN(&st_idle);
 		}
 		arm_wait(d, CIA402_DEVICE_STEP_TIMEOUT_MS);
@@ -311,8 +311,8 @@ sm_ret_t st_enable_read_enabled(struct sm_hsm *const me, const struct sm_event *
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -364,7 +364,7 @@ static sm_state_t wait_step(struct cia402_device *d, uint16_t sw, enum cia402_pd
 	if (pds == CIA402_FAULT) {
 		return &st_enable_reset_low; /* 中途报故障：转复位链，不判失败 */
 	}
-	if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
+	if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
 		dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_TIMEOUT);
 		return &st_idle;
 	}
@@ -373,5 +373,5 @@ static sm_state_t wait_step(struct cia402_device *d, uint16_t sw, enum cia402_pd
 
 static void arm_wait(struct cia402_device *d, uint32_t timeout_ms)
 {
-	d->job.deadline = d->now_ms + timeout_ms;
+	d->operation.deadline = d->now_ms + timeout_ms;
 }

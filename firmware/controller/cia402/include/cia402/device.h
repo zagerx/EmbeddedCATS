@@ -1,10 +1,11 @@
 /*
  * cia402/device.h — 一个 CiA 402 从站的运行控制
  *
- * 对外只有三个动词：
- *   cia402_init()     装配
- *   cia402_request()  投递一条请求，立即回答"收不收"
- *   cia402_poll()     推进一拍，同时交出这一刻的事实
+ * 对外接口：
+ *   cia402_init()         装配
+ *   cia402_request()      投递一条请求，立即回答"收不收"
+ *   cia402_poll()         推进一拍，同时交出流程状态
+ *   cia402_get_feedback() 读取最新原始反馈
  *
  * 本层不做"等待"：流程是异步推进的，"成没成功"从 poll 的
  * struct cia402_status 里读出来。想同步等待的调用方自己轮询 poll。
@@ -84,6 +85,14 @@ enum cia402_fail {
 	CIA402_FAIL_CHECK    /* 回读值不符（例如模式没设进去）*/
 };
 
+/* 驱动器原始反馈，仅作显示与诊断，不用来判断流程成败 */
+struct cia402_feedback {
+	uint16_t statusword; /* 6041：状态字 */
+	int32_t position;    /* 6064：实际位置，pulse */
+	int32_t velocity;    /* 606C：实际速度，pulse/s */
+	uint16_t error_code; /* 603F：驱动器错误码 */
+};
+
 struct cia402_status {
 	enum cia402_phase phase;   /* 现在在做什么 */
 	enum cia402_result result; /* 最近一条流程的结论 */
@@ -92,11 +101,6 @@ struct cia402_status {
 	uint8_t configured;        /* 模式已确认 */
 	uint8_t enabled;           /* 当前确认处于使能态 */
 	uint8_t failed;            /* 有过失败记录，直到下一次 MOVE/CONFIG 受理 */
-	/* 以下四项只作显示与诊断，不用来判断流程成败 */
-	uint16_t statusword;
-	int32_t position;
-	int32_t velocity;
-	uint16_t error_code;
 };
 
 /* ---- 内部数据分组（纯数据，无逻辑；分组只为可读性）---- */
@@ -120,7 +124,7 @@ struct cia402_sdo {
 };
 
 /* 当前流程：仅服务线程使用 */
-struct cia402_job {
+struct cia402_operation {
 	enum cia402_kind kind;
 	uint8_t cancel;    /* enum cia402_cancel_reason，交给 st_idle 决定要不要报失败 */
 	uint32_t deadline; /* 流程期限 */
@@ -145,7 +149,7 @@ struct cia402_device {
 	const struct sdo_access *access;
 	uint8_t node_id;
 
-	/* ==== 跨线程：lock 保护 mailbox 与 outbox 的全部字段 ==== */
+	/* ==== 跨线程：lock 保护 mailbox、outbox 与 feedback ==== */
 	pthread_mutex_t lock;
 
 	/* 控制线程 → 服务线程 */
@@ -157,20 +161,18 @@ struct cia402_device {
 	} mailbox;
 
 	/* 服务线程 → 控制线程 */
-	struct {
-		struct cia402_status status; /* 每拍整块刷新 */
-	} outbox;
+	struct cia402_status outbox;
+	struct cia402_feedback feedback;
 
 	/* ==== 以下仅服务线程访问，不加锁 ==== */
 	struct sm_hsm hsm;             /* 状态机：当前状态由 hsm 维护 */
 	uint32_t now_ms;               /* 本拍时刻，用来算期限 */
-	struct cia402_request running; /* 正在执行的请求 */
 	struct cia402_sdo sdo;         /* 当前这笔对象事务 */
-	struct cia402_job job;         /* 当前流程 */
+	struct cia402_operation operation; /* 当前执行的操作及其进度 */
 	struct cia402_monitor monitor; /* 反馈轮转 */
 };
 
-/* ---- 三个动词 ---- */
+/* 对外接口 */
 
 void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id);
 
@@ -185,6 +187,9 @@ enum cia402_ret cia402_request(struct cia402_device *d, const struct cia402_requ
  * 因此本拍刚产生的结论立刻可见）。仅服务线程调用。
  */
 void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status *out);
+
+/* 任意线程读取最新原始反馈；d 或 out 为 NULL 时不执行任何操作。 */
+void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out);
 
 #ifdef __cplusplus
 }

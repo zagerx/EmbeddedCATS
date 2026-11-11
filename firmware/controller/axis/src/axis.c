@@ -13,18 +13,9 @@
 
 #include <stddef.h>
 
-/* mm 到 pulse：double 计算、远离零取整并饱和到 int32，机械参数见 cats_mech.h */
-static int axis_submit(struct cats_axis *a, const struct cia402_request *req)
-{
-	if (cia402_request(&a->dev, req) != CIA402_ACCEPTED) {
-		return 1;
-	}
-	/* 新动作开始：上一条的结论作废，别让 MOVING 第一拍读到旧 DONE */
-	a->status.result = CIA402_RESULT_NONE;
-	a->status.fail = CIA402_FAIL_NONE;
-	return 0;
-}
+static int axis_submit(struct cats_axis *a, const struct cia402_request *req);
 
+/* mm 到 pulse：double 计算、远离零取整并饱和到 int32，机械参数见 cats_mech.h */
 static int32_t scale_mm(float mm);
 
 /* pulse 到 mm：使用与 scale_mm 相反的 double 换算 */
@@ -39,9 +30,6 @@ void axis_init(struct cats_axis *a, uint8_t node_id)
 {
 	a->node_id = node_id;
 }
-
-/* 提交一条请求；受理成功就把本层缓存的旧结论作废（新动作开始）*/
-static int axis_submit(struct cats_axis *a, const struct cia402_request *req);
 
 /**
  * axis_poll - 推进一次设备状态机并刷新本层缓存
@@ -68,10 +56,7 @@ void axis_poll(struct cats_axis *a, uint32_t now_ms)
 		a->status.configured = st.configured;
 		a->status.enabled = st.enabled;
 		a->status.failed = st.failed;
-		a->status.statusword = st.statusword;
-		a->status.position = st.position;
-		a->status.velocity = st.velocity;
-		a->status.error_code = st.error_code;
+		cia402_get_feedback(&a->dev, &a->feedback);
 	}
 }
 
@@ -152,10 +137,10 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 		return;
 	}
 
-	out->position_mm = unscale_mm(a->status.position);
-	out->velocity_mm_s = unscale_mm(a->status.velocity);
-	out->statusword = a->status.statusword;
-	out->error_code = a->status.error_code;
+	out->position_mm = unscale_mm(a->feedback.position);
+	out->velocity_mm_s = unscale_mm(a->feedback.velocity);
+	out->statusword = a->feedback.statusword;
+	out->error_code = a->feedback.error_code;
 }
 
 /**
@@ -329,4 +314,15 @@ static float unscale_mm(int32_t pulse)
 {
 	return (float)(((double)pulse * (double)CATS_AXIS_MM_PER_REV) /
 		       (double)CATS_AXIS_PULSES_PER_REV);
+}
+
+static int axis_submit(struct cats_axis *a, const struct cia402_request *req)
+{
+	if (cia402_request(&a->dev, req) != CIA402_ACCEPTED) {
+		return 1;
+	}
+	/* 新动作开始：上一条的结论作废，别让 MOVING 第一拍读到旧 DONE */
+	a->status.result = CIA402_RESULT_NONE;
+	a->status.fail = CIA402_FAIL_NONE;
+	return 0;
 }

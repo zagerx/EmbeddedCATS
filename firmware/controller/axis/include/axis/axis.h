@@ -18,8 +18,9 @@ extern "C" {
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct cats_axis {
 	uint8_t node_id;
-	struct cia402_device dev;   /* 协议知识全在里面，本层只问它结果 */
-	struct cia402_status status; /* 上一拍 poll 出来的事实，本层缓存 */
+	struct cia402_device dev;     /* 协议知识全在里面，本层只问它结果 */
+	struct cia402_status status;  /* 上一拍流程状态，本层缓存 */
+	struct cia402_feedback feedback; /* 最新原始反馈，本层缓存 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */

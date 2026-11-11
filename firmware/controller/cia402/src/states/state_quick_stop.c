@@ -4,7 +4,7 @@
  * 这条链即使中途失败也要走完：写失败仍去读状态，读失败仍去断使能。
  * 安全动作不允许因为一笔事务没成而停在「还在使能」的状态。
  *
- * 因此三个状态都自己处理 SIG_DEV_CANCEL（单笔超时/被抢断），而不是让
+ * 因此三个状态都自己处理 CIA402_SIG_CANCEL（单笔超时/被抢断），而不是让
  * st_running 的统一退出把整条链一起收掉；只有最后一步失败才报失败。
  *
  * Author: zager
@@ -29,14 +29,14 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
+	case CIA402_SIG_SDO_DONE:
 		/* 写失败也继续读：断使能链不因一笔事务失败而中断 */
-		d->job.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		d->operation.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
 		return SM_TRAN(&st_qstop_read);
 
-	case SIG_DEV_CANCEL:
+	case CIA402_SIG_CANCEL:
 		/* 单笔事务超时或被抢断：同样往下走，不允许停在「还在使能」 */
-		d->job.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		d->operation.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
 		return SM_TRAN(&st_qstop_read);
 
 	default:
@@ -60,8 +60,8 @@ sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
 		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status == 0) {
 			enum cia402_pds_state pds = cia402_parse((uint16_t)r->value);
@@ -72,13 +72,13 @@ sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 		}
 		/* 读失败也判期限：停下就不再重读，直接断使能 */
-		if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
+		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
 			return SM_TRAN(&st_qstop_disable);
 		}
 		return SM_TRAN(&st_qstop_read);
 	}
 
-	case SIG_DEV_CANCEL:
+	case CIA402_SIG_CANCEL:
 		/* 超时或被抢断：不等了，直接断使能 */
 		return SM_TRAN(&st_qstop_disable);
 
@@ -102,15 +102,15 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE:
-		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_fail(d, DEV_DONE_EVT(e));
+	case CIA402_SIG_SDO_DONE:
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e));
 		} else {
 			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 		}
 		return SM_TRAN(&st_idle);
 
-	case SIG_DEV_CANCEL:
+	case CIA402_SIG_CANCEL:
 		/* 最后一环也失败：这里是唯一该报失败的地方 */
 		dev_fail(d, &d->sdo.result);
 		return SM_TRAN(&st_idle);

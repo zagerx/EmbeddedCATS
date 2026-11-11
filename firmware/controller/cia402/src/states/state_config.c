@@ -27,8 +27,8 @@ sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *co
 		dev_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);
@@ -58,8 +58,8 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 		dev_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
-	case SIG_DEV_DONE: {
-		const struct sdo_result *r = DEV_DONE_EVT(e);
+	case CIA402_SIG_SDO_DONE: {
+		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status != 0) {
 			dev_fail(d, r);

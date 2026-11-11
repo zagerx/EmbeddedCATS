@@ -2,7 +2,7 @@
  * device_internal.c — 设备层内部原语（只给 states/ 用）
  *
  * 这里实现的函数全部声明在 device_internal.h：模块外拿不到，
- * 所以它们不属于 device.c（device.c 只对应 device.h 的对外三个动词）。
+ * 所以它们不属于 device.c（device.c 只对应 device.h 的对外接口）。
  *
  * 三件事：
  *   1. 发起一笔对象事务（dev_read / dev_write）；
@@ -81,31 +81,31 @@ void dev_finish(struct cia402_device *d, enum cia402_result result, enum cia402_
 {
 	pthread_mutex_lock(&d->lock);
 	if (result == CIA402_RESULT_FAILED) {
-		d->outbox.status.failed = 1u;
+		d->outbox.failed = 1u;
 	}
-	switch (d->running.kind) {
+	switch (d->operation.kind) {
 	case CIA402_REQ_CONFIG:
-		d->outbox.status.configured = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.configured = (uint8_t)(result == CIA402_RESULT_DONE);
 		break;
 	case CIA402_REQ_ENABLE:
-		d->outbox.status.enabled = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.enabled = (uint8_t)(result == CIA402_RESULT_DONE);
 		break;
 	case CIA402_REQ_DISABLE:
 		/* 只有确认断开才改；失败时保持原值，免得上层误以为已经断了 */
 		if (result == CIA402_RESULT_DONE) {
-			d->outbox.status.enabled = 0u;
+			d->outbox.enabled = 0u;
 		}
 		break;
 	case CIA402_REQ_QUICK_STOP:
 		if (result == CIA402_RESULT_DONE) {
-			d->outbox.status.enabled = 0u;
+			d->outbox.enabled = 0u;
 		}
 		break;
 	default:
 		break;
 	}
-	d->outbox.status.result = result;
-	d->outbox.status.fail = fail;
+	d->outbox.result = result;
+	d->outbox.fail = fail;
 	d->mailbox.executing = 0u;
 	pthread_mutex_unlock(&d->lock);
 	d->sdo.cw_next_valid = 0u;
@@ -126,7 +126,7 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 		fail = CIA402_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
 	}
 	pthread_mutex_lock(&d->lock);
-	d->outbox.status.abort_code = (result != NULL) ? result->abort_code : 0u;
+	d->outbox.abort_code = (result != NULL) ? result->abort_code : 0u;
 	pthread_mutex_unlock(&d->lock);
 	dev_finish(d, CIA402_RESULT_FAILED, fail);
 }
@@ -139,7 +139,7 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
 {
 	pthread_mutex_lock(&d->lock);
-	d->outbox.status.statusword = statusword;
+	d->feedback.statusword = statusword;
 	pthread_mutex_unlock(&d->lock);
 }
 
@@ -152,7 +152,7 @@ void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
  */
 enum cia402_kind dev_running_kind(const struct cia402_device *d)
 {
-	return d->running.kind;
+	return d->operation.kind;
 }
 
 /**
