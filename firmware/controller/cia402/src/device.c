@@ -1,8 +1,11 @@
 /*
- * device.c — 按事件推进 CiA 402 设备状态机
+ * device.c — 设备状态机的装配、推进与原语
  *
- * 每个实例独立保存请求、流程、传输和反馈状态。
- * 服务线程执行全部状态迁移，其他线程只能提交请求或读取加锁快照。
+ * 服务线程调 cia402_device_service()，本文件把「请求槽、事务结果、取消」
+ * 翻成 hsm 事件分发出去；状态本身与迁移条件在 states/ 下。
+ *
+ * 一次 service 最多发起一笔对象事务：这条纪律让服务线程能在多个设备之间
+ * 公平轮转，任何一个设备在等应答都不会占住循环。
  *
  * Author: zager
  */
@@ -15,10 +18,11 @@
 static int submit(struct cia402_device *d, enum cia402_device_req req);
 static int submit_urgent(struct cia402_device *d, enum cia402_device_req req);
 static enum cia402_device_req pop_request(struct cia402_device *d);
-static void complete_transfer(struct cia402_device *d, const struct sdo_result *result);
-static void monitor_start(struct cia402_device *d);
-static void monitor_complete(struct cia402_device *d, const struct sdo_result *result);
-static void monitor_skip(struct cia402_device *d);
+static void dispatch_start(struct cia402_device *d, enum cia402_device_req req);
+static void dispatch_done(struct cia402_device *d, const struct sdo_result *result);
+static void dispatch_cancel(struct cia402_device *d, const struct sdo_result *result);
+static void dispatch_tick(struct cia402_device *d);
+static void pend_failure(struct cia402_device *d);
 
 /**
  * cia402_device_init - 初始化一个设备实例
@@ -34,7 +38,7 @@ void cia402_device_init(struct cia402_device *d, const struct sdo_access *access
 	d->node_id = node_id;
 	d->cfg_state = CIA402_DEVICE_CFG_PENDING;
 	d->en_state = CIA402_DEVICE_EN_NOT_ENABLED;
-	d->state = CIA402_ST_IDLE;
+	sm_hsm_init(&d->hsm, &device_initial);
 }
 
 /**
@@ -164,7 +168,7 @@ void cia402_device_cancel(struct cia402_device *d)
  * @d: 设备对象
  * @now_ms: 当前单调毫秒时刻
  *
- * 仅服务线程调用；每次最多消费一个传输结果或启动一个请求，不阻塞。
+ * 仅服务线程调用；每次最多消费一个传输结果或发起一笔新事务，不阻塞。
  */
 void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 {
@@ -176,62 +180,51 @@ void cia402_device_service(struct cia402_device *d, uint32_t now_ms)
 	}
 	d->now_ms = now_ms;
 
-	pthread_mutex_lock(&d->lock);
-	{
-		uint8_t cancel = d->cancel;
+	/* 上一拍发起的动作被拒：补一个失败事件，让状态机照常往前走 */
+	if (d->pending_done != 0u) {
+		result = d->pending_result;
+		d->pending_done = 0u;
+		dispatch_done(d, &result);
+		return;
+	}
 
-		pthread_mutex_unlock(&d->lock);
-		if (cancel != CIA402_CANCEL_NONE && d->transfer_pending != 0u) {
-			d->access->abort(d->access->ctx);
-		}
+	/* 抢占：先打断在途事务，让 take_result 尽快给出结论 */
+	if (d->cancel != CIA402_CANCEL_NONE && d->transfer_pending != 0u) {
+		d->access->abort(d->access->ctx);
 	}
 
 	if (d->transfer_pending != 0u) {
-		int rc = d->access->take_result(d->access->ctx, &result);
-
-		if (rc != 0) {
-			if ((int32_t)(now_ms - d->deadline_ms) >= 0) {
-				pthread_mutex_lock(&d->lock);
-				if (d->cancel == CIA402_CANCEL_NONE) {
-					d->cancel = CIA402_CANCEL_TIMEOUT;
-					pthread_mutex_unlock(&d->lock);
-					d->access->abort(d->access->ctx);
-				} else {
-					pthread_mutex_unlock(&d->lock);
-				}
+		if (d->access->take_result(d->access->ctx, &result) != 0) {
+			/* 结果还没到：只判单笔事务的期限 */
+			if (d->cancel == CIA402_CANCEL_NONE &&
+			    (int32_t)(now_ms - d->deadline_ms) >= 0) {
+				d->cancel = CIA402_CANCEL_TIMEOUT;
+				d->access->abort(d->access->ctx);
 			}
+			dispatch_tick(d);
 			return;
 		}
 		d->transfer_pending = 0u;
-		complete_transfer(d, &result);
-		return;
-	}
-
-	pthread_mutex_lock(&d->lock);
-	if (d->cancel != CIA402_CANCEL_NONE) {
-		d->cancel = CIA402_CANCEL_NONE;
-		d->running = CIA402_DEVICE_REQ_NONE;
-		d->state = CIA402_ST_IDLE;
-	}
-	pthread_mutex_unlock(&d->lock);
-
-	req = pop_request(d);
-	if (req != CIA402_DEVICE_REQ_NONE) {
-		pthread_mutex_lock(&d->lock);
-		d->running = req;
-		pthread_mutex_unlock(&d->lock);
-		d->pp_seen_low = 0u;
-		if (req == CIA402_DEVICE_REQ_PP) {
-			cia402_device_pp_begin(d);
+		if (d->cancel != CIA402_CANCEL_NONE) {
+			dispatch_cancel(d, &result); /* 结论作废，abort 码留着 */
 		} else {
-			cia402_device_seq_begin(d, req);
+			dispatch_done(d, &result);
 		}
 		return;
 	}
 
-	if (d->running == CIA402_DEVICE_REQ_NONE) {
-		monitor_start(d);
+	if (d->cancel != CIA402_CANCEL_NONE) {
+		dispatch_cancel(d, NULL);
+		return;
 	}
+
+	req = pop_request(d);
+	if (req != CIA402_DEVICE_REQ_NONE) {
+		dispatch_start(d, req);
+		return;
+	}
+
+	dispatch_tick(d);
 }
 
 /**
@@ -425,32 +418,42 @@ uint16_t cia402_device_feedback_error_code(const struct cia402_device *d)
 	return value;
 }
 
-void cia402_device_start_read(struct cia402_device *d, enum cia402_state state, uint16_t index,
-			      uint32_t timeout_ms)
-{
-	int rc;
+/* ---- 状态函数共用原语 ---- */
 
-	d->state = state;
+/**
+ * dev_read - 发起一笔读事务
+ * @d: 设备对象
+ * @index: 对象索引
+ * @timeout_ms: 本笔事务的期限
+ *
+ * 被拒时不在这里改状态机：登记一个失败事件，由下一拍 service 分发。
+ * 这样状态函数永远只在 ENTRY / DONE 里做一次动作，不会在 ENTRY 里递归迁移。
+ */
+void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+{
 	d->deadline_ms = d->now_ms + timeout_ms;
 	d->controlword_pending = 0u;
-	rc = d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms);
-	if (rc != 0) {
-		if (d->running == CIA402_DEVICE_REQ_NONE) {
-			monitor_skip(d);
-		} else {
-			cia402_device_finish(d, -1, 0u);
-		}
+	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
+		pend_failure(d);
 		return;
 	}
 	d->transfer_pending = 1u;
 }
 
-void cia402_device_start_write(struct cia402_device *d, enum cia402_state state, uint16_t index,
-			       uint32_t value, uint8_t size, uint32_t timeout_ms)
+/**
+ * dev_write - 发起一笔写事务
+ * @d: 设备对象
+ * @index: 对象索引
+ * @value: 待写值
+ * @size: 字节数
+ * @timeout_ms: 本笔事务的期限
+ *
+ * 写 6040 时先暂存期望值，事务成功后才落到 controlword，
+ * 免得上一次失败的控制字被后续流程当成"当前值"用。
+ */
+void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+	       uint32_t timeout_ms)
 {
-	int rc;
-
-	d->state = state;
 	d->deadline_ms = d->now_ms + timeout_ms;
 	if (index == CIA402_OD_CONTROLWORD) {
 		d->pending_controlword = (uint16_t)value;
@@ -458,16 +461,24 @@ void cia402_device_start_write(struct cia402_device *d, enum cia402_state state,
 	} else {
 		d->controlword_pending = 0u;
 	}
-	rc = d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms);
-	if (rc != 0) {
+	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms) !=
+	    0) {
 		d->controlword_pending = 0u;
-		cia402_device_finish(d, -1, 0u);
+		pend_failure(d);
 		return;
 	}
 	d->transfer_pending = 1u;
 }
 
-void cia402_device_finish(struct cia402_device *d, int ok, uint32_t abort_code)
+/**
+ * dev_finish - 结束当前流程并写结论事实
+ * @d: 设备对象
+ * @ok: 0 成功，非 0 失败
+ * @abort_code: 失败时的 SDO abort 码
+ *
+ * 调用方随后迁回 st_idle。被取消的流程不走这里（结论作废）。
+ */
+void dev_finish(struct cia402_device *d, int ok, uint32_t abort_code)
 {
 	pthread_mutex_lock(&d->lock);
 	if (ok != 0) {
@@ -493,7 +504,86 @@ void cia402_device_finish(struct cia402_device *d, int ok, uint32_t abort_code)
 	d->result = (ok == 0) ? CIA402_DEVICE_RESULT_DONE : CIA402_DEVICE_RESULT_FAILED;
 	d->running = CIA402_DEVICE_REQ_NONE;
 	pthread_mutex_unlock(&d->lock);
-	d->state = CIA402_ST_IDLE;
+	d->controlword_pending = 0u;
+}
+
+/**
+ * dev_fail - 事务失败时的统一收尾
+ * @d: 设备对象
+ * @result: 失败的那笔结果（取 abort 码）
+ */
+void dev_fail(struct cia402_device *d, const struct sdo_result *result)
+{
+	dev_finish(d, -1, (result != NULL) ? result->abort_code : 0u);
+}
+
+/**
+ * dev_cache_statusword - 缓存最近一次状态字
+ * @d: 设备对象
+ * @statusword: 6041 的值
+ */
+void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
+{
+	pthread_mutex_lock(&d->lock);
+	d->statusword = statusword;
+	pthread_mutex_unlock(&d->lock);
+}
+
+/* ---- 事件构造与分发 ---- */
+
+static void dispatch_start(struct cia402_device *d, enum cia402_device_req req)
+{
+	struct dev_start_evt evt;
+
+	evt.super.sig = SIG_DEV_START;
+	evt.req = req;
+	sm_hsm_dispatch(&d->hsm, &evt.super);
+}
+
+static void dispatch_done(struct cia402_device *d, const struct sdo_result *result)
+{
+	struct dev_done_evt evt;
+
+	/* 控制字缓存只在事务成功后落地：所有写 6040 的状态共用这一处 */
+	if (d->controlword_pending != 0u) {
+		if (result->status == 0) {
+			d->controlword = d->pending_controlword;
+		}
+		d->controlword_pending = 0u;
+	}
+	evt.super.sig = SIG_DEV_DONE;
+	evt.result = *result;
+	sm_hsm_dispatch(&d->hsm, &evt.super);
+}
+
+static void dispatch_cancel(struct cia402_device *d, const struct sdo_result *result)
+{
+	struct dev_cancel_evt evt;
+
+	if (result != NULL) {
+		d->pending_result = *result; /* 留 abort 码给 st_idle */
+	} else {
+		memset(&d->pending_result, 0, sizeof(d->pending_result));
+	}
+	d->cancel_reason = d->cancel;
+	d->cancel = CIA402_CANCEL_NONE;
+	evt.super.sig = SIG_DEV_CANCEL;
+	evt.reason = d->cancel_reason;
+	sm_hsm_dispatch(&d->hsm, &evt.super);
+}
+
+static void dispatch_tick(struct cia402_device *d)
+{
+	static const struct sm_event evt_tick = {SIG_DEV_TICK};
+
+	sm_hsm_dispatch(&d->hsm, &evt_tick);
+}
+
+static void pend_failure(struct cia402_device *d)
+{
+	memset(&d->pending_result, 0, sizeof(d->pending_result));
+	d->pending_result.status = -1;
+	d->pending_done = 1u;
 	d->controlword_pending = 0u;
 }
 
@@ -536,106 +626,4 @@ static enum cia402_device_req pop_request(struct cia402_device *d)
 	d->req = CIA402_DEVICE_REQ_NONE;
 	pthread_mutex_unlock(&d->lock);
 	return req;
-}
-
-static void complete_transfer(struct cia402_device *d, const struct sdo_result *result)
-{
-	enum cia402_cancel_reason cancel;
-
-	pthread_mutex_lock(&d->lock);
-	cancel = d->cancel;
-	d->cancel = CIA402_CANCEL_NONE;
-	if (cancel != CIA402_CANCEL_NONE) {
-		d->controlword_pending = 0u;
-		if (cancel == CIA402_CANCEL_REQUEST || cancel == CIA402_CANCEL_MANUAL) {
-			d->running = CIA402_DEVICE_REQ_NONE;
-			d->state = CIA402_ST_IDLE;
-		}
-	}
-	pthread_mutex_unlock(&d->lock);
-
-	if (cancel == CIA402_CANCEL_REQUEST || cancel == CIA402_CANCEL_MANUAL) {
-		return;
-	}
-	if (cancel == CIA402_CANCEL_TIMEOUT) {
-		if (d->running == CIA402_DEVICE_REQ_NONE) {
-			monitor_skip(d);
-		} else if (d->running != CIA402_DEVICE_REQ_QUICK_STOP ||
-			   cia402_device_seq_on_failure(d) == 0) {
-			cia402_device_finish(d, -1, result->abort_code);
-		}
-		return;
-	}
-
-	if (d->controlword_pending != 0u) {
-		if (result->status == 0) {
-			d->controlword = d->pending_controlword;
-		}
-		d->controlword_pending = 0u;
-	}
-
-	if (result->status != 0) {
-		if (d->running == CIA402_DEVICE_REQ_NONE) {
-			monitor_skip(d);
-			return;
-		}
-		if (d->running != CIA402_DEVICE_REQ_PP && cia402_device_seq_on_failure(d) != 0) {
-			return;
-		}
-		cia402_device_finish(d, -1, result->abort_code);
-		return;
-	}
-
-	switch (d->running) {
-	case CIA402_DEVICE_REQ_NONE:
-		monitor_complete(d, result);
-		break;
-	case CIA402_DEVICE_REQ_PP:
-		cia402_device_pp_complete(d, result);
-		break;
-	default:
-		cia402_device_seq_complete(d, result);
-		break;
-	}
-}
-
-static void monitor_start(struct cia402_device *d)
-{
-	static const uint16_t kIndex[4] = {CIA402_OD_STATUSWORD, CIA402_OD_POSITION_ACTUAL,
-					   CIA402_OD_VELOCITY_ACTUAL, CIA402_OD_ERROR_CODE};
-
-	if (d->mon_slot == 0u &&
-	    (uint32_t)(d->now_ms - d->mon_last_ms) < CIA402_DEVICE_MON_INTERVAL_MS) {
-		return;
-	}
-	d->mon_last_ms = d->now_ms;
-	cia402_device_start_read(d, CIA402_ST_MONITOR_READ, kIndex[d->mon_slot],
-				 CIA402_DEVICE_MON_TIMEOUT_MS);
-}
-
-static void monitor_complete(struct cia402_device *d, const struct sdo_result *result)
-{
-	pthread_mutex_lock(&d->lock);
-	switch (d->mon_slot) {
-	case 0:
-		d->statusword = (uint16_t)(result->value & 0xFFFFu);
-		break;
-	case 1:
-		d->position = (int32_t)result->value;
-		break;
-	case 2:
-		d->velocity = (int32_t)result->value;
-		break;
-	default:
-		d->error_code = (uint16_t)(result->value & 0xFFFFu);
-		break;
-	}
-	pthread_mutex_unlock(&d->lock);
-	monitor_skip(d);
-}
-
-static void monitor_skip(struct cia402_device *d)
-{
-	d->mon_slot = (uint8_t)((d->mon_slot + 1u) % 4u);
-	d->state = CIA402_ST_IDLE;
 }

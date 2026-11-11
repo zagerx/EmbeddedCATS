@@ -90,16 +90,24 @@ target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/contro
 target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node Threads::Threads)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 
-# CiA 402：pds.c 为纯标准知识；device*.c 为请求、事件状态机和反馈。
-# 本模块只依赖 sdo_access 契约，不依赖 CANopenNode。
+# CiA 402：pds.c 为纯标准知识；device.c 为装配与推进；states/ 一状态一文件。
+# 本模块只依赖 sdo_access 契约与 hsm 机制，不依赖 CANopenNode。
 add_library(cia402 STATIC
-	controller/cia402/src/pds.c
-	controller/cia402/src/device.c
-	controller/cia402/src/device_seq.c
-	controller/cia402/src/device_pp.c)
+        controller/cia402/src/pds.c
+        controller/cia402/src/device.c
+        controller/cia402/src/states/states.c
+        controller/cia402/src/states/state_idle.c
+        controller/cia402/src/states/state_running.c
+        controller/cia402/src/states/state_config.c
+        controller/cia402/src/states/state_enable.c
+        controller/cia402/src/states/state_disable.c
+        controller/cia402/src/states/state_pp.c
+        controller/cia402/src/states/state_halt.c
+        controller/cia402/src/states/state_quick_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
 target_link_libraries(cia402 PUBLIC sdo_access Threads::Threads)
+target_link_libraries(cia402 PUBLIC cats_hsm)
 
 # 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
 add_executable(cia402_selftest

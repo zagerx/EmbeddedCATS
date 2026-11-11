@@ -1,4 +1,15 @@
-/* device.c、device_seq.c 与 device_pp.c 之间的私有状态机接口。 */
+/*
+ * device_internal.h — cia402 状态机的内部契约
+ *
+ * 设备层是一个 hsm 状态机：状态函数在 states/ 下，一流程族一个文件。
+ * 本头给出四样东西：
+ *   1. 业务事件（派生自 struct sm_event）；
+ *   2. 超时常量与取消原因；
+ *   3. states/ 里共用的原语：dev_read / dev_write / dev_finish；
+ *   4. 全部状态函数的声明。
+ *
+ * Author: zager
+ */
 
 #ifndef CIA402_DEVICE_INTERNAL_H
 #define CIA402_DEVICE_INTERNAL_H
@@ -7,65 +18,105 @@
 #include <cia402/od.h>
 #include <cia402/pds.h>
 
+/* 单笔对象事务的协议栈超时 */
 #define CIA402_DEVICE_SDO_TIMEOUT_MS 200u
+/* 反馈轮转：单个对象超时与两轮之间的间隔 */
 #define CIA402_DEVICE_MON_TIMEOUT_MS 100u
 #define CIA402_DEVICE_MON_INTERVAL_MS 50u
+/* 使能/断使能每步等状态字的期限 */
 #define CIA402_DEVICE_STEP_TIMEOUT_MS 300u
+/* 减速停与快速停的业务期限 */
 #define CIA402_DEVICE_HALT_TIMEOUT_MS 3000u
 #define CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS 5000u
+/* PP 触发到到位的期限 */
 #define CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS 5000u
 
+/* 取消原因：谁让当前流程提前结束，决定要不要报失败 */
 enum cia402_cancel_reason {
 	CIA402_CANCEL_NONE = 0,
-	CIA402_CANCEL_REQUEST,
-	CIA402_CANCEL_TIMEOUT,
-	CIA402_CANCEL_MANUAL
+	CIA402_CANCEL_REQUEST, /* 被 Halt / Quick Stop 抢占：结论作废 */
+	CIA402_CANCEL_TIMEOUT, /* 单笔事务超时：报失败 */
+	CIA402_CANCEL_MANUAL   /* 外部取消：结论作废 */
 };
 
-enum cia402_state {
-	CIA402_ST_IDLE = 0,
-	CIA402_ST_CONFIG_WRITE_MODE,
-	CIA402_ST_CONFIG_READ_MODE,
-	CIA402_ST_ENABLE_READ_PDS,
-	CIA402_ST_ENABLE_RESET_LOW,
-	CIA402_ST_ENABLE_RESET_HIGH,
-	CIA402_ST_ENABLE_READ_RESET,
-	CIA402_ST_ENABLE_WRITE_SHUTDOWN,
-	CIA402_ST_ENABLE_READ_READY,
-	CIA402_ST_ENABLE_WRITE_SWITCH_ON,
-	CIA402_ST_ENABLE_READ_SWITCHED_ON,
-	CIA402_ST_ENABLE_WRITE_ENABLE_OP,
-	CIA402_ST_ENABLE_READ_ENABLED,
-	CIA402_ST_DISABLE_WRITE,
-	CIA402_ST_DISABLE_READ,
-	CIA402_ST_PP_WRITE_VELOCITY,
-	CIA402_ST_PP_WRITE_ACCEL,
-	CIA402_ST_PP_WRITE_DECEL,
-	CIA402_ST_PP_WRITE_TARGET,
-	CIA402_ST_PP_TRIGGER_HIGH,
-	CIA402_ST_PP_TRIGGER_LOW,
-	CIA402_ST_PP_READ_STATUS,
-	CIA402_ST_PP_READ_POSITION,
-	CIA402_ST_HALT_WRITE,
-	CIA402_ST_HALT_READ,
-	CIA402_ST_HALT_CLEAR,
-	CIA402_ST_QUICK_STOP_WRITE,
-	CIA402_ST_QUICK_STOP_READ,
-	CIA402_ST_QUICK_STOP_DISABLE,
-	CIA402_ST_MONITOR_READ
+/* ---- 业务事件 ---- */
+
+enum dev_sig {
+	SIG_DEV_START = SM_SIG_USER, /* 请求槽里有新请求，载荷 req */
+	SIG_DEV_DONE,                /* 一笔事务完成，载荷 result */
+	SIG_DEV_CANCEL,              /* 抢占/超时/取消，载荷 reason */
+	SIG_DEV_TICK                 /* 每拍一次，空闲时用于反馈节奏 */
 };
 
-void cia402_device_start_read(struct cia402_device *d, enum cia402_state state, uint16_t index,
-			      uint32_t timeout_ms);
-void cia402_device_start_write(struct cia402_device *d, enum cia402_state state, uint16_t index,
-			       uint32_t value, uint8_t size, uint32_t timeout_ms);
-void cia402_device_finish(struct cia402_device *d, int ok, uint32_t abort_code);
+struct dev_start_evt {
+	struct sm_event super;
+	enum cia402_device_req req;
+};
 
-void cia402_device_seq_begin(struct cia402_device *d, enum cia402_device_req req);
-void cia402_device_seq_complete(struct cia402_device *d, const struct sdo_result *result);
-int cia402_device_seq_on_failure(struct cia402_device *d);
+struct dev_done_evt {
+	struct sm_event super;
+	struct sdo_result result;
+};
 
-void cia402_device_pp_begin(struct cia402_device *d);
-void cia402_device_pp_complete(struct cia402_device *d, const struct sdo_result *result);
+struct dev_cancel_evt {
+	struct sm_event super;
+	uint8_t reason;
+};
+
+/* ---- 状态函数共用原语（device.c） ---- */
+
+/* 发起一笔读；被拒时登记一个失败事件，由下一拍分发 */
+void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
+/* 发起一笔写；写 6040 时暂存期望值，事务成功后才落到 controlword */
+void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+	       uint32_t timeout_ms);
+/* 结束当前流程：写结论事实，调用方随后迁回 st_idle */
+void dev_finish(struct cia402_device *d, int ok, uint32_t abort_code);
+/* 事务失败时的统一收尾：写失败结论，调用方随后迁回 st_idle */
+void dev_fail(struct cia402_device *d, const struct sdo_result *result);
+/* 缓存状态字（读事务的通用动作） */
+void dev_cache_statusword(struct cia402_device *d, uint16_t statusword);
+
+/* ---- 状态函数 ---- */
+
+sm_ret_t device_initial(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_running(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_enable_read_pds(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_reset_low(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_reset_high(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_write_shutdown(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_read_ready(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_write_switch_on(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_read_switched_on(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_write_enable_op(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable_read_enabled(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_disable_write(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_pp_write_velocity(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_write_accel(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const e);
 
 #endif /* CIA402_DEVICE_INTERNAL_H */

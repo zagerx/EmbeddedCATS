@@ -1,11 +1,12 @@
 /*
  * 一个 CiA 402 从站的实例化运行控制。
- * 所有流程由服务线程按事件推进，对象访问不阻塞，设备之间不共享可写状态。
+ * 流程由 hsm 状态机按事件推进，对象访问不阻塞，设备之间不共享可写状态。
  */
 
 #ifndef CIA402_DEVICE_H
 #define CIA402_DEVICE_H
 
+#include <hsm/sm_hsm.h>
 #include <transport/sdo_access.h>
 
 #include <pthread.h>
@@ -63,8 +64,14 @@ struct cia402_device {
 	int32_t velocity;
 	uint16_t error_code;
 
-	uint16_t state;
+	/* 状态机：当前状态由 hsm 维护，本层不保存状态编号 */
+	struct sm_hsm hsm;
+
+	/* 以下仅服务线程使用，不加锁 */
 	uint8_t transfer_pending;
+	uint8_t pending_done; /* dev_read/dev_write 被拒：下一拍补一个失败事件 */
+	struct sdo_result pending_result;
+	uint8_t cancel_reason; /* 取消原因，交给 st_idle 决定要不要报失败 */
 	uint32_t now_ms;
 	uint32_t deadline_ms;
 	uint32_t wait_deadline;
