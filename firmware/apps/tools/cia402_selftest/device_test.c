@@ -1,7 +1,8 @@
 /*
  * device_test.c — 用假异步传输验证设备状态机
  *
- * 覆盖使能、PP 到位、急停抢占和事务超时，不依赖 CAN 硬件。
+ * 覆盖投递规则（受理/忙/不合法/不允许）、使能链、PP 到位、抢占、
+ * 超时、以及 Quick Stop 的"失败也要走完安全链"。不依赖 CAN 硬件。
  *
  * Author: zager
  */
@@ -25,16 +26,32 @@ struct fake_access {
 	unsigned aborts;
 };
 
+struct fx {
+	struct fake_access fake;
+	struct cia402_device dev;
+	struct cia402_status st;
+	uint32_t t;
+};
+
 static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		      uint8_t size, uint32_t timeout_ms);
 static int fake_take_result(void *ctx, struct sdo_result *result);
 static void fake_abort(void *ctx);
-static void fake_complete(struct fake_access *fake, int status, uint32_t value);
-static void expect_started(struct fake_access *fake, uint8_t dir, uint16_t index,
-			   uint32_t value);
+
+static void fx_init(struct fx *f);
+static void fx_request(struct fx *f, enum cia402_kind kind);
+static void fx_poll(struct fx *f);
+static void fx_poll_at(struct fx *f, uint32_t t);
+static void fx_complete(struct fx *f, int status, uint32_t value);
+static void expect_started(struct fx *f, uint8_t dir, uint16_t index, uint32_t value);
+
+static void test_request_rules(void);
 static void test_enable(void);
 static void test_pp(void);
 static void test_quick_stop_preempts(void);
+static void test_quick_stop_timeout_chain(void);
+static void test_start_rejected(void);
+static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
 
 static int failures;
@@ -43,7 +60,7 @@ static int failures;
 	do {                                                                                       \
 		if (!(cond)) {                                                                     \
 			printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);                   \
-			failures++;                                                                  \
+			failures++;                                                                \
 		}                                                                                  \
 	} while (0)
 
@@ -55,12 +72,18 @@ static int failures;
 int cia402_device_tests(void)
 {
 	failures = 0;
+	test_request_rules();
 	test_enable();
 	test_pp();
 	test_quick_stop_preempts();
+	test_quick_stop_timeout_chain();
+	test_start_rejected();
+	test_cancel_beats_pending_failure();
 	test_timeout();
 	return failures;
 }
+
+/* ---- 假传输层 ---- */
 
 static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		      uint8_t size, uint32_t timeout_ms)
@@ -101,154 +124,324 @@ static void fake_abort(void *ctx)
 	fake->aborts++;
 }
 
-static void fake_complete(struct fake_access *fake, int status, uint32_t value)
+/* ---- 测试脚手架 ---- */
+
+static void fx_init(struct fx *f)
 {
-	memset(&fake->result, 0, sizeof(fake->result));
-	fake->result.status = (int8_t)status;
-	fake->result.value = value;
-	fake->result.len = (fake->dir == SDO_DIR_READ) ? fake->size : 0u;
-	fake->result_ready = 1u;
+	memset(f, 0, sizeof(*f));
+	f->fake.access.start = fake_start;
+	f->fake.access.take_result = fake_take_result;
+	f->fake.access.abort = fake_abort;
+	f->fake.access.ctx = &f->fake;
+	cia402_init(&f->dev, &f->fake.access, 1u);
 }
 
-static void expect_started(struct fake_access *fake, uint8_t dir, uint16_t index, uint32_t value)
+static void fx_request(struct fx *f, enum cia402_kind kind)
 {
-	CHECK(fake->started != 0u);
-	CHECK(fake->dir == dir);
-	CHECK(fake->index == index);
+	struct cia402_request req;
+
+	memset(&req, 0, sizeof(req));
+	req.kind = kind;
+	if (kind == CIA402_REQ_MOVE) {
+		req.pp.target = 100;
+		req.pp.velocity = 10;
+		req.pp.accel = 20;
+		req.pp.decel = 20;
+	}
+	CHECK(cia402_request(&f->dev, &req) == CIA402_ACCEPTED);
+}
+
+static void fx_poll_at(struct fx *f, uint32_t t)
+{
+	f->t = t;
+	cia402_poll(&f->dev, t, &f->st);
+}
+
+static void fx_poll(struct fx *f)
+{
+	fx_poll_at(f, f->t + 1u);
+}
+
+static void fx_complete(struct fx *f, int status, uint32_t value)
+{
+	memset(&f->fake.result, 0, sizeof(f->fake.result));
+	f->fake.result.status = (int8_t)status;
+	f->fake.result.value = value;
+	f->fake.result.len = (f->fake.dir == SDO_DIR_READ) ? f->fake.size : 0u;
+	f->fake.result_ready = 1u;
+}
+
+static void expect_started(struct fx *f, uint8_t dir, uint16_t index, uint32_t value)
+{
+	CHECK(f->fake.started != 0u);
+	CHECK(f->fake.dir == dir);
+	CHECK(f->fake.index == index);
 	if (dir == SDO_DIR_WRITE) {
-		CHECK(fake->value == value);
+		CHECK(f->fake.value == value);
 	}
 }
 
+/* ---- 用例 ---- */
+
+/* 投递规则：不合法、不允许、忙 */
+static void test_request_rules(void)
+{
+	struct fx f;
+	struct cia402_request req;
+
+	fx_init(&f);
+
+	/* 参数不合法 */
+	memset(&req, 0, sizeof(req));
+	req.kind = (enum cia402_kind)99;
+	CHECK(cia402_request(&f.dev, &req) == CIA402_INVALID);
+	req.kind = CIA402_REQ_MOVE;
+	req.pp.velocity = 0; /* 速度 0 等于不动 */
+	CHECK(cia402_request(&f.dev, &req) == CIA402_INVALID);
+
+	/* 未配置不能使能 */
+	memset(&req, 0, sizeof(req));
+	req.kind = CIA402_REQ_ENABLE;
+	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
+
+	/* 未使能不能运动 */
+	f.dev.facts.configured = 1u;
+	req.kind = CIA402_REQ_MOVE;
+	req.pp.velocity = 10;
+	req.pp.accel = 20;
+	req.pp.decel = 20;
+	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
+
+	/* 忙：上一条没结束 */
+	req.kind = CIA402_REQ_ENABLE;
+	CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+	CHECK(cia402_request(&f.dev, &req) == CIA402_BUSY);
+
+	/* 抢占不受忙限制 */
+	req.kind = CIA402_REQ_QUICK_STOP;
+	CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+}
+
+/* 使能链：Switch on disabled → Ready → Switched on → Operation enabled */
 static void test_enable(void)
 {
-	struct fake_access fake = {0};
-	struct cia402_device dev;
+	struct fx f;
 
-	fake.access.start = fake_start;
-	fake.access.take_result = fake_take_result;
-	fake.access.abort = fake_abort;
-	fake.access.ctx = &fake;
-	cia402_device_init(&dev, &fake.access, 1u);
+	fx_init(&f);
+	f.dev.facts.configured = 1u;
+	fx_request(&f, CIA402_REQ_ENABLE);
 
-	CHECK(cia402_device_request_enable(&dev) == 0);
-	cia402_device_service(&dev, 0u);
-	expect_started(&fake, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
-	fake_complete(&fake, 0, 0x0040u);
-	cia402_device_service(&dev, 1u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 2u);
-	fake_complete(&fake, 0, 0x0021u);
-	cia402_device_service(&dev, 3u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SWITCH_ON);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 4u);
-	fake_complete(&fake, 0, 0x0023u);
-	cia402_device_service(&dev, 5u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 6u);
-	fake_complete(&fake, 0, 0x0027u);
-	cia402_device_service(&dev, 7u);
-	CHECK(cia402_device_is_enabled(&dev) != 0);
-	CHECK(cia402_device_take_result(&dev) == CIA402_DEVICE_RESULT_DONE);
-	CHECK(cia402_device_busy(&dev) == 0);
+	fx_poll(&f);
+	CHECK(f.st.phase == CIA402_PHASE_ENABLE);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+
+	fx_complete(&f, 0, 0x0040u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN);
+
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+
+	fx_complete(&f, 0, 0x0021u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SWITCH_ON);
+
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	fx_complete(&f, 0, 0x0023u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
+
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	fx_complete(&f, 0, 0x0027u);
+	fx_poll(&f);
+
+	CHECK(f.st.enabled != 0);
+	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 }
 
+/* PP：写四个参数 → bit4 边沿 → 等到位 */
 static void test_pp(void)
 {
-	struct fake_access fake = {0};
-	struct cia402_device dev;
+	struct fx f;
 
-	fake.access.start = fake_start;
-	fake.access.take_result = fake_take_result;
-	fake.access.abort = fake_abort;
-	fake.access.ctx = &fake;
-	cia402_device_init(&dev, &fake.access, 1u);
-	dev.en_state = CIA402_DEVICE_EN_ENABLED;
-	dev.controlword = CIA402_CW_ENABLE_OP;
+	fx_init(&f);
+	f.dev.facts.enabled = 1u;
+	f.dev.xfer.cw_ok = CIA402_CW_ENABLE_OP;
+	fx_request(&f, CIA402_REQ_MOVE);
 
-	CHECK(cia402_device_pp_start(&dev, 100, 10, 20, 20) == 0);
-	cia402_device_service(&dev, 0u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 1u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_PROFILE_ACCEL, 20u);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 2u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_PROFILE_DECEL, 20u);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 3u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_TARGET_POSITION, 100u);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 4u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_ACCEL, 20u);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_DECEL, 20u);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_TARGET_POSITION, 100u);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
 		       CIA402_CW_ENABLE_OP | CIA402_CW_NEW_SETPOINT);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 5u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 6u);
-	expect_started(&fake, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
-	fake_complete(&fake, 0, 0x0027u);
-	cia402_device_service(&dev, 7u);
-	fake_complete(&fake, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
-	cia402_device_service(&dev, 8u);
-	CHECK(cia402_device_take_result(&dev) == CIA402_DEVICE_RESULT_DONE);
-	CHECK(dev.controlword == CIA402_CW_ENABLE_OP);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	fx_complete(&f, 0, 0x0027u); /* 还没到位 */
+	fx_poll(&f);
+	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
+	fx_poll(&f);
+
+	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.dev.xfer.cw_ok == CIA402_CW_ENABLE_OP);
 }
 
+/* Quick Stop 抢占在途 PP */
 static void test_quick_stop_preempts(void)
 {
-	struct fake_access fake = {0};
-	struct cia402_device dev;
+	struct fx f;
 
-	fake.access.start = fake_start;
-	fake.access.take_result = fake_take_result;
-	fake.access.abort = fake_abort;
-	fake.access.ctx = &fake;
-	cia402_device_init(&dev, &fake.access, 1u);
-	dev.en_state = CIA402_DEVICE_EN_ENABLED;
-	CHECK(cia402_device_pp_start(&dev, 100, 10, 20, 20) == 0);
-	cia402_device_service(&dev, 0u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
+	fx_init(&f);
+	f.dev.facts.enabled = 1u;
+	fx_request(&f, CIA402_REQ_MOVE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
 
-	CHECK(cia402_device_quick_stop(&dev) == 0);
-	cia402_device_service(&dev, 1u);
-	CHECK(fake.aborts == 1u);
-	fake_complete(&fake, -1, 0u);
-	cia402_device_service(&dev, 2u);
-	cia402_device_service(&dev, 3u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 4u);
-	fake_complete(&fake, 0, 0x0040u);
-	cia402_device_service(&dev, 5u);
-	expect_started(&fake, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
-	fake_complete(&fake, 0, 0u);
-	cia402_device_service(&dev, 6u);
-	CHECK(cia402_device_is_enabled(&dev) == 0);
-	CHECK(cia402_device_take_result(&dev) == CIA402_DEVICE_RESULT_DONE);
+	{
+		const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
+
+		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+	}
+	fx_poll(&f);
+	CHECK(f.fake.aborts == 1u);
+	fx_complete(&f, -1, 0u); /* 被 abort 的旧事务 */
+	fx_poll(&f);
+	/* 旧流程作废：不能留下失败结论 */
+	CHECK(f.st.result == CIA402_RESULT_NONE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
+
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	fx_complete(&f, 0, 0x0040u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
+
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	CHECK(f.st.enabled == 0u);
+	CHECK(f.st.result == CIA402_RESULT_DONE);
 }
 
+/* 安全链：qstop 写超时仍读状态，读超时仍断使能 */
+static void test_quick_stop_timeout_chain(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.dev.facts.enabled = 1u;
+	fx_request(&f, CIA402_REQ_MOVE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
+
+	{
+		const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
+
+		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+	}
+	fx_poll(&f);
+	fx_complete(&f, -1, 0u);
+	fx_poll(&f);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
+
+	/* ① qstop 写超时：仍必须去读状态字 */
+	fx_poll_at(&f, f.t + 300u);
+	fx_complete(&f, -1, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+
+	/* ② 读状态超时：仍必须写断使能 */
+	fx_poll_at(&f, f.t + 300u);
+	fx_complete(&f, -1, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
+
+	/* ③ 最后一步成功才收尾 */
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	CHECK(f.st.enabled == 0u);
+	CHECK(f.st.result == CIA402_RESULT_DONE);
+}
+
+/* 发起被立即拒绝：下一拍给出失败结论 */
+static void test_start_rejected(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.dev.facts.enabled = 1u;
+	fx_request(&f, CIA402_REQ_MOVE);
+
+	f.fake.started = 1u; /* 让 fake_start 直接拒绝 */
+	fx_poll(&f);
+	fx_poll(&f);
+
+	CHECK(f.st.result == CIA402_RESULT_FAILED);
+	CHECK(f.st.phase == CIA402_PHASE_IDLE);
+	CHECK(f.st.failed != 0u);
+}
+
+/* 已被抢占的流程，其未分发的失败不能泄漏成结论 */
+static void test_cancel_beats_pending_failure(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.dev.facts.enabled = 1u;
+	f.dev.xfer.cw_ok = CIA402_CW_ENABLE_OP;
+	fx_request(&f, CIA402_REQ_MOVE);
+
+	f.fake.started = 1u; /* 第一笔写被拒：rejected 置位 */
+	fx_poll(&f);
+	f.fake.started = 0u;
+
+	{
+		const struct cia402_request req = {.kind = CIA402_REQ_HALT};
+
+		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+	}
+	fx_poll(&f);
+	CHECK(f.st.result == CIA402_RESULT_NONE); /* 旧失败作废 */
+
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
+}
+
+/* 单笔事务超时：报失败并带上原因 */
 static void test_timeout(void)
 {
-	struct fake_access fake = {0};
-	struct cia402_device dev;
+	struct fx f;
 
-	fake.access.start = fake_start;
-	fake.access.take_result = fake_take_result;
-	fake.access.abort = fake_abort;
-	fake.access.ctx = &fake;
-	cia402_device_init(&dev, &fake.access, 1u);
+	fx_init(&f);
+	f.dev.facts.configured = 1u;
+	fx_request(&f, CIA402_REQ_ENABLE);
 
-	CHECK(cia402_device_request_enable(&dev) == 0);
-	cia402_device_service(&dev, 0u);
-	cia402_device_service(&dev, 200u + 1u);
-	CHECK(fake.aborts == 1u);
-	fake_complete(&fake, -1, 0u);
-	cia402_device_service(&dev, 200u + 2u);
-	CHECK(cia402_device_failed(&dev) != 0);
-	CHECK(cia402_device_take_result(&dev) == CIA402_DEVICE_RESULT_FAILED);
+	fx_poll_at(&f, 0u);
+	fx_poll_at(&f, 300u); /* 超过单笔事务期限 */
+	CHECK(f.fake.aborts == 1u);
+	fx_complete(&f, -1, 0u);
+	fx_poll(&f);
+
+	CHECK(f.st.result == CIA402_RESULT_FAILED);
+	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 }

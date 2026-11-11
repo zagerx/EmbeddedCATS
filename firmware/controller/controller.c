@@ -71,8 +71,8 @@ enum cats_result controller_init(struct master *master)
 
 		/* 每轴一条 SDO 通道：I/O 线程执行，服务线程阻塞等待 */
 		sdo_client_init(&cats_controller.sdo[i], sdo);
-		cia402_device_init(&cats_controller.axes[i].dev,
-				   sdo_client_access(&cats_controller.sdo[i]), node_id);
+		cia402_init(&cats_controller.axes[i].dev,
+			    sdo_client_access(&cats_controller.sdo[i]), node_id);
 		axis_init(&cats_controller.axes[i], node_id);
 	}
 
@@ -136,7 +136,7 @@ void controller_svc_poll(void)
 	}
 	now = now_ms(ctl);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		cia402_device_service(&ctl->axes[i].dev, now);
+		axis_poll(&ctl->axes[i], now);
 	}
 }
 

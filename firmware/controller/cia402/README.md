@@ -10,7 +10,7 @@ cia402/
 │   ├── types.h    PDS 状态、控制字/状态字位、模式号
 │   ├── od.h       DS402 对象号
 │   ├── pds.h      状态解析与序列表
-│   └── device.h   设备实例（内嵌 hsm）、请求、结果与反馈
+│   └── device.h   对外三个动词 + 请求/状态结构 + 内部分组的设备实例
 └── src/
     ├── pds.c              纯标准知识
     ├── device.c           装配、service 推进、事件构造、读写原语、查询
@@ -30,23 +30,46 @@ cia402/
 层次只有三层：`sm_top → st_running → 具体流程状态`。`st_idle` 与 `st_monitor`
 直接挂在 `sm_top` 下，不属于任何流程，因此不继承 `st_running` 的"被抢占"语义。
 
-## 事件状态机
+## 对外只有三个动词
 
-状态机用 `hsm` 内核（与业务状态机同一套机制）。服务线程调用
-`cia402_device_service()`，把「请求槽、事务结果、取消」翻成事件分发：
+```c
+void         cia402_init(struct cia402_device *d, const struct sdo_access *access,
+                         uint8_t node_id);
+enum cia402_ret cia402_request(struct cia402_device *d, const struct cia402_request *req);
+void         cia402_poll(struct cia402_device *d, uint32_t now_ms,
+                         struct cia402_status *out);
+```
+
+- **request 只说"收不收"**：`ACCEPTED` / `BUSY` / `INVALID` / `REFUSED`，不阻塞、不承诺成功；
+- **poll 每拍推进一次，并把此刻的事实交出去**：`phase`、`result`、`fail`、
+  `abort_code` 与四个反馈量；
+- **等待不是本层的职责**：想同步的调用方自己轮询 `result`。
+
+"成功/失败"必须从 poll 出——request 返回的那一刻流程还没跑，它不可能知道结果。
+
+状态机用 `hsm` 内核（与业务状态机同一套机制）。`cia402_poll()` 把
+「请求槽、事务结果、取消」翻成事件分发：
 
 | 事件 | 触发 | 谁处理 |
 |---|---|---|
-| `SIG_DEV_START` | 请求槽里取出新请求 | `st_idle`：按请求类型迁到该流程的第一个状态 |
+| `SIG_DEV_START` | 请求槽里取出新请求（载荷是 `struct cia402_request`）| `st_idle`：按 kind 迁到该流程的第一个状态 |
 | `SIG_DEV_DONE` | 一笔事务有了结果 | 当前状态：判结果、决定下一步或收尾 |
 | `SIG_DEV_CANCEL` | 抢占 / 超时 / 手动取消 | `st_running`：统一退出回 `st_idle` |
 | `SIG_DEV_TICK` | 每拍一次 | `st_idle`：到间隔才进 `st_monitor` 读反馈 |
 
-一次 `service` 最多发起一笔对象事务，因此服务线程能在多个设备之间公平轮转，
+一次 `poll` 最多发起一笔对象事务，因此服务线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。
+
+`result` 与 `fail` **保持到下一次请求被受理**：受理新请求即作废旧结论。
+`axis` 层把 poll 的结果缓存在 `struct cats_axis` 里，并且只在 `result != NONE` 时
+覆盖——控制线程 20 ms 一拍、服务线程 1 ms 一拍，否则会错过那一次结论。
 
 被抢占或超时时结论作废还是报失败，由 `st_idle` 的 ENTRY 按取消原因决定
 （`st_running` 只负责退出，不碰结论文档）。
+
+安全链是例外：`st_qstop_*` 三个状态自己处理 `SIG_DEV_CANCEL`——写超时仍去读状态、
+读超时仍去断使能，只有最后一步失败才报失败。安全动作不允许因为单笔事务超时
+而停在"还在使能"的状态，所以它不继承 `st_running` 的统一退出。
 
 配置、使能、PP 和停止均不阻塞。状态机通过异步 `sdo_access` 发起对象读写，不使用循环等待或条件变量。
 

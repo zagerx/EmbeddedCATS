@@ -95,6 +95,7 @@ target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 add_library(cia402 STATIC
         controller/cia402/src/pds.c
         controller/cia402/src/device.c
+        controller/cia402/src/device_internal.c
         controller/cia402/src/states/states.c
         controller/cia402/src/states/state_idle.c
         controller/cia402/src/states/state_running.c

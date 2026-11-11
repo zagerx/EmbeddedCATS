@@ -18,7 +18,8 @@ extern "C" {
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct cats_axis {
 	uint8_t node_id;
-	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
+	struct cia402_device dev;   /* 协议知识全在里面，本层只问它结果 */
+	struct cia402_status status; /* 上一拍 poll 出来的事实，本层缓存 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
@@ -39,8 +40,11 @@ enum axis_motion {
 	AXIS_MOTION_FAILED    /* 超时 / abort / 驱动器故障 */
 };
 
-/* 驱动对象由组合根装配（cia402_device_init）后再交给轴层；轴层只记站号 */
+/* 驱动对象由组合根装配（cia402_init）后再交给轴层；轴层只记站号 */
 void axis_init(struct cats_axis *a, uint8_t node_id);
+
+/* 推进一次设备状态机并刷新本层缓存的事实；仅服务线程调用 */
+void axis_poll(struct cats_axis *a, uint32_t now_ms);
 
 /* 机械换算（每转脉冲数 / 每转毫米）见 config/cats_mech.h，编译期固定 */
 

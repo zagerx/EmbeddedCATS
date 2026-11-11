@@ -2,7 +2,10 @@
  * state_quick_stop.c — 快速停：6040 = 02，等驱动器自己停下，再断使能
  *
  * 这条链即使中途失败也要走完：写失败仍去读状态，读失败仍去断使能。
- * 安全动作不允许因为一笔事务没成而停在"还在使能"的状态。
+ * 安全动作不允许因为一笔事务没成而停在「还在使能」的状态。
+ *
+ * 因此三个状态都自己处理 SIG_DEV_CANCEL（单笔超时/被抢断），而不是让
+ * st_running 的统一退出把整条链一起收掉；只有最后一步失败才报失败。
  *
  * Author: zager
  */
@@ -28,7 +31,12 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case SIG_DEV_DONE:
 		/* 写失败也继续读：断使能链不因一笔事务失败而中断 */
-		d->wait_deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		d->job.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
+		return SM_TRAN(&st_qstop_read);
+
+	case SIG_DEV_CANCEL:
+		/* 单笔事务超时或被抢断：同样往下走，不允许停在「还在使能」 */
+		d->job.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
 		return SM_TRAN(&st_qstop_read);
 
 	default:
@@ -64,11 +72,15 @@ sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 		}
 		/* 读失败也判期限：停下就不再重读，直接断使能 */
-		if ((int32_t)(d->now_ms - d->wait_deadline) >= 0) {
+		if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
 			return SM_TRAN(&st_qstop_disable);
 		}
 		return SM_TRAN(&st_qstop_read);
 	}
+
+	case SIG_DEV_CANCEL:
+		/* 超时或被抢断：不等了，直接断使能 */
+		return SM_TRAN(&st_qstop_disable);
 
 	default:
 		return SM_SUPER(&st_running);
@@ -92,10 +104,15 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 
 	case SIG_DEV_DONE:
 		if (DEV_DONE_EVT(e)->status != 0) {
-			dev_finish(d, -1, DEV_DONE_EVT(e)->abort_code);
+			dev_fail(d, DEV_DONE_EVT(e));
 		} else {
-			dev_finish(d, 0, 0u);
+			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 		}
+		return SM_TRAN(&st_idle);
+
+	case SIG_DEV_CANCEL:
+		/* 最后一环也失败：这里是唯一该报失败的地方 */
+		dev_fail(d, &d->xfer.result);
 		return SM_TRAN(&st_idle);
 
 	default:

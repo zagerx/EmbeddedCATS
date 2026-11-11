@@ -27,7 +27,7 @@ sm_ret_t st_pp_write_velocity(struct sm_hsm *const me, const struct sm_event *co
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_PROFILE_VELOCITY, (uint32_t)d->vel, 4u,
+		dev_write(d, CIA402_OD_PROFILE_VELOCITY, (uint32_t)d->job.pp.velocity, 4u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -54,7 +54,7 @@ sm_ret_t st_pp_write_accel(struct sm_hsm *const me, const struct sm_event *const
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->acc, 4u,
+		dev_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->job.pp.accel, 4u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -81,7 +81,7 @@ sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->dec, 4u,
+		dev_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->job.pp.decel, 4u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -110,8 +110,8 @@ sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		d->pp_tgt = d->tgt;
-		dev_write(d, CIA402_OD_TARGET_POSITION, (uint32_t)d->tgt, 4u,
+		d->job.pp.issued = d->job.pp.target;
+		dev_write(d, CIA402_OD_TARGET_POSITION, (uint32_t)d->job.pp.target, 4u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -138,7 +138,7 @@ sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, d->controlword | CIA402_CW_NEW_SETPOINT, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, d->xfer.cw_ok | CIA402_CW_NEW_SETPOINT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -166,7 +166,7 @@ sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		dev_write(d, CIA402_OD_CONTROLWORD,
-			  d->controlword & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
+			  d->xfer.cw_ok & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -210,20 +210,20 @@ sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const
 		sw = (uint16_t)r->value;
 		dev_cache_statusword(d, sw);
 		if (cia402_parse(sw) == CIA402_FAULT) {
-			dev_finish(d, -1, 0u);
+			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
 		}
 		if ((sw & CIA402_SW_TARGET_REACHED) == 0u) {
-			d->pp_seen_low = 1u; /* 目标确实还没到 */
-		} else if (d->pp_seen_low != 0u) {
-			dev_finish(d, 0, 0u);
+			d->job.pp.seen_low = 1u; /* 目标确实还没到 */
+		} else if (d->job.pp.seen_low != 0u) {
+			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		} else {
 			/* bit10 一开始就是 1：读 6064 分辨"目标等于当前位置"和旧值 */
 			return SM_TRAN(&st_pp_read_position);
 		}
-		if ((int32_t)(d->now_ms - d->pp_deadline) >= 0) {
-			dev_finish(d, -1, 0u);
+		if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
+			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_pp_read_status);
@@ -257,15 +257,15 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		pthread_mutex_lock(&d->lock);
-		d->position = (int32_t)r->value;
-		pthread_mutex_unlock(&d->lock);
-		if ((int32_t)r->value == d->pp_tgt) {
-			dev_finish(d, 0, 0u);
+		pthread_mutex_lock(&d->slot.lock);
+		d->facts.position = (int32_t)r->value;
+		pthread_mutex_unlock(&d->slot.lock);
+		if ((int32_t)r->value == d->job.pp.issued) {
+			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		}
-		if ((int32_t)(d->now_ms - d->pp_deadline) >= 0) {
-			dev_finish(d, -1, 0u);
+		if ((int32_t)(d->now_ms - d->job.deadline) >= 0) {
+			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_pp_read_status);
@@ -278,6 +278,6 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 
 static void arm_arrive(struct cia402_device *d)
 {
-	d->pp_seen_low = 0u;
-	d->pp_deadline = d->now_ms + CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS;
+	d->job.pp.seen_low = 0u;
+	d->job.deadline = d->now_ms + CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS;
 }

@@ -64,9 +64,9 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 		if (r->status != 0) {
 			dev_fail(d, r);
 		} else if ((r->value & 0xFFu) == CIA402_MODE_PP) {
-			dev_finish(d, 0, 0u);
+			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
 		} else {
-			dev_finish(d, -1, 0u); /* 模式没设进去 */
+			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_CHECK); /* 模式没设进去 */
 		}
 		return SM_TRAN(&st_idle);
 	}

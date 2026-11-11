@@ -14,6 +14,17 @@
 #include <stddef.h>
 
 /* mm 到 pulse：double 计算、远离零取整并饱和到 int32，机械参数见 cats_mech.h */
+static int axis_submit(struct cats_axis *a, const struct cia402_request *req)
+{
+	if (cia402_request(&a->dev, req) != CIA402_ACCEPTED) {
+		return 1;
+	}
+	/* 新动作开始：上一条的结论作废，别让 MOVING 第一拍读到旧 DONE */
+	a->status.result = CIA402_RESULT_NONE;
+	a->status.fail = CIA402_FAIL_NONE;
+	return 0;
+}
+
 static int32_t scale_mm(float mm);
 
 /* pulse 到 mm：使用与 scale_mm 相反的 double 换算 */
@@ -27,6 +38,41 @@ static float unscale_mm(int32_t pulse);
 void axis_init(struct cats_axis *a, uint8_t node_id)
 {
 	a->node_id = node_id;
+}
+
+/* 提交一条请求；受理成功就把本层缓存的旧结论作废（新动作开始）*/
+static int axis_submit(struct cats_axis *a, const struct cia402_request *req);
+
+/**
+ * axis_poll - 推进一次设备状态机并刷新本层缓存
+ * @a: 轴对象；NULL 安全
+ * @now_ms: 当前单调毫秒时刻
+ */
+void axis_poll(struct cats_axis *a, uint32_t now_ms)
+{
+	if (a == NULL) {
+		return;
+	}
+	{
+		struct cia402_status st;
+
+		cia402_poll(&a->dev, now_ms, &st);
+		/* 结论是事件：只在有新结论时覆盖缓存，否则控制线程
+		 * （20 ms 一拍）会错过服务线程（1 ms 一拍）刚填上的那一次。 */
+		if (st.result != CIA402_RESULT_NONE) {
+			a->status.result = st.result;
+			a->status.fail = st.fail;
+			a->status.abort_code = st.abort_code;
+		}
+		a->status.phase = st.phase;
+		a->status.configured = st.configured;
+		a->status.enabled = st.enabled;
+		a->status.failed = st.failed;
+		a->status.statusword = st.statusword;
+		a->status.position = st.position;
+		a->status.velocity = st.velocity;
+		a->status.error_code = st.error_code;
+	}
 }
 
 /**
@@ -45,8 +91,16 @@ int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
 	if (mm != mm || mm_s != mm_s || mm_s2 != mm_s2) {
 		return -1; /* NaN：进到整数换算就是未定义行为，这里就拦住 */
 	}
-	return cia402_device_pp_start(&a->dev, scale_mm(mm), scale_mm(mm_s), scale_mm(mm_s2),
-				      scale_mm(mm_s2));
+	{
+		struct cia402_request req;
+
+		req.kind = CIA402_REQ_MOVE;
+		req.pp.target = scale_mm(mm);
+		req.pp.velocity = scale_mm(mm_s);
+		req.pp.accel = scale_mm(mm_s2);
+		req.pp.decel = scale_mm(mm_s2);
+		return axis_submit(a, &req);
+	}
 }
 
 /**
@@ -57,7 +111,14 @@ int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2)
  */
 int axis_halt(struct cats_axis *a)
 {
-	return (a == NULL) ? -1 : cia402_device_halt(&a->dev);
+	if (a == NULL) {
+		return -1;
+	}
+	{
+		const struct cia402_request req = {.kind = CIA402_REQ_HALT};
+
+		return axis_submit(a, &req);
+	}
 }
 
 /**
@@ -68,7 +129,7 @@ int axis_halt(struct cats_axis *a)
  */
 uint32_t axis_abort_code(const struct cats_axis *a)
 {
-	return (a == NULL) ? 0U : cia402_device_abort_code(&a->dev);
+	return (a == NULL) ? 0U : a->status.abort_code;
 }
 
 /**
@@ -91,10 +152,10 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
 		return;
 	}
 
-	out->position_mm = unscale_mm(cia402_device_feedback_position(&a->dev));
-	out->velocity_mm_s = unscale_mm(cia402_device_feedback_velocity(&a->dev));
-	out->statusword = cia402_device_feedback_statusword(&a->dev);
-	out->error_code = cia402_device_feedback_error_code(&a->dev);
+	out->position_mm = unscale_mm(a->status.position);
+	out->velocity_mm_s = unscale_mm(a->status.velocity);
+	out->statusword = a->status.statusword;
+	out->error_code = a->status.error_code;
 }
 
 /**
@@ -105,19 +166,18 @@ void axis_sample(const struct cats_axis *a, struct axis_sample *out)
  */
 enum axis_motion axis_take_motion(struct cats_axis *a)
 {
-	enum cia402_device_result r;
-
 	if (a == NULL) {
 		return AXIS_MOTION_NONE;
 	}
-	r = cia402_device_take_result(&a->dev);
-	if (r == CIA402_DEVICE_RESULT_DONE) {
+	if (a->status.result == CIA402_RESULT_DONE) {
+		a->status.result = CIA402_RESULT_NONE; /* 取走即清：一次结论只报一次 */
 		return AXIS_MOTION_DONE;
 	}
-	if (r == CIA402_DEVICE_RESULT_FAILED) {
+	if (a->status.result == CIA402_RESULT_FAILED) {
+		a->status.result = CIA402_RESULT_NONE;
 		return AXIS_MOTION_FAILED;
 	}
-	return cia402_device_busy(&a->dev) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
+	return (a->status.phase != CIA402_PHASE_IDLE) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
 }
 
 /**
@@ -135,8 +195,10 @@ int axis_config_all(struct cats_axis *axes, uint8_t count)
 		return -1;
 	}
 	for (i = 0; i < count; i++) {
-		/* 1 = 已经配过（不重复发起），不算错 */
-		(void)cia402_device_request_config(&axes[i].dev);
+		const struct cia402_request req = {.kind = CIA402_REQ_CONFIG};
+
+		/* 已配过时会被内部拒绝，不算错 */
+		(void)axis_submit(&axes[i], &req);
 	}
 	return 0;
 }
@@ -156,8 +218,10 @@ int axis_enable_all(struct cats_axis *axes, uint8_t count)
 		return -1;
 	}
 	for (i = 0; i < count; i++) {
-		/* 1 = 已经要求过（不重复发起），不算错 */
-		(void)cia402_device_request_enable(&axes[i].dev);
+		const struct cia402_request req = {.kind = CIA402_REQ_ENABLE};
+
+		/* 已使能时会被内部拒绝，不算错 */
+		(void)axis_submit(&axes[i], &req);
 	}
 	return 0;
 }
@@ -175,7 +239,9 @@ void axis_quick_stop_all(struct cats_axis *axes, uint8_t count)
 		return;
 	}
 	for (i = 0; i < count; i++) {
-		(void)cia402_device_quick_stop(&axes[i].dev);
+		const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
+
+		(void)axis_submit(&axes[i], &req);
 	}
 }
 
@@ -194,7 +260,7 @@ int axis_all_configured(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (!cia402_device_is_configured(&axes[i].dev)) {
+		if (axes[i].status.configured == 0u) {
 			return 0;
 		}
 	}
@@ -216,7 +282,7 @@ int axis_all_enabled(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (!cia402_device_is_enabled(&axes[i].dev)) {
+		if (axes[i].status.enabled == 0u) {
 			return 0;
 		}
 	}
@@ -238,7 +304,7 @@ int axis_any_failed(const struct cats_axis *axes, uint8_t count)
 		return 0;
 	}
 	for (i = 0; i < count; i++) {
-		if (cia402_device_failed(&axes[i].dev)) {
+		if (axes[i].status.failed != 0u) {
 			return 1;
 		}
 	}
