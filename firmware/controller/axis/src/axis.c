@@ -57,8 +57,8 @@ void axis_poll(struct cats_axis *a, uint32_t now_ms)
 		struct cia402_status st;
 
 		cia402_poll(&a->dev, now_ms, &st);
-		/* 结论是事件：只在有新结论时覆盖缓存，否则控制线程
-		 * （20 ms 一拍）会错过服务线程（1 ms 一拍）刚填上的那一次。 */
+		/* 结论是事件：只在有新结论时覆盖缓存。结论只保持到下次受理，
+		 * 每拍都覆盖的话，上层采样一慢就会整条错过。 */
 		if (st.result != CIA402_RESULT_NONE) {
 			a->status.result = st.result;
 			a->status.fail = st.fail;

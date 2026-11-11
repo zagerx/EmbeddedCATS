@@ -15,7 +15,7 @@
 #include <string.h>
 #include <time.h>
 
-#define POLL_INTERVAL_MS 20u /* 节拍：够判 750 ms 心跳超时（误差 2.7%） */
+#define POLL_INTERVAL_MS 1u /* 节拍：与 I/O、服务线程一致，心跳超时误差 0.13% */
 
 /* 可选：到点往 app 注入一条指令，方便在命令行复现运动/停止/急停。
  * 单位：位置 mm、速度 mm/s、加速度 mm/s²（换算参数是编译期常量，见 controller/config/cats_mech.h）。 */
@@ -148,14 +148,16 @@ static void on_sigint(int sig)
 	s_stop = 1;
 }
 
-static void sleep_ms(uint32_t ms)
+/* 睡到绝对时刻 deadline_ms：早于该时刻返回才算正常，不累积漂移。
+ * 时间基准与 can_io_now_ms 同源（CLOCK_MONOTONIC 毫秒）。 */
+static void sleep_until_ms(uint32_t deadline_ms)
 {
 	const struct timespec ts = {
-		.tv_sec = (time_t)(ms / 1000u),
-		.tv_nsec = (long)(ms % 1000u) * 1000000L,
+		.tv_sec = (time_t)(deadline_ms / 1000u),
+		.tv_nsec = (long)(deadline_ms % 1000u) * 1000000L,
 	};
 
-	(void)nanosleep(&ts, NULL);
+	(void)clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
 }
 
 int main(int argc, char **argv)
@@ -170,6 +172,7 @@ int main(int argc, char **argv)
 	enum cats_state last = CATS_STATE_COUNT;
 	uint32_t start_ms;
 	uint32_t now;
+	uint32_t next;
 	int moved = 0;
 	int moved2 = 0;
 	int batch = 0;
@@ -207,6 +210,7 @@ int main(int argc, char **argv)
 
 	start_ms = can_io_now_ms(&io);
 	s_base_ms = start_ms;
+	next = start_ms;
 
 	if (cmd.armed) {
 		printf("换算参数由 controller/config/cats_mech.h 决定（%d pulse/rev，%.3f "
@@ -223,8 +227,8 @@ int main(int argc, char **argv)
 			long t = (long)(now - s_base_ms);
 
 			/* 两轴同一时刻下发：走批量接口，一起启动（这才是"同时动"） */
-			if (cmd.has_move && cmd.has_move2 && !batch && cmd.move2_at_ms == cmd.move_at_ms &&
-			    t >= cmd.move_at_ms) {
+			if (cmd.has_move && cmd.has_move2 && !batch &&
+			    cmd.move2_at_ms == cmd.move_at_ms && t >= cmd.move_at_ms) {
 				struct stm_move reqs[2];
 
 				batch = 1;
@@ -321,7 +325,13 @@ int main(int argc, char **argv)
 		if (seconds > 0 && (long)(now - start_ms) >= seconds * 1000L) {
 			break;
 		}
-		sleep_ms(POLL_INTERVAL_MS);
+		/* 固定基准 + 固定步长：晚一点点会自己追回来，不累积漂移；
+		 * 但落后超过一拍（例如被 printf 阻塞）就重新对齐，不做无谓追赶。 */
+		next += POLL_INTERVAL_MS;
+		if ((int32_t)(now - next) >= 0) {
+			next = now;
+		}
+		sleep_until_ms(next);
 	}
 
 	can_io_close(&io);

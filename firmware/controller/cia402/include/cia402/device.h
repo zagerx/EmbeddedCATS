@@ -105,8 +105,7 @@ struct cia402_status {
 enum cia402_cancel_reason {
 	CIA402_CANCEL_NONE = 0,
 	CIA402_CANCEL_REQUEST, /* 被 Halt / Quick Stop 抢占：结论作废 */
-	CIA402_CANCEL_TIMEOUT, /* 单笔事务超时：报失败 */
-	CIA402_CANCEL_MANUAL   /* 外部取消：结论作废 */
+	CIA402_CANCEL_TIMEOUT  /* 单笔事务超时：报失败 */
 };
 
 /* 请求槽：跨线程，lock 保护 */
