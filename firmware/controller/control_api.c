@@ -18,16 +18,16 @@ void controller_publish(void)
 {
 	struct controller *app = control_ctx();
 	int state;
-	struct cats_axis_sample samples[CATS_MAX_AXES];
+	struct controller_axis_sample samples[CONTROLLER_MAX_AXES];
 	uint8_t i;
 
-	if (app->master.bus == NULL) {
+	if (app->master == NULL) {
 		return;
 	}
 
 	/* 将当前 HSM 叶子映射为对外状态；未注册时沿用 PREPARING。 */
-	state = CATS_STATE_PREPARING;
-	for (i = 0u; i < CATS_STATE_COUNT; i++) {
+	state = CONTROLLER_STATE_PREPARING;
+	for (i = 0u; i < CONTROLLER_STATE_COUNT; i++) {
 		if (states[i] == sm_hsm_state(&app->hsm)) {
 			state = (int)i;
 			break;
@@ -35,7 +35,7 @@ void controller_publish(void)
 	}
 
 	/* 换算在锁外做（axis_sample 只读本线程写的字段，不做 I/O） */
-	for (i = 0; i < CATS_MAX_AXES; i++) {
+	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
 		struct axis_sample s;
 
 		axis_sample(&app->axes[i], &s);
@@ -47,7 +47,7 @@ void controller_publish(void)
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
 	app->published_fault = (int)app->fault_code;
-	for (i = 0; i < CATS_MAX_AXES; i++) {
+	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
 		app->published_axes[i] = samples[i];
 	}
 	pthread_mutex_unlock(&app->lock);
@@ -61,48 +61,48 @@ void controller_publish(void)
 void controller_estop(void)
 {
 	struct controller *ctl = control_ctx();
-	struct cats_evt evt = {.super = {.sig = CATS_SIG_ESTOP}};
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ESTOP}};
 
-	if (ctl->master.bus == NULL) {
+	if (ctl->master == NULL) {
 		return;
 	}
 	/* 插到队头：优先于已排队的所有命令 */
-	cats_evtq_push_front(&ctl->evtq, &evt);
+	controller_evtq_push_front(&ctl->evtq, &evt);
 }
 
 /**
  * controller_move - 同时提交一批绝对位置指令
  * @reqs: 指令数组，每条含轴号与目标位置/速度/加速度
- * @count: 条数（1..CATS_MAX_AXES）
+ * @count: 条数（1..CONTROLLER_MAX_AXES）
  *
  * 一批轴一起启动，全部到位才回 HOLDING。
  *
- * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数或状态无效。
+ * Return: CONTROLLER_OK 已入队；CONTROLLER_ERR_BUSY 队列满；CONTROLLER_ERR_PARAM 参数或状态无效。
  */
-enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
+enum controller_result controller_move(const struct controller_move_req *reqs, uint8_t count)
 {
 	struct controller *ctl = control_ctx();
-	struct cats_evt evt = {.super = {.sig = CATS_SIG_MOVE}};
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_MOVE}};
 	uint8_t i;
 
-	if (ctl->master.bus == NULL || reqs == NULL || count == 0u || count > CATS_MAX_AXES) {
-		return CATS_ERR_PARAM;
+	if (ctl->master == NULL || reqs == NULL || count == 0u || count > CONTROLLER_MAX_AXES) {
+		return CONTROLLER_ERR_PARAM;
 	}
 	evt.u.move.count = count;
 	for (i = 0u; i < count; i++) {
-		const struct stm_move *m = &reqs[i];
+		const struct controller_move_req *m = &reqs[i];
 
 		if (m->axis >= ctl->axis_count) {
-			return CATS_ERR_PARAM;
+			return CONTROLLER_ERR_PARAM;
 		}
 		/* NaN 进到整数换算就是未定义行为：入口就拦住（±inf 由轴层饱和） */
 		if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
-			return CATS_ERR_PARAM;
+			return CONTROLLER_ERR_PARAM;
 		}
 		evt.u.move.axis[i] = reqs[i];
 	}
 	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
-	return cats_evtq_push(&ctl->evtq, &evt) ? CATS_OK : CATS_ERR_BUSY;
+	return controller_evtq_push(&ctl->evtq, &evt) ? CONTROLLER_OK : CONTROLLER_ERR_BUSY;
 }
 
 /**
@@ -113,13 +113,13 @@ enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
 void controller_stop(void)
 {
 	struct controller *ctl = control_ctx();
-	struct cats_evt evt = {.super = {.sig = CATS_SIG_STOP}};
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_STOP}};
 
-	if (ctl->master.bus == NULL) {
+	if (ctl->master == NULL) {
 		return;
 	}
 	/* 停止也插队：排在已有序命令前面 */
-	cats_evtq_push_front(&ctl->evtq, &evt);
+	controller_evtq_push_front(&ctl->evtq, &evt);
 }
 
 /**
@@ -127,13 +127,13 @@ void controller_stop(void)
  *
  * Return: 最近一次发布的故障码。
  */
-enum cats_fault controller_fault_code(void)
+enum controller_fault controller_fault_code(void)
 {
 	struct controller *ctl = control_ctx();
-	enum cats_fault f;
+	enum controller_fault f;
 
 	pthread_mutex_lock(&ctl->lock);
-	f = (enum cats_fault)ctl->published_fault;
+	f = (enum controller_fault)ctl->published_fault;
 	pthread_mutex_unlock(&ctl->lock);
 	return f;
 }
@@ -143,13 +143,13 @@ enum cats_fault controller_fault_code(void)
  *
  * Return: 最近一次发布的业务状态。
  */
-enum cats_state controller_state(void)
+enum controller_state controller_state(void)
 {
 	struct controller *ctl = control_ctx();
-	enum cats_state s;
+	enum controller_state s;
 
 	pthread_mutex_lock(&ctl->lock);
-	s = (enum cats_state)ctl->published_state;
+	s = (enum controller_state)ctl->published_state;
 	pthread_mutex_unlock(&ctl->lock);
 	return s;
 }
@@ -172,42 +172,20 @@ uint32_t controller_axis_abort(uint8_t axis)
 
 /**
  * controller_axis_sample - 拷贝一轴已发布的反馈样本
- * @axis: 轴索引，范围为 0 至 CATS_MAX_AXES-1
+ * @axis: 轴索引，范围为 0 至 CONTROLLER_MAX_AXES-1
  * @out: 输出样本；NULL 时拒绝
  *
- * Return: CATS_OK 成功；CATS_ERR_PARAM 输出为空或轴索引越界。
+ * Return: CONTROLLER_OK 成功；CONTROLLER_ERR_PARAM 输出为空或轴索引越界。
  */
-enum cats_result controller_axis_sample(uint8_t axis, struct cats_axis_sample *out)
+enum controller_result controller_axis_sample(uint8_t axis, struct controller_axis_sample *out)
 {
 	struct controller *ctl = control_ctx();
 
-	if (out == NULL || axis >= CATS_MAX_AXES) {
-		return CATS_ERR_PARAM;
+	if (out == NULL || axis >= CONTROLLER_MAX_AXES) {
+		return CONTROLLER_ERR_PARAM;
 	}
 	pthread_mutex_lock(&ctl->lock);
 	*out = ctl->published_axes[axis];
 	pthread_mutex_unlock(&ctl->lock);
-	return CATS_OK;
-}
-
-/**
- * controller_state_name - 获取业务状态名称
- * @s: 业务状态枚举
- *
- * Return: 静态名称字符串；未知状态返回 "?"。
- */
-const char *controller_state_name(enum cats_state s)
-{
-	return stm_state_name(s);
-}
-
-/**
- * controller_fault_name - 获取整机故障名称
- * @f: 故障枚举
- *
- * Return: 静态名称字符串；未知故障返回 "?"。
- */
-const char *controller_fault_name(enum cats_fault f)
-{
-	return stm_fault_name(f);
+	return CONTROLLER_OK;
 }

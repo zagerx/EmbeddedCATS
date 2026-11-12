@@ -27,18 +27,18 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_ENTRY:
 		ctl->move_done = 0u;
 		if (issue_move(ctl) < 0) {
-			ctl->fault_code = CATS_FAULT_MOTION_FAILED;
+			ctl->fault_code = CONTROLLER_FAULT_MOTION_FAILED;
 		}
 		break;
 
-	case CATS_SIG_MOVE:
+	case CONTROLLER_SIG_MOVE:
 		/* 运动中的新目标：驱动层不接受改目标，本段跑完再说 ⇒ 丢弃 */
 		return SM_HANDLED();
 
-	case CATS_SIG_STOP:
+	case CONTROLLER_SIG_STOP:
 		return SM_TRAN(&st_halting); /* Halt 动作在 HALTING 的 ENTRY */
 
-	case CATS_SIG_TICK: {
+	case CONTROLLER_SIG_TICK: {
 		const uint8_t all = (uint8_t)((1u << ctl->move.count) - 1u);
 		uint8_t i;
 
@@ -48,7 +48,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			switch (axis_take_motion(&ctl->axes[ctl->move.axis[i].axis])) {
 			case AXIS_MOTION_FAILED:
-				ctl->fault_code = CATS_FAULT_MOTION_FAILED;
+				ctl->fault_code = CONTROLLER_FAULT_MOTION_FAILED;
 				return SM_SUPER(&st_online);
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);
@@ -57,7 +57,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 				break;
 			}
 		}
-		/* count 最多 CATS_MAX_AXES(2) 条，位图每一位对应一条指令 */
+		/* count 最多 CONTROLLER_MAX_AXES(2) 条，位图每一位对应一条指令 */
 		if (ctl->move_done == all) {
 			return SM_TRAN(&st_holding);
 		}
@@ -78,11 +78,11 @@ static int issue_move(struct controller *ctl)
 {
 	uint8_t i;
 
-	if (ctl->move.count == 0u || ctl->move.count > CATS_MAX_AXES) {
+	if (ctl->move.count == 0u || ctl->move.count > CONTROLLER_MAX_AXES) {
 		return -1;
 	}
 	for (i = 0u; i < ctl->move.count; i++) {
-		const struct stm_move *m = &ctl->move.axis[i];
+		const struct controller_move_req *m = &ctl->move.axis[i];
 
 		if (m->axis >= ctl->axis_count) {
 			return -1;

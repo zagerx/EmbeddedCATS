@@ -27,18 +27,18 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		for (i = 0u; i < ctl->move.count; i++) {
 			/* ENTRY 里不迁移，失败交给 ROOT */
 			if (axis_halt(&ctl->axes[ctl->move.axis[i].axis]) != 0) {
-				ctl->fault_code = CATS_FAULT_STOP_FAILED;
+				ctl->fault_code = CONTROLLER_FAULT_STOP_FAILED;
 			}
 		}
 		break;
 	}
 
-	case CATS_SIG_MOVE:
-	case CATS_SIG_STOP:
+	case CONTROLLER_SIG_MOVE:
+	case CONTROLLER_SIG_STOP:
 		/* 停车期间的新指令一律丢弃（否则会留在队列里，停稳后被意外执行） */
 		return SM_HANDLED();
 
-	case CATS_SIG_TICK: {
+	case CONTROLLER_SIG_TICK: {
 		const uint8_t all = (uint8_t)((1u << ctl->move.count) - 1u);
 		uint8_t i;
 
@@ -50,7 +50,7 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			m = axis_take_motion(&ctl->axes[ctl->move.axis[i].axis]);
 			if (m == AXIS_MOTION_FAILED) {
-				ctl->fault_code = CATS_FAULT_STOP_FAILED;
+				ctl->fault_code = CONTROLLER_FAULT_STOP_FAILED;
 			} else if (m == AXIS_MOTION_DONE) {
 				ctl->move_done |= (uint8_t)(1u << i);
 			}

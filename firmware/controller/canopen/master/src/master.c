@@ -18,13 +18,16 @@
 #define MASTER_RX_BUDGET 64u
 
 /* CO_CANopenInit 的参数：本机选择 */
-#define MASTER_NMT_CONTROL 0u /* 不自动进 operational，由业务状态机下令 */
+#define MASTER_NMT_CONTROL 0u   /* 不自动进 operational，由业务状态机下令 */
 #define MASTER_FIRST_HB_MS 500u /* 心跳生产者的首帧延时（本机不生产心跳，占位） */
 #define MASTER_SDO_SRV_TIMEOUT_MS 1000u
 #define MASTER_SDO_CLI_TIMEOUT_MS 500u
 
 /* 将站号映射到节点表下标，未登记时返回 -1 */
 static int master_index(const struct master *m, uint8_t node_id);
+
+/* 立即发送一条 NMT 命令；会直接发帧，只能由 I/O 线程调用 */
+static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
 
 /**
  * master_init - 绑定总线并初始化 CANopenNode
@@ -41,6 +44,7 @@ void master_init(struct master *m, struct can_io *bus)
 	memset(m, 0, sizeof(*m));
 	m->bus = bus;
 	co_cats_can_init(&m->can, bus);
+	pthread_mutex_init(&m->nmt_lock, NULL);
 
 	/* CO_USE_GLOBALS：返回的是静态实例，不动态分配内存 */
 	m->co = CO_new(NULL, NULL);
@@ -131,14 +135,16 @@ struct can_io *master_bus(struct master *m)
 }
 
 /**
- * master_set_state - 发送一条 NMT 命令
+ * master_nmt_send - 立即发送一条 NMT 命令
  * @m: 主站对象
  * @node_id: 目标站号，0 表示所有从站
  * @cmd: NMT 命令
  *
+ * 经 CO_NMT_sendCommand 直接发帧（不排队），因此只能在 I/O 线程里调用。
+ *
  * Return: 0 已交给协议栈发送；-1 主站未初始化或发送失败。
  */
-int master_set_state(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
+static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
 {
 	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
 		return -1;
@@ -146,6 +152,30 @@ int master_set_state(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
 	if (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) != CO_ERROR_NO) {
 		return -1;
 	}
+	return 0;
+}
+
+/**
+ * master_request_nmt - 登记一条待发 NMT 命令
+ * @m: 主站对象
+ * @node_id: 目标站号，0 表示所有从站
+ * @cmd: NMT 命令
+ *
+ * 任意线程可调。只登记不发送：帧由 I/O 线程在下一拍 master_send_step()
+ * 开头发出，保证帧只从 I/O 线程出去。同一拍只保留最后一条登记。
+ *
+ * Return: 0 已登记；-1 主站未初始化。
+ */
+int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
+{
+	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
+		return -1;
+	}
+	pthread_mutex_lock(&m->nmt_lock);
+	m->nmt_node_id = node_id;
+	m->nmt_cmd = cmd;
+	m->nmt_pending = 1u;
+	pthread_mutex_unlock(&m->nmt_lock);
 	return 0;
 }
 
@@ -187,6 +217,9 @@ void master_send_step(struct master *m, uint32_t now_ms)
 {
 	uint32_t now_us;
 	uint32_t dt_us;
+	uint8_t nmt_pending;
+	uint8_t nmt_node_id;
+	enum master_nmt_cmd nmt_cmd;
 
 	if (m == NULL || m->co == NULL) {
 		return;
@@ -195,6 +228,17 @@ void master_send_step(struct master *m, uint32_t now_ms)
 	now_us = now_ms * 1000u;
 	dt_us = (m->last_us == 0u) ? 0u : (uint32_t)(now_us - m->last_us);
 	m->last_us = now_us;
+
+	/* 先发别线程登记的 NMT：它没有应答，先于本拍的 SDO 帧出去即可 */
+	pthread_mutex_lock(&m->nmt_lock);
+	nmt_pending = m->nmt_pending;
+	nmt_node_id = m->nmt_node_id;
+	nmt_cmd = m->nmt_cmd;
+	m->nmt_pending = 0u;
+	pthread_mutex_unlock(&m->nmt_lock);
+	if (nmt_pending != 0u) {
+		(void)master_nmt_send(m, nmt_node_id, nmt_cmd);
+	}
 
 	/* 栈的统一入口：心跳消费超时、SDO 超时、NMT 处理、发帧都在里面 */
 	(void)CO_process(m->co, false, dt_us, NULL);

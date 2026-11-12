@@ -13,7 +13,7 @@ class StateBar : public QWidget
 	Q_OBJECT
 
       public:
-	/* 粗粒度档位：只用于圆点颜色与说明文字，不追求与 cats_state 一一对应 */
+	/* 粗粒度档位：只用于圆点颜色与说明文字，不追求与 controller_state 一一对应 */
 	enum class State {
 		Preparing = 0,
 		Enabling,

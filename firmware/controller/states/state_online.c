@@ -21,9 +21,9 @@ sm_ret_t st_online(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case CATS_SIG_TICK:
+	case CONTROLLER_SIG_TICK:
 		if (!ctl->hb_ok) {
-			ctl->fault_code = CATS_FAULT_HEARTBEAT_LOST; /* 交 ROOT 迁 FAULT */
+			ctl->fault_code = CONTROLLER_FAULT_HEARTBEAT_LOST; /* 交 ROOT 迁 FAULT */
 		}
 		return SM_SUPER(&st_root);
 

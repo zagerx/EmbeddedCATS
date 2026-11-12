@@ -29,18 +29,18 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_EXIT:
 		break; /* 失败的那一步已经停下，正常完成时也不再发帧 */
 
-	case CATS_SIG_TICK: {
-		uint32_t elapsed = ctl->ops.now_ms(ctl->ops.ctx) - ctl->state_since_ms;
+	case CONTROLLER_SIG_TICK: {
+		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
 
 		if (axis_any_failed(ctl->axes, ctl->axis_count)) {
-			ctl->fault_code = CATS_FAULT_CONFIG_FAILED;
+			ctl->fault_code = CONTROLLER_FAULT_CONFIG_FAILED;
 			return SM_SUPER(&st_online); /* 由 ROOT 统一迁 FAULT */
 		}
 		if (axis_all_configured(ctl->axes, ctl->axis_count)) {
 			return SM_TRAN(&st_enabling);
 		}
 		if (elapsed > CONFIG_TIMEOUT_MS) {
-			ctl->fault_code = CATS_FAULT_CONFIG_TIMEOUT;
+			ctl->fault_code = CONTROLLER_FAULT_CONFIG_TIMEOUT;
 		}
 		return SM_SUPER(&st_online);
 	}

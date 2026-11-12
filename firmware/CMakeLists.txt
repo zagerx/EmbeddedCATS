@@ -35,7 +35,7 @@ add_library(cats_master STATIC controller/canopen/master/src/master.c)
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/master/include)
 # master.h 要用 <bus/can_io.h>：bus 是它的下层，路径向上游都可见
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
-target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan)
+target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan Threads::Threads)
 
 # ---------------------------------------------------------------
 # CANopenNode v4（第三方协议栈，原样参与构建）
@@ -59,7 +59,7 @@ add_library(canopen_node STATIC
 	${CANOPENNODE_DIR}/301/CO_SYNC.c
 	${CANOPENNODE_DIR}/301/CO_TIME.c
 	${CANOPENNODE_DIR}/301/crc16-ccitt.c
-	controller/canopen/driver/co_driver_cats.c
+	controller/canopen/driver/CO_driver.c
 	controller/config/canopen_node/OD.c)
 target_include_directories(canopen_node PUBLIC
 	${CANOPENNODE_DIR}
@@ -129,7 +129,7 @@ target_include_directories(cats_hsm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controlle
 # 控制层：组合根 + 输入事件队列 + 状态图，统一持有一个控制器上下文。
 add_library(cats_control STATIC
 	controller/controller.c
-	controller/controller_ops.c
+	controller/controller_actions.c
 	controller/control_api.c
 	controller/evt_queue.c
 	controller/states/states.c

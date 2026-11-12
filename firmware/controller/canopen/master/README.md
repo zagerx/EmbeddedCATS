@@ -5,7 +5,7 @@
 
 本目录只做三件"本机才有的事"：
 
-1. 把总线接到 CO_driver 的移植层（`../driver/co_driver_cats.c`）；
+1. 把总线接到 CO_driver 的移植层（`../driver/CO_driver.c`）；
 2. **站号表**：这台机器登记了哪几个从站，第 i 个登记 ⇒ 第 i 条 SDO 客户端通道
    （对应对象字典 `0x1280` / `0x1281`）；
 3. 每拍两段：`master_recv_step()` 抽帧交给栈，`master_send_step()` 调 `CO_process()`。

@@ -168,7 +168,7 @@ int main(int argc, char **argv)
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
 	long seconds = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;
 	struct probe_cmd cmd = probe_cmd_parse(argc, argv);
-	enum cats_state last = CATS_STATE_COUNT;
+	enum controller_state last = CONTROLLER_STATE_COUNT;
 	uint32_t start_ms;
 	uint32_t now;
 	uint32_t next;
@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	if (controller_init(&io) != CATS_OK) {
+	if (controller_init(&io) != CONTROLLER_OK) {
 		fprintf(stderr, "controller_init 失败\n");
 		can_io_close(&io);
 		return 1;
@@ -224,7 +224,7 @@ int main(int argc, char **argv)
 			/* 两轴同一时刻下发：走批量接口，一起启动（这才是"同时动"） */
 			if (cmd.has_move && cmd.has_move2 && !batch &&
 			    cmd.move2_at_ms == cmd.move_at_ms && t >= cmd.move_at_ms) {
-				struct stm_move reqs[2];
+				struct controller_move_req reqs[2];
 
 				batch = 1;
 				moved = 1;
@@ -239,13 +239,13 @@ int main(int argc, char **argv)
 				reqs[1].mm_s2 = (float)cmd.acc_mm_s2;
 				printf("[%6ld] 指令：move 双轴 %.3f / %.3f mm\n", t, cmd.move_mm,
 				       cmd.move2_mm);
-				if (controller_move(reqs, 2u) != CATS_OK) {
+				if (controller_move(reqs, 2u) != CONTROLLER_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
 			}
 			if (cmd.has_move && !moved && t >= cmd.move_at_ms) {
-				struct stm_move req = {
+				struct controller_move_req req = {
 					.axis = 0,
 					.mm = (float)cmd.move_mm,
 					.mm_s = (float)cmd.vel_mm_s,
@@ -254,13 +254,13 @@ int main(int argc, char **argv)
 
 				moved = 1;
 				printf("[%6ld] 指令：move_to %.3f mm\n", t, cmd.move_mm);
-				if (controller_move(&req, 1u) != CATS_OK) {
+				if (controller_move(&req, 1u) != CONTROLLER_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
 			}
 			if (cmd.has_move2 && !moved2 && t >= cmd.move2_at_ms) {
-				struct stm_move req = {
+				struct controller_move_req req = {
 					.axis = 1,
 					.mm = (float)cmd.move2_mm,
 					.mm_s = (float)cmd.vel_mm_s,
@@ -269,7 +269,7 @@ int main(int argc, char **argv)
 
 				moved2 = 1;
 				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
-				if (controller_move(&req, 1u) != CATS_OK) {
+				if (controller_move(&req, 1u) != CONTROLLER_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
@@ -281,14 +281,14 @@ int main(int argc, char **argv)
 
 				spammed = 1;
 				for (i = 0; i < cmd.spam; i++) {
-					struct stm_move req = {
+					struct controller_move_req req = {
 						.axis = 0,
 						.mm = (float)(i + 1),
 						.mm_s = (float)cmd.vel_mm_s,
 						.mm_s2 = (float)cmd.acc_mm_s2,
 					};
 
-					if (controller_move(&req, 1u) == CATS_OK) {
+					if (controller_move(&req, 1u) == CONTROLLER_OK) {
 						ok++;
 					} else {
 						busy++;
@@ -316,7 +316,7 @@ int main(int argc, char **argv)
 			last = controller_state();
 			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
 			       controller_state_name(last));
-			if (last == CATS_STATE_FAULT) {
+			if (last == CONTROLLER_STATE_FAULT) {
 				uint8_t i;
 
 				printf(" (%s", controller_fault_name(controller_fault_code()));

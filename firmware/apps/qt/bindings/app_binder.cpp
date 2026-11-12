@@ -27,42 +27,42 @@ QString hex16(uint16_t v)
 }
 
 /* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */ StateBar::State
-to_bar_state(enum cats_state s)
+to_bar_state(enum controller_state s)
 {
 	switch (s) {
-	case CATS_STATE_PREPARING:
+	case CONTROLLER_STATE_PREPARING:
 		return StateBar::State::Preparing;
 	/* CONFIGURING（写参数）与 ENABLING（使能）在界面上合成一档“正在准备驱动器” */
-	case CATS_STATE_CONFIGURING:
-	case CATS_STATE_ENABLING:
+	case CONTROLLER_STATE_CONFIGURING:
+	case CONTROLLER_STATE_ENABLING:
 		return StateBar::State::Enabling;
 	/* HOLDING 与 MOVING 在界面上合成一档“已使能” */
-	case CATS_STATE_HOLDING:
-	case CATS_STATE_MOVING:
+	case CONTROLLER_STATE_HOLDING:
+	case CONTROLLER_STATE_MOVING:
 		return StateBar::State::Running;
-	case CATS_STATE_HALTING:
+	case CONTROLLER_STATE_HALTING:
 		return StateBar::State::Halting;
-	case CATS_STATE_FAULT:
+	case CONTROLLER_STATE_FAULT:
 		return StateBar::State::Fault;
-	case CATS_STATE_ESTOP:
+	case CONTROLLER_STATE_ESTOP:
 		return StateBar::State::EStop;
-	case CATS_STATE_COUNT:
+	case CONTROLLER_STATE_COUNT:
 		break;
 	}
 	return StateBar::State::Preparing;
 }
 
 /* 指令受理结果 → 日志里的说法 */
-QString result_text(enum cats_result r)
+QString result_text(enum controller_result r)
 {
 	switch (r) {
-	case CATS_OK:
+	case CONTROLLER_OK:
 		return QStringLiteral("已入队");
-	case CATS_ERR_BUSY:
+	case CONTROLLER_ERR_BUSY:
 		return QStringLiteral("命令队列满，稍后重试");
-	case CATS_ERR_PARAM:
+	case CONTROLLER_ERR_PARAM:
 		return QStringLiteral("当前状态不接受位置指令或参数无效");
-	case CATS_ERR_STATE:
+	case CONTROLLER_ERR_STATE:
 		return QStringLiteral("控制层未初始化");
 	}
 	return QStringLiteral("未知结果");
@@ -133,17 +133,18 @@ void AppBinder::bindCommands()
 	updateCommands(controller_state());
 }
 
-void AppBinder::updateCommands(enum cats_state s)
+void AppBinder::updateCommands(enum controller_state s)
 {
 	if (btn_move_ != nullptr) {
 		/* 只有 HOLDING 接受位置指令；其余状态点下去只会被丢弃 */
-		btn_move_->setEnabled(s == CATS_STATE_HOLDING);
+		btn_move_->setEnabled(s == CONTROLLER_STATE_HOLDING);
 	}
 	if (btn_halt_ != nullptr) {
-		btn_halt_->setEnabled(s == CATS_STATE_HOLDING || s == CATS_STATE_MOVING);
+		btn_halt_->setEnabled(s == CONTROLLER_STATE_HOLDING ||
+				      s == CONTROLLER_STATE_MOVING);
 	}
 	if (btn_estop_ != nullptr) {
-		btn_estop_->setEnabled(s != CATS_STATE_ESTOP);
+		btn_estop_->setEnabled(s != CONTROLLER_STATE_ESTOP);
 	}
 }
 
@@ -151,7 +152,7 @@ void AppBinder::onMove()
 {
 	/* 选择器决定下发到哪一轴；「双轴」= 两条指令放进同一个请求，一起启动 */
 	const int choice = (axis_selector_ == nullptr) ? 2 : axis_selector_->currentIndex();
-	struct stm_move reqs[2];
+	struct controller_move_req reqs[2];
 	uint8_t count = 0u;
 
 	if (choice == 0 || choice == 2) {
@@ -168,9 +169,9 @@ void AppBinder::onMove()
 		return; /* 全被拦下：fillMove 已经写过原因 */
 	}
 
-	const enum cats_result r = controller_move(reqs, count);
+	const enum controller_result r = controller_move(reqs, count);
 
-	if (r == CATS_OK) {
+	if (r == CONTROLLER_OK) {
 		for (uint8_t i = 0u; i < count; i++) {
 			pushLog(QStringLiteral("axis%1 运动 → %2 mm / %3 mm/s / %4 mm/s²")
 					.arg(reqs[i].axis + 1)
@@ -183,7 +184,7 @@ void AppBinder::onMove()
 	}
 }
 
-bool AppBinder::fillMove(uint8_t axis, struct stm_move *out)
+bool AppBinder::fillMove(uint8_t axis, struct controller_move_req *out)
 {
 	AxisCard *card = axis_cards_[axis];
 
@@ -254,17 +255,18 @@ void AppBinder::tickPrefill()
 	 * 之后不覆盖：人要重复执行同一条指令时，目标值得留着。 */
 	bool all_ready = true;
 
-	if (prefilled_ || controller_state() != CATS_STATE_HOLDING) {
+	if (prefilled_ || controller_state() != CONTROLLER_STATE_HOLDING) {
 		return;
 	}
 	for (uint8_t i = 0; i < 2; i++) {
-		struct cats_axis_sample sample;
+		struct controller_axis_sample sample;
 
 		if (axis_cards_[i] == nullptr) {
 			continue;
 		}
 		/* 状态字为 0 说明这一轴还没读到过反馈：等下一拍再填，别填个假值 */
-		if (controller_axis_sample(i, &sample) != CATS_OK || sample.statusword == 0U) {
+		if (controller_axis_sample(i, &sample) != CONTROLLER_OK ||
+		    sample.statusword == 0U) {
 			all_ready = false;
 			continue;
 		}
@@ -280,12 +282,12 @@ void AppBinder::updateAxisCards()
 {
 	for (uint8_t i = 0; i < 2; i++) {
 		AxisCard *card = axis_cards_[i];
-		struct cats_axis_sample sample;
+		struct controller_axis_sample sample;
 
 		if (card == nullptr) {
 			continue;
 		}
-		if (controller_axis_sample(i, &sample) != CATS_OK) {
+		if (controller_axis_sample(i, &sample) != CONTROLLER_OK) {
 			continue;
 		}
 
@@ -330,8 +332,8 @@ void AppBinder::pushLog(const QString &line)
 
 void AppBinder::publish()
 {
-	const enum cats_state state = controller_state();
-	const enum cats_fault fault = controller_fault_code();
+	const enum controller_state state = controller_state();
+	const enum controller_fault fault = controller_fault_code();
 
 	if (state == last_state_ && fault == last_fault_) {
 		return; /* 状态和故障都没变就不碰控件 */
@@ -345,7 +347,7 @@ void AppBinder::publish()
 		state_bar_->setState(to_bar_state(state),
 				     QString::fromUtf8(controller_state_name(state)));
 		/* 整机故障原因跟在状态后面；不在 FAULT 时清掉 */
-		state_bar_->setDetail(fault != CATS_FAULT_NONE
+		state_bar_->setDetail(fault != CONTROLLER_FAULT_NONE
 					      ? QString::fromUtf8(controller_fault_name(fault))
 					      : QString());
 	}

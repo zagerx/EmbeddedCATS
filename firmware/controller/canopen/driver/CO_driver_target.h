@@ -49,7 +49,7 @@ typedef uint_fast8_t bool_t;
 typedef float float32_t;
 typedef double float64_t;
 
-/* 收到的一帧：由 co_driver_cats.c 填好后交给栈的回调 */
+/* 收到的一帧：由 CO_driver.c 填好后交给栈的回调 */
 typedef struct {
 	uint16_t ident;
 	uint8_t DLC;

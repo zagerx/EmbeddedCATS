@@ -129,7 +129,7 @@ void CanThread::run_svc()
 void CanThread::run(std::promise<bool> init_done)
 {
 	/* 主站对象归控制层持有，宿主只提供已打开的 CAN 通道。 */
-	const bool ok = controller_init(bus_) == CATS_OK;
+	const bool ok = controller_init(bus_) == CONTROLLER_OK;
 	init_done.set_value(ok);
 	if (!ok) {
 		return;

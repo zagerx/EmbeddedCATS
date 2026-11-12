@@ -47,8 +47,8 @@ class AppBinder : public QObject
 	bool openChannel(const QString &ifname); /* 只开通道；建主站在控制线程里做 */
 	void startTimers();                      /* 刷新与统计两个界面定时器 */
 	void bindCommands();                     /* 2.1 的轴选择与三个按钮 */
-	bool fillMove(uint8_t axis, struct stm_move *out); /* 读卡片参数并校验 */
-	void updateCommands(enum cats_state s);                 /* 按钮可用性跟随状态 */
+	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
+	void updateCommands(enum controller_state s);                 /* 按钮可用性跟随状态 */
 	void tickPrefill();                /* 首次进 HOLDING：目标位置 = 实际位置 */
 	void publish();                    /* app 状态 → 界面（状态没变就不碰） */
 	void updateAxisCards();            /* 两轴实时样本 → 轴卡片（每 50 ms） */
@@ -69,11 +69,11 @@ class AppBinder : public QObject
 	QPushButton *btn_halt_ = nullptr;
 	QPushButton *btn_estop_ = nullptr;
 	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
-	bool prefilled_ = false; /* 首次进入 HOLDING 已把目标位置填成实际位置 */
+	bool prefilled_ = false;            /* 首次进入 HOLDING 已把目标位置填成实际位置 */
 
 	/* 上一次刷给界面的状态；初值用一个不可能的状态，保证首帧一定刷 */
-	enum cats_state last_state_ = CATS_STATE_COUNT;
-	enum cats_fault last_fault_ = CATS_FAULT_NONE;
+	enum controller_state last_state_ = CONTROLLER_STATE_COUNT;
+	enum controller_fault last_fault_ = CONTROLLER_FAULT_NONE;
 };
 
 #endif /* BINDINGS_APP_BINDER_H */

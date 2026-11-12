@@ -19,14 +19,14 @@ controller/
 ├── evt_queue.c        控制输入事件队列
 ├── evt_queue.h        事件与队列存储定义
 ├── controller.c           组合根与 I/O、控制、服务推进
-├── controller_ops.c       状态机能力适配与装配
+├── controller_actions.c   状态图动作（登记 NMT、读时钟）与装配
 ├── control_api.c          指令、查询与发布
 └── controller_internal.h  控制器完整上下文与内部契约
 ```
 
 ## 职责
 
-- `struct controller` 内嵌主站、状态图和轴集合；每轴的 SDO 通道随 `axis` 持有。
+- `struct controller` 持有主站指针、状态图和轴集合；每轴的 SDO 通道随 `axis` 持有。
 - 宿主只提供已打开的 CAN 通道并运行线程，不持有主站或业务状态机对象。
 - 提供 `controller_io_poll()`、`controller_poll()`、`controller_svc_poll()` 三个推进接口。
 - 提供位置、停止、急停、状态、故障和轴样本接口。

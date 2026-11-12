@@ -10,12 +10,12 @@
 #include "evt_queue.h"
 
 /**
- * cats_evtq_init - 清空并初始化事件队列
+ * controller_evtq_init - 清空并初始化事件队列
  * @q: 队列对象；NULL 时直接返回
  *
  * 只能在装配期调用一次，初始化互斥锁。
  */
-void cats_evtq_init(struct cats_evtq *q)
+void controller_evtq_init(struct controller_evtq *q)
 {
 	if (q == NULL) {
 		return;
@@ -27,13 +27,13 @@ void cats_evtq_init(struct cats_evtq *q)
 }
 
 /**
- * cats_evtq_push - 将普通事件放入队尾
+ * controller_evtq_push - 将普通事件放入队尾
  * @q: 队列对象
  * @e: 待拷贝事件
  *
  * Return: true 入队成功；false 队列满或参数为 NULL。
  */
-bool cats_evtq_push(struct cats_evtq *q, const struct cats_evt *e)
+bool controller_evtq_push(struct controller_evtq *q, const struct controller_evt *e)
 {
 	bool ok = true;
 
@@ -42,11 +42,11 @@ bool cats_evtq_push(struct cats_evtq *q, const struct cats_evt *e)
 	}
 
 	pthread_mutex_lock(&q->lock);
-	if (q->count == CATS_EVTQ_LEN) {
+	if (q->count == CONTROLLER_EVTQ_LEN) {
 		ok = false; /* 满：丢弃新的这一条，绝不覆盖已有的 */
 	} else {
 		q->buf[q->tail] = *e;
-		q->tail = (q->tail + 1u) % CATS_EVTQ_LEN;
+		q->tail = (q->tail + 1u) % CONTROLLER_EVTQ_LEN;
 		q->count++;
 	}
 	pthread_mutex_unlock(&q->lock);
@@ -54,21 +54,21 @@ bool cats_evtq_push(struct cats_evtq *q, const struct cats_evt *e)
 }
 
 /**
- * cats_evtq_push_front - 将停止或急停事件插入队头
+ * controller_evtq_push_front - 将停止或急停事件插入队头
  * @q: 队列对象；NULL 时直接返回
  * @e: 待拷贝事件；NULL 时直接返回
  *
  * 队列满时替换当前队头，保证新事件优先被取出。
  */
-void cats_evtq_push_front(struct cats_evtq *q, const struct cats_evt *e)
+void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e)
 {
 	if (q == NULL || e == NULL) {
 		return;
 	}
 
 	pthread_mutex_lock(&q->lock);
-	if (q->count < CATS_EVTQ_LEN) {
-		q->head = (q->head + CATS_EVTQ_LEN - 1u) % CATS_EVTQ_LEN;
+	if (q->count < CONTROLLER_EVTQ_LEN) {
+		q->head = (q->head + CONTROLLER_EVTQ_LEN - 1u) % CONTROLLER_EVTQ_LEN;
 		q->buf[q->head] = *e;
 		q->count++;
 	} else {
@@ -82,13 +82,13 @@ void cats_evtq_push_front(struct cats_evtq *q, const struct cats_evt *e)
 }
 
 /**
- * cats_evtq_pop - 从队头取出并移除一个事件
+ * controller_evtq_pop - 从队头取出并移除一个事件
  * @q: 队列对象
  * @out: 输出事件副本
  *
  * Return: true 取出成功；false 队列为空或参数为 NULL。
  */
-bool cats_evtq_pop(struct cats_evtq *q, struct cats_evt *out)
+bool controller_evtq_pop(struct controller_evtq *q, struct controller_evt *out)
 {
 	bool ok = false;
 
@@ -99,7 +99,7 @@ bool cats_evtq_pop(struct cats_evtq *q, struct cats_evt *out)
 	pthread_mutex_lock(&q->lock);
 	if (q->count > 0u) {
 		*out = q->buf[q->head];
-		q->head = (q->head + 1u) % CATS_EVTQ_LEN;
+		q->head = (q->head + 1u) % CONTROLLER_EVTQ_LEN;
 		q->count--;
 		ok = true;
 	}
@@ -108,10 +108,10 @@ bool cats_evtq_pop(struct cats_evtq *q, struct cats_evt *out)
 }
 
 /**
- * cats_evtq_clear - 清空队列中的全部待处理事件
+ * controller_evtq_clear - 清空队列中的全部待处理事件
  * @q: 队列对象；NULL 时直接返回
  */
-void cats_evtq_clear(struct cats_evtq *q)
+void controller_evtq_clear(struct controller_evtq *q)
 {
 	if (q == NULL) {
 		return;

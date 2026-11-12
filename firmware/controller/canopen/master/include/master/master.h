@@ -8,6 +8,7 @@
 #include "CANopen.h" /* CANopenNode 的 CO_t / CO_SDOclient_t */
 #include "co_driver_cats.h"
 
+#include <pthread.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -40,6 +41,12 @@ struct master {
 	uint8_t node_count;
 	uint8_t node_id[MASTER_MAX_NODES];
 
+	/* 待发 NMT 命令：任意线程只登记，I/O 线程在 master_send_step() 里发出 */
+	pthread_mutex_t nmt_lock;
+	uint8_t nmt_pending;
+	uint8_t nmt_node_id;
+	enum master_nmt_cmd nmt_cmd;
+
 	CO_t *co;               /* CANopenNode 实例（静态） */
 	struct co_cats_can can; /* 移植层句柄：总线 + 收发错误标记 */
 };
@@ -60,8 +67,13 @@ CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id);
 /* 总线句柄（壳取当前时刻用）；未装配返回 NULL */
 struct can_io *master_bus(struct master *m);
 
-/* 发一条 NMT 命令：站号 0 = 总线上所有从站。0 = 已交给栈，非 0 = 发不出去 */
-int master_set_state(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
+/*
+ * 登记一条待发 NMT 命令；站号 0 = 总线上所有从站。任意线程可调。
+ * 只登记不发送：帧由 I/O 线程在下一拍 master_send_step() 开头发出，
+ * 保证“帧只从 I/O 线程出去”。同一拍只保留最后一条登记。
+ * 0 = 已登记，非 0 = 主站未初始化。
+ */
+int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
 
 /*
  * 一拍两段（**必须在同一个线程里按顺序调**：总线只有一个收发者）：

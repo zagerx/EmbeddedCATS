@@ -1,8 +1,9 @@
 /*
- * co_driver_cats.c — 将 CANopenNode 驱动接口适配到 CAN I/O 后端
+ * CO_driver.c — 实现 CANopenNode 的 CO_driver.h 契约（8 个 CO_CAN* 函数）
  *
  * 发送采用同步方式，接收帧按 ident/mask 在软件中匹配。
  * 协议栈只由 I/O 线程推进，本层不保存从站节点表或 CiA 402 语义。
+ * 本平台的 ctx 与接收分派声明暂放在 co_driver_cats.h（后续合并进 target 头）。
  *
  * Author: zager
  */
