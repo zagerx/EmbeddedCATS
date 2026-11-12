@@ -57,9 +57,9 @@ enum cats_result controller_init(struct can_io *bus)
 		CO_SDOclient_t *sdo = master_sdo(&cats_controller.master, node_id);
 
 		/* 每轴一条异步 SDO 通道，由 I/O 与服务线程共同推进 */
-		sdo_client_init(&cats_controller.sdo[i], sdo);
+		sdo_client_init(&cats_controller.axes[i].sdo, sdo);
 		cia402_init(&cats_controller.axes[i].dev,
-			    sdo_client_access(&cats_controller.sdo[i]), node_id);
+			    sdo_client_access(&cats_controller.axes[i].sdo), node_id);
 		axis_init(&cats_controller.axes[i], node_id);
 	}
 
@@ -134,7 +134,7 @@ void controller_io_poll(void)
 	 * 发：请求在当拍发出，不用多等一拍。 */
 	master_recv_step(&ctl->master, now);
 	for (i = 0u; i < ctl->axis_count; i++) {
-		sdo_client_io_poll(&ctl->sdo[i], now);
+		sdo_client_io_poll(&ctl->axes[i].sdo, now);
 	}
 	master_send_step(&ctl->master, now);
 }

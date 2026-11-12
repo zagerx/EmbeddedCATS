@@ -40,8 +40,7 @@ enum cats_sig {
 /* 控制器的对象实体、状态图上下文和跨线程发布值集中在这里 */
 struct controller {
 	struct master master;
-	struct cats_axis axes[CATS_MAX_AXES];
-	struct sdo_client sdo[CATS_MAX_AXES];
+	struct axis axes[CATS_MAX_AXES];
 	uint8_t axis_count;
 
 	struct stm_ops ops;

@@ -192,6 +192,12 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
  */
 void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status *out);
 
+/* 任意线程通过设备锁读取最新流程状态；d 或 out 为 NULL 时不执行任何操作。 */
+void cia402_get_status(const struct cia402_device *d, struct cia402_status *out);
+
+/* 任意线程取走一次操作结论；取走后结果为 NONE，失败诊断保留。 */
+enum cia402_operation_result cia402_take_result(struct cia402_device *d);
+
 /* 任意线程读取最新原始反馈；d 或 out 为 NULL 时不执行任何操作。 */
 void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out);
 

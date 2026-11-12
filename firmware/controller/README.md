@@ -26,7 +26,7 @@ controller/
 
 ## 职责
 
-- `struct controller` 内嵌主站、业务状态机、对象访问通道和轴实体，由组合根集中初始化。
+- `struct controller` 内嵌主站、状态图和轴集合；每轴的 SDO 通道随 `axis` 持有。
 - 宿主只提供已打开的 CAN 通道并运行线程，不持有主站或业务状态机对象。
 - 提供 `controller_io_poll()`、`controller_poll()`、`controller_svc_poll()` 三个推进接口。
 - 提供位置、停止、急停、状态、故障和轴样本接口。

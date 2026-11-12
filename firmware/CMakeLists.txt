@@ -120,7 +120,7 @@ target_link_libraries(cia402_selftest PRIVATE cia402)
 add_library(cats_axis STATIC controller/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
 target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-target_link_libraries(cats_axis PUBLIC cia402)
+target_link_libraries(cats_axis PUBLIC cia402 canopen_sdo)
 
 # 通用层次状态机内核：零业务依赖，谁都能链（可单独单测）
 add_library(cats_hsm STATIC controller/hsm/src/sm_hsm.c)

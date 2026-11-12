@@ -5,6 +5,7 @@
  *   cia402_init()     装配
  *   cia402_request()  投递（只回答收不收）
  *   cia402_poll()     推进一拍并交出流程状态
+ *   cia402_get_status() / cia402_take_result() 读取事实 / 消费结论
  *   cia402_get_feedback() 读取最新原始反馈
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
@@ -156,6 +157,45 @@ done:
 	if (out != NULL) {
 		snapshot(d, out);
 	}
+}
+
+/**
+ * cia402_get_status - 读取设备当前流程状态与最近结论
+ * @d: 设备对象；NULL 安全
+ * @out: 输出状态；NULL 时直接返回
+ *
+ * 任意线程均可调用；通过设备锁读取，不触发对象事务。
+ */
+void cia402_get_status(const struct cia402_device *d, struct cia402_status *out)
+{
+	if (d == NULL || out == NULL) {
+		return;
+	}
+	pthread_mutex_lock((pthread_mutex_t *)&d->lock);
+	*out = d->outbox;
+	pthread_mutex_unlock((pthread_mutex_t *)&d->lock);
+}
+
+/**
+ * cia402_take_result - 取走最近一次操作结论
+ * @d: 设备对象；NULL 安全
+ *
+ * 取走后结果恢复 NONE，失败原因和 abort 码保留用于诊断。
+ *
+ * Return: DONE、FAILED 或 NONE；@d 为 NULL 时返回 NONE。
+ */
+enum cia402_operation_result cia402_take_result(struct cia402_device *d)
+{
+	enum cia402_operation_result result;
+
+	if (d == NULL) {
+		return CIA402_OP_NONE;
+	}
+	pthread_mutex_lock(&d->lock);
+	result = d->outbox.last.result;
+	d->outbox.last.result = CIA402_OP_NONE;
+	pthread_mutex_unlock(&d->lock);
+	return result;
 }
 
 /**

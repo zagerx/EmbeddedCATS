@@ -7,6 +7,7 @@
 #define AXIS_AXIS_H
 
 #include <cia402/device.h>
+#include <transport/sdo_client.h>
 
 #include <stdint.h>
 
@@ -14,13 +15,12 @@
 extern "C" {
 #endif
 
-/* 一个轴 = 一个节点 + 该节点的驱动对象。
+/* 一个轴 = 一个节点 + 该节点的驱动对象与独立 SDO 通道。
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
-struct cats_axis {
+struct axis {
 	uint8_t node_id;
-	struct cia402_device dev;     /* 协议知识全在里面，本层只问它结果 */
-	struct cia402_status status;  /* 上一拍流程状态，本层缓存 */
-	struct cia402_feedback feedback; /* 最新原始反馈，本层缓存 */
+	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
+	struct sdo_client sdo;    /* 本轴独享的异步对象访问通道 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
@@ -42,42 +42,42 @@ enum axis_motion {
 };
 
 /* 驱动对象由组合根装配（cia402_init）后再交给轴层；轴层只记站号 */
-void axis_init(struct cats_axis *a, uint8_t node_id);
+void axis_init(struct axis *a, uint8_t node_id);
 
 /* 推进一次设备状态机并刷新本层缓存的事实；仅服务线程调用 */
-void axis_poll(struct cats_axis *a, uint32_t now_ms);
+void axis_poll(struct axis *a, uint32_t now_ms);
 
 /* 机械换算（每转脉冲数 / 每转毫米）见 config/cats_mech.h，编译期固定 */
 
 /* 绝对位置运动（mm / mm·s⁻¹ / mm·s⁻²）。0 = 已受理；1 = 轴上有过程在跑；-1 = 不允许 */
-int axis_move_to(struct cats_axis *a, float mm, float mm_s, float mm_s2);
+int axis_move_to(struct axis *a, float mm, float mm_s, float mm_s2);
 
 /* 减速停在当前位置，保持使能。0 = 已受理 */
-int axis_halt(struct cats_axis *a);
+int axis_halt(struct axis *a);
 
 /* 取上一段动作的结论（取走后回 NONE） */
-enum axis_motion axis_take_motion(struct cats_axis *a);
+enum axis_motion axis_take_motion(struct axis *a);
 
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
-uint32_t axis_abort_code(const struct cats_axis *a);
+uint32_t axis_abort_code(const struct axis *a);
 
 /* 读取最近一次反馈快照，不触发总线传输。 */
-void axis_sample(const struct cats_axis *a, struct axis_sample *out);
+void axis_sample(const struct axis *a, struct axis_sample *out);
 
 /* ---- 批量动作 ---- */
 
 /* 请求所有轴写参数（上电一次：模式等）：0 = 已受理；-1 = 没有轴或参数不对 */
-int axis_config_all(struct cats_axis *axes, uint8_t count);
+int axis_config_all(struct axis *axes, uint8_t count);
 
 /* 请求所有轴使能：0 = 已受理；-1 = 没有轴或参数不对 */
-int axis_enable_all(struct cats_axis *axes, uint8_t count);
+int axis_enable_all(struct axis *axes, uint8_t count);
 
 /* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
-void axis_quick_stop_all(struct cats_axis *axes, uint8_t count);
+void axis_quick_stop_all(struct axis *axes, uint8_t count);
 
-int axis_all_configured(const struct cats_axis *axes, uint8_t count);
-int axis_all_enabled(const struct cats_axis *axes, uint8_t count);
-int axis_any_failed(const struct cats_axis *axes, uint8_t count);
+int axis_all_configured(const struct axis *axes, uint8_t count);
+int axis_all_enabled(const struct axis *axes, uint8_t count);
+int axis_any_failed(const struct axis *axes, uint8_t count);
 
 #ifdef __cplusplus
 } /* extern "C" */

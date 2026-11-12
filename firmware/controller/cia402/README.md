@@ -38,6 +38,9 @@ void         cia402_init(struct cia402_device *d, const struct sdo_access *acces
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 void         cia402_poll(struct cia402_device *d, uint32_t now_ms,
                          struct cia402_status *out);
+void         cia402_get_status(const struct cia402_device *d,
+                               struct cia402_status *out);
+enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 void         cia402_get_feedback(const struct cia402_device *d,
                                  struct cia402_feedback *out);
 ```
@@ -63,9 +66,9 @@ void         cia402_get_feedback(const struct cia402_device *d,
 一次 `poll` 最多发起一笔对象事务，因此服务线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。
 
-`last.result` 与 `last.fail` **保持到下一次请求被受理**：受理新请求即作废旧结论。
-`axis` 层把 poll 的结果缓存在 `struct cats_axis` 里，并且只在 `last.result != NONE`
-时覆盖——结论只存在一拍，每拍都覆盖的话上层采样一慢就会整条错过。
+`last.result` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
+`last.fail` 与 `last.abort_code` 保留用于诊断。轴层不再保存 `status` 副本，而是通过
+`cia402_get_status()` 读取事实、通过 `cia402_take_result()` 消费结论。
 
 被打断时结论作废还是报失败，由 `st_idle` 的 ENTRY 按取消原因决定
 （`st_running` 只负责退出，不碰结论文档）。正常收尾流程不进这条路径。

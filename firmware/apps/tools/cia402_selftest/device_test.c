@@ -297,6 +297,16 @@ static void test_pp(void)
 
 	CHECK(f.st.last.result == CIA402_OP_DONE);
 	CHECK(f.dev.sdo.cw_ok == CIA402_CW_ENABLE_OP);
+
+	{
+		struct cia402_status status;
+
+		cia402_get_status(&f.dev, &status);
+		CHECK(status.phase == CIA402_PHASE_IDLE);
+		CHECK(status.last.result == CIA402_OP_DONE);
+		CHECK(cia402_take_result(&f.dev) == CIA402_OP_DONE);
+		CHECK(cia402_take_result(&f.dev) == CIA402_OP_NONE);
+	}
 }
 
 /* Quick Stop 抢占在途 PP */
