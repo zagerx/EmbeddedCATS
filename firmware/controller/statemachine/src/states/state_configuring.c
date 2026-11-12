@@ -19,7 +19,7 @@
  */
 sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	struct stm *ctl = container_of(me, struct stm, hsm);
+	struct controller_sm *ctl = container_of(me, struct controller_sm, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:

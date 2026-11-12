@@ -10,7 +10,7 @@
 #include "states.h"
 
 /* 把本批请求逐轴下发；有轴被拒就返回 -1（由 ENTRY 置故障） */
-static int issue_move(struct stm *ctl);
+static int issue_move(struct controller_sm *ctl);
 
 /**
  * st_moving - 处理运动发起、停止请求和运动结论
@@ -21,7 +21,7 @@ static int issue_move(struct stm *ctl);
  */
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	struct stm *ctl = container_of(me, struct stm, hsm);
+	struct controller_sm *ctl = container_of(me, struct controller_sm, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
@@ -74,7 +74,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	return SM_HANDLED();
 }
 
-static int issue_move(struct stm *ctl)
+static int issue_move(struct controller_sm *ctl)
 {
 	uint8_t i;
 

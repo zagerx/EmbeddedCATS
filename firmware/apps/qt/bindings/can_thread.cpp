@@ -128,12 +128,8 @@ void CanThread::run_svc()
 
 void CanThread::run(std::promise<bool> init_done)
 {
-	/* 建主站：站号 1 / 2 只在这里声明一次；app 从 node_count/node_id[] 读回轴 */
-	master_init(&master_, bus_);
-	(void)master_add_node(&master_, 1);
-	(void)master_add_node(&master_, 2);
-
-	const bool ok = controller_init(&master_) == CATS_OK;
+	/* 主站对象归控制层持有，宿主只提供已打开的 CAN 通道。 */
+	const bool ok = controller_init(bus_) == CATS_OK;
 	init_done.set_value(ok);
 	if (!ok) {
 		return;

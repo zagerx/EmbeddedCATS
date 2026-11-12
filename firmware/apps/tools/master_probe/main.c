@@ -163,7 +163,6 @@ static void sleep_until_ms(uint32_t deadline_ms)
 int main(int argc, char **argv)
 {
 	static struct socketcan_dev dev; /* 静态：全程不用 malloc */
-	static struct master master;
 
 	struct can_io io;
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
@@ -188,14 +187,10 @@ int main(int argc, char **argv)
 
 	signal(SIGINT, on_sigint);
 
-	master_init(&master, &io);
-	(void)master_add_node(&master, 1);
-	(void)master_add_node(&master, 2);
-
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	if (controller_init(&master) != CATS_OK) {
+	if (controller_init(&io) != CATS_OK) {
 		fprintf(stderr, "controller_init 失败\n");
 		can_io_close(&io);
 		return 1;

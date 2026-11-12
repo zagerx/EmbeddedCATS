@@ -27,8 +27,8 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 线程与时序
 
-- **控制线程**（`can_thread`）：建主站、`controller_init()`，按 **1 ms** 绝对节拍调
-  `controller_poll()`；总线收发与状态推进都在这条线程里。
+- **控制线程**（`can_thread`）：调用 `controller_init()`，由控制层在持有对象上原地
+  初始化主站，再按 **1 ms** 绝对节拍调用 `controller_poll()`。
 - **界面线程**：`QTimer 50 ms` 读 `controller_state()` 刷状态条；`QTimer 5 s` 往日志
   写一行节拍统计。界面不碰总线。
 

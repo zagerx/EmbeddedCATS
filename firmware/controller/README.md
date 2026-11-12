@@ -16,15 +16,16 @@ controller/
 ├── hsm/            通用层次状态机内核
 ├── config/         机械参数与 CANopen 对象字典
 ├── include/control/control.h
-├── controller.c           组合根与 I/O、服务推进
+├── controller.c           组合根与 I/O、控制、服务推进
 ├── controller_ops.c       状态机能力适配与装配
-├── control_api.c          状态机推进、指令与发布
+├── control_api.c          指令、查询与发布
 └── controller_internal.h
 ```
 
 ## 职责
 
-- 在 `controller.c` 集中创建并连接主站、对象访问通道、CiA 402 设备、轴和业务状态机。
+- `struct controller` 内嵌主站、业务状态机、对象访问通道和轴实体，由组合根集中初始化。
+- 宿主只提供已打开的 CAN 通道并运行线程，不持有主站或业务状态机对象。
 - 提供 `controller_io_poll()`、`controller_poll()`、`controller_svc_poll()` 三个推进接口。
 - 提供位置、停止、急停、状态、故障和轴样本接口。
 - 不创建线程，不直接操作 SocketCAN 或 CANopen PDO 字节。

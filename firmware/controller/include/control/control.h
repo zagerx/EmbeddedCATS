@@ -1,5 +1,5 @@
 /*
- * 控制层公共接口。CAN 通道与主站由宿主创建，控制层只借用。
+ * 控制层公共接口。CAN 通道由宿主创建，主站与控制对象由控制层持有。
  *
  * 调用约束：
  *   - controller_init/controller_poll：仅控制线程；
@@ -17,7 +17,8 @@
 
 #include <statemachine/state_types.h>
 #include <statemachine/statemachine.h>
-#include <master/master.h>
+
+struct can_io;
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,8 +28,9 @@ extern "C" {
  * 业务状态使用层次状态机，与 NMT、DS402 状态相互独立。
  * PREPARING → CONFIGURING → ENABLING → HOLDING ⇄ MOVING；
  * MOVING 可经 HALTING 回 HOLDING；FAULT/ESTOP 为终态。
+ * 初始化时在控制层持有的主站对象上登记节点 1、2；bus 由宿主提供。
  */
-enum cats_result controller_init(struct master *master);
+enum cats_result controller_init(struct can_io *bus);
 
 /* 推进一次业务状态机并发布快照；非阻塞。 */
 enum cats_result controller_poll(void);

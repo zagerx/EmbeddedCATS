@@ -11,10 +11,10 @@
 statemachine/
 ├── include/statemachine/
 │   ├── state_types.h     业务枚举（状态 / 故障码 / 结果）
-│   └── statemachine.h    stm_init / stm_poll / stm_command / 事实查询
+│   └── statemachine.h    stm_init / 事实查询 / 名称映射
 └── src/
-    ├── statemachine.c            事件入队、每拍推进、事实读取
-    ├── statemachine_internal.h   struct stm（不对外）
+    ├── statemachine.c            初始化、时钟与事实读取
+    ├── statemachine_internal.h   struct controller_sm（对组合根提供完整存储定义）
     ├── evt_queue/                业务事件队列（多生产者 / 单消费者）
     └── states/                   一状态一文件 + 唯一注册点 states.c
 ```
@@ -23,9 +23,9 @@ statemachine/
 
 ## 线程与边界
 
-- **只在控制线程里被推进**：`stm_poll()` 每拍一次；
-- `stm_command()` 任意线程可调（入队，队列自带锁）；
-- **不知道** 402、对象号、SDO/PDO、CAN 帧。
+- 控制层的 `controller_poll()` 直接取事件、调用 HSM 并投递周期节拍；
+- 对外指令在 `control_api.c` 构造事件并写入队列，队列自带锁；
+- 状态图只由控制线程推进，不知道 402、对象号、SDO/PDO 或 CAN 帧。
 
 ## 加一个状态
 

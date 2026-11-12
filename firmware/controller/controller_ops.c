@@ -44,28 +44,27 @@ void controller_stm_init(struct controller *ctl)
 		.ctx = ctl,
 	};
 
-	ctl->stm = stm_instance();
-	stm_init(ctl->stm, ctl->axes, ctl->axis_count, &ops);
+	stm_init(&ctl->stm, ctl->axes, ctl->axis_count, &ops);
 }
 
 static void nmt_start_cb(void *ctx)
 {
 	struct controller *ctl = ctx;
 
-	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
+	(void)master_set_state(&ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
 }
 
 static void nmt_reset_cb(void *ctx)
 {
 	struct controller *ctl = ctx;
 
-	(void)master_set_state(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
+	(void)master_set_state(&ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
 }
 
 static uint32_t now_ms_cb(void *ctx)
 {
 	struct controller *ctl = ctx;
-	struct can_io *bus = master_bus(ctl->master);
+	struct can_io *bus = master_bus(&ctl->master);
 
 	return bus != NULL ? can_io_now_ms(bus) : 0u;
 }

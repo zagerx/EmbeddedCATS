@@ -2,15 +2,12 @@
  * control_api.c — 将控制 API 翻译成状态机操作并发布只读快照
  *
  * 外部指令经事件队列进入控制线程，查询接口读取发布值或轴事实。
- * 装配以及 I/O、服务推进位于 controller.c。
+ * 装配以及 I/O、控制、服务推进位于 controller.c。
  *
  * Author: zager
  */
 
 #include "controller_internal.h"
-
-/* 汇总所有已装配轴的心跳事实，供每次状态机推进共用 */
-static uint8_t heartbeat_fact(const struct controller *ctl);
 
 /**
  * controller_publish - 发布整机状态、故障和各轴反馈快照
@@ -24,10 +21,10 @@ void controller_publish(void)
 	struct cats_axis_sample samples[CATS_MAX_AXES];
 	uint8_t i;
 
-	if (app->stm == NULL) {
+	if (app->master.bus == NULL) {
 		return;
 	}
-	state = (int)stm_state(app->stm);
+	state = (int)stm_state(&app->stm);
 	/* 换算在锁外做（axis_sample 只读本线程写的字段，不做 I/O） */
 	for (i = 0; i < CATS_MAX_AXES; i++) {
 		struct axis_sample s;
@@ -40,35 +37,11 @@ void controller_publish(void)
 	}
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
-	app->published_fault = (int)stm_fault(app->stm);
+	app->published_fault = (int)stm_fault(&app->stm);
 	for (i = 0; i < CATS_MAX_AXES; i++) {
 		app->published_axes[i] = samples[i];
 	}
 	pthread_mutex_unlock(&app->lock);
-}
-
-/**
- * controller_poll - 推进一次业务状态机并发布快照
- *
- * 只能由控制线程调用；本函数不执行总线收发或阻塞式对象访问。
- *
- * Return: CATS_OK 推进成功；CATS_ERR_STATE 尚未初始化。
- */
-enum cats_result controller_poll(void)
-{
-	struct controller *ctl = control_ctx();
-	uint32_t now;
-
-	if (ctl->master == NULL) {
-		return CATS_ERR_STATE;
-	}
-	now = now_ms(ctl);
-
-	/* 收帧和 402/SDO 推进由其他入口执行，本拍只向状态机提供事实。 */
-	stm_poll(ctl->stm, heartbeat_fact(ctl), now);
-
-	controller_publish();
-	return CATS_OK;
 }
 
 /**
@@ -79,12 +52,13 @@ enum cats_result controller_poll(void)
 void controller_estop(void)
 {
 	struct controller *ctl = control_ctx();
+	struct cats_evt evt = {.super = {.sig = CATS_SIG_ESTOP}};
 
-	if (ctl->master == NULL) {
+	if (ctl->master.bus == NULL) {
 		return;
 	}
 	/* 插到队头：优先于已排队的所有命令 */
-	(void)stm_command(ctl->stm, STM_CMD_ESTOP, NULL, 0u);
+	cats_evtq_push_front(&ctl->stm.evtq, &evt);
 }
 
 /**
@@ -98,25 +72,28 @@ void controller_estop(void)
  */
 enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
 {
-        struct controller *ctl = control_ctx();
-        uint8_t i;
+	struct controller *ctl = control_ctx();
+	struct cats_evt evt = {.super = {.sig = CATS_SIG_MOVE}};
+	uint8_t i;
 
-        if (ctl->master == NULL || reqs == NULL || count == 0u || count > CATS_MAX_AXES) {
-                return CATS_ERR_PARAM;
-        }
-        for (i = 0u; i < count; i++) {
-                const struct stm_move *m = &reqs[i];
+	if (ctl->master.bus == NULL || reqs == NULL || count == 0u || count > CATS_MAX_AXES) {
+		return CATS_ERR_PARAM;
+	}
+	evt.u.move.count = count;
+	for (i = 0u; i < count; i++) {
+		const struct stm_move *m = &reqs[i];
 
-                if (m->axis >= ctl->axis_count) {
-                        return CATS_ERR_PARAM;
-                }
-                /* NaN 进到整数换算就是未定义行为：入口就拦住（±inf 由轴层饱和） */
-                if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
-                        return CATS_ERR_PARAM;
-                }
-        }
-        /* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
-        return stm_command(ctl->stm, STM_CMD_MOVE, reqs, count);
+		if (m->axis >= ctl->axis_count) {
+			return CATS_ERR_PARAM;
+		}
+		/* NaN 进到整数换算就是未定义行为：入口就拦住（±inf 由轴层饱和） */
+		if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
+			return CATS_ERR_PARAM;
+		}
+		evt.u.move.axis[i] = reqs[i];
+	}
+	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
+	return cats_evtq_push(&ctl->stm.evtq, &evt) ? CATS_OK : CATS_ERR_BUSY;
 }
 
 /**
@@ -130,13 +107,13 @@ enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
  */
 enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
 {
-        struct stm_move mv;
+	struct stm_move mv;
 
-        mv.axis = axis;
-        mv.mm = mm;
-        mv.mm_s = mm_s;
-        mv.mm_s2 = mm_s2;
-        return controller_move(&mv, 1u);
+	mv.axis = axis;
+	mv.mm = mm;
+	mv.mm_s = mm_s;
+	mv.mm_s2 = mm_s2;
+	return controller_move(&mv, 1u);
 }
 
 /**
@@ -147,12 +124,13 @@ enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm
 void controller_stop(void)
 {
 	struct controller *ctl = control_ctx();
+	struct cats_evt evt = {.super = {.sig = CATS_SIG_STOP}};
 
-	if (ctl->master == NULL) {
+	if (ctl->master.bus == NULL) {
 		return;
 	}
 	/* 停止也插队：排在已有序命令前面 */
-	(void)stm_command(ctl->stm, STM_CMD_STOP, NULL, 0u);
+	cats_evtq_push_front(&ctl->stm.evtq, &evt);
 }
 
 /**
@@ -243,19 +221,4 @@ const char *controller_state_name(enum cats_state s)
 const char *controller_fault_name(enum cats_fault f)
 {
 	return stm_fault_name(f);
-}
-
-static uint8_t heartbeat_fact(const struct controller *ctl)
-{
-	uint8_t ok = ctl->axis_count > 0 ? 1u : 0u;
-	uint8_t i;
-
-	/* 轴数为 0 说明没装配上：没有可确认的节点，不能报健康 */
-	for (i = 0; i < ctl->axis_count; i++) {
-		if (master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
-			ok = 0u;
-			break;
-		}
-	}
-	return ok;
 }

@@ -6,13 +6,13 @@
 #ifndef BINDINGS_CAN_THREAD_H
 #define BINDINGS_CAN_THREAD_H
 
-#include <master/master.h>
-
 #include <QString>
 #include <atomic>
 #include <cstdint>
 #include <future>
 #include <thread>
+
+struct can_io;
 
 class CanThread
 {
@@ -31,7 +31,7 @@ class CanThread
 	CanThread(const CanThread &) = delete;
 	CanThread &operator=(const CanThread &) = delete;
 
-	/* 起线程：线程内建主站（登记节点 1 / 2）并 controller_init，随后进 1 ms 循环。
+	/* 起线程：控制线程内调用 controller_init，随后进 1 ms 循环。
 	 * 会等初始化结果再返回；失败时 err 里是给界面看的说明。 */
 	bool start(struct can_io *bus, QString *err);
 
@@ -42,15 +42,13 @@ class CanThread
 
       private:
 	void run(std::promise<bool> init_done);
-	void run_io();  /* ② I/O 线程：独占总线，收帧与发帧都在这里 */
-	void run_svc(); /* ③ 服务线程：推进非阻塞 402 状态机 */
+	void run_io();  /* I/O 线程：独占总线，收帧与发帧都在这里 */
+	void run_svc(); /* 服务线程：推进非阻塞 402 状态机 */
 
 	struct can_io *bus_ = nullptr;
-	struct master master_ {
-	};
-	std::thread thread_;     /* ① 控制线程：业务状态机 */
-	std::thread io_thread_;  /* ② I/O 线程（不阻塞） */
-	std::thread svc_thread_; /* ③ 服务线程（独立固定节拍） */
+	std::thread thread_;     /* 控制线程：业务状态机 */
+	std::thread io_thread_;  /* I/O 线程（不阻塞） */
+	std::thread svc_thread_; /* 服务线程（独立固定节拍） */
 	std::atomic<bool> stop_{false};
 	std::atomic<uint32_t> ticks_{0};
 	std::atomic<uint32_t> max_gap_us_{0};
