@@ -54,7 +54,7 @@ if [ -z "$viol" ]; then ok; else bad "$viol"; fi
 # R4：控制入口与业务状态机不调用阻塞服务
 section "R4  控制线程无阻塞调用"
 out=$(grep -rnE 'cia402_device_service|cia402_device_pp_move|sdo_client_write|sdo_client_read|nanosleep|usleep|pthread_cond_wait' \
-	"$SRC/control_api.c" "$SRC/statemachine" $INC 2>/dev/null || true)
+	"$SRC/control_api.c" "$SRC/states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R5：bus 不认识协议
@@ -63,14 +63,14 @@ out=$(grep -rniE 'nmt|sdo|pdo|emcy|lss|0x600|0x580' "$SRC/bus" $INC 2>/dev/null 
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R6：业务状态机不访问协议与传输层
-section "R6  statemachine/ 不认识协议"
+section "R6  states/ 不认识协议"
 out=$(grep -rnE '<canopen/|<cia402/|<transport/|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
-	"$SRC/statemachine" $INC 2>/dev/null || true)
+	"$SRC/states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R7：HSM 不认识业务类型
 section "R7  hsm/ 不认识业务"
-out=$(grep -rnE 'cats_|\bstm_[a-z_]|struct stm|<axis/|<cia402/|<transport/|<statemachine/' \
+out=$(grep -rnE 'cats_|\bstm_[a-z_]|struct stm|<axis/|<cia402/|<transport/|<states/' \
 	"$SRC/hsm" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
@@ -87,7 +87,7 @@ if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R10：主站不认识 402 与业务
 section "R10  canopen/master/ 不认识 402 与业务"
-out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcats_|\bstm_|\baxis_|<cia402/|<transport/|<statemachine/' \
+out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcats_|\bstm_|\baxis_|<cia402/|<transport/|<states/' \
 	"$SRC/canopen/master" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 

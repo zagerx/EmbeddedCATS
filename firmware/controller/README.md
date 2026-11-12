@@ -12,14 +12,16 @@ controller/
 ├── cia402/         DS402 纯知识与单从站运行控制
 ├── third_party/    CANopenNode，只读
 ├── axis/           单位换算与多轴请求
-├── statemachine/   整机业务状态图
+├── states/ 整机业务状态图与状态注册表
 ├── hsm/            通用层次状态机内核
 ├── config/         机械参数与 CANopen 对象字典
-├── include/control/control.h
+├── include/control/ 公共状态、故障与控制接口
+├── evt_queue.c        控制输入事件队列
+├── evt_queue.h        事件与队列存储定义
 ├── controller.c           组合根与 I/O、控制、服务推进
 ├── controller_ops.c       状态机能力适配与装配
 ├── control_api.c          指令、查询与发布
-└── controller_internal.h
+└── controller_internal.h  控制器完整上下文与内部契约
 ```
 
 ## 职责

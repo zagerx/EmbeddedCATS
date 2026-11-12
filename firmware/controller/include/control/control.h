@@ -13,16 +13,23 @@
 #ifndef CONTROL_CONTROL_H
 #define CONTROL_CONTROL_H
 
-#include <stdint.h>
+#include <control/state_types.h>
 
-#include <statemachine/state_types.h>
-#include <statemachine/statemachine.h>
+#include <stdint.h>
 
 struct can_io;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* 一条位置指令，单位为 mm、mm/s、mm/s² */
+struct stm_move {
+	uint8_t axis;
+	float mm;
+	float mm_s;
+	float mm_s2;
+};
 
 /*
  * 业务状态使用层次状态机，与 NMT、DS402 状态相互独立。
@@ -50,9 +57,6 @@ enum cats_state controller_state(void);
  * 只有 HOLDING 接受位置指令，MOVING/HALTING 中的新位置指令被丢弃。
  */
 enum cats_result controller_move(const struct stm_move *reqs, uint8_t count);
-
-/* 单轴便捷封装：等价于 count = 1 的 controller_move() */
-enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2);
 
 /* 减速停在当前位置并保持使能；事件插到队头。 */
 void controller_stop(void);

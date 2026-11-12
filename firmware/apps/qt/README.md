@@ -5,7 +5,7 @@
 - 语言：**C++ / Qt6 Widgets**
 - 与 `apps/lyos_node/` **同级、二选一**：两个壳业务上都只依赖 `control/control.h`
 - 业务头只允许出现在 `bindings/`；`shell/`、`ui/`、`theme/` 不 include 任何
-  `control` / `statemachine` / `axis` / `cia402` / `transport` / `canopen` / `bus` 的头
+  `control` / `states` / `axis` / `cia402` / `transport` / `canopen` / `bus` 的头
 
 ## 目录
 
@@ -82,9 +82,9 @@ HALTING / FAULT / ESTOP）。
 ## 当前缺口（有意不加功能）
 
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
-  `controller_move_to()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
+  `controller_move()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
   取整到脉冲只发生在轴层，机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
-- `controller_move_to()` / `controller_stop()` / `controller_estop()` 还没有界面
+- `controller_move()` / `controller_stop()` / `controller_estop()` 还没有界面
   入口（2.1 的三个按钮已摆好，但未绑定）。
 - 启动不需要按钮：`controller_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
 

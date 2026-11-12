@@ -89,25 +89,25 @@ enum cats_result controller_poll(void)
 		return CATS_ERR_STATE;
 	}
 	now = now_ms(ctl);
-	ctl->stm.hb_ok = heartbeat_fact(ctl);
+	ctl->hb_ok = heartbeat_fact(ctl);
 
 	/* 停止和急停插在队头，外部事件先于本拍节拍处理。 */
 	for (n = 0u; n < CATS_EVTQ_DRAIN_MAX; n++) {
-		if (!cats_evtq_pop(&ctl->stm.evtq, &evt)) {
+		if (!cats_evtq_pop(&ctl->evtq, &evt)) {
 			break;
 		}
-		before = sm_hsm_state(&ctl->stm.hsm);
-		sm_hsm_dispatch(&ctl->stm.hsm, &evt.super);
-		if (sm_hsm_state(&ctl->stm.hsm) != before) {
-			ctl->stm.state_since_ms = now;
+		before = sm_hsm_state(&ctl->hsm);
+		sm_hsm_dispatch(&ctl->hsm, &evt.super);
+		if (sm_hsm_state(&ctl->hsm) != before) {
+			ctl->state_since_ms = now;
 		}
 	}
 
 	/* 外部事件处理完后投递一次周期节拍。 */
-	before = sm_hsm_state(&ctl->stm.hsm);
-	sm_hsm_dispatch(&ctl->stm.hsm, &evt_tick);
-	if (sm_hsm_state(&ctl->stm.hsm) != before) {
-		ctl->stm.state_since_ms = now;
+	before = sm_hsm_state(&ctl->hsm);
+	sm_hsm_dispatch(&ctl->hsm, &evt_tick);
+	if (sm_hsm_state(&ctl->hsm) != before) {
+		ctl->state_since_ms = now;
 	}
 
 	controller_publish();

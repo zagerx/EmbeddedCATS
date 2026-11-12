@@ -17,7 +17,7 @@
  */
 sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	struct controller_sm *ctl = container_of(me, struct controller_sm, hsm);
+	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY: {

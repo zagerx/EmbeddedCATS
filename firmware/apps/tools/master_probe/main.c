@@ -245,19 +245,31 @@ int main(int argc, char **argv)
 				fflush(stdout);
 			}
 			if (cmd.has_move && !moved && t >= cmd.move_at_ms) {
+				struct stm_move req = {
+					.axis = 0,
+					.mm = (float)cmd.move_mm,
+					.mm_s = (float)cmd.vel_mm_s,
+					.mm_s2 = (float)cmd.acc_mm_s2,
+				};
+
 				moved = 1;
 				printf("[%6ld] 指令：move_to %.3f mm\n", t, cmd.move_mm);
-				if (controller_move_to(0, (float)cmd.move_mm, (float)cmd.vel_mm_s,
-						       (float)cmd.acc_mm_s2) != CATS_OK) {
+				if (controller_move(&req, 1u) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
 			}
 			if (cmd.has_move2 && !moved2 && t >= cmd.move2_at_ms) {
+				struct stm_move req = {
+					.axis = 1,
+					.mm = (float)cmd.move2_mm,
+					.mm_s = (float)cmd.vel_mm_s,
+					.mm_s2 = (float)cmd.acc_mm_s2,
+				};
+
 				moved2 = 1;
 				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
-				if (controller_move_to(1, (float)cmd.move2_mm, (float)cmd.vel_mm_s,
-						       (float)cmd.acc_mm_s2) != CATS_OK) {
+				if (controller_move(&req, 1u) != CATS_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
 				fflush(stdout);
@@ -269,9 +281,14 @@ int main(int argc, char **argv)
 
 				spammed = 1;
 				for (i = 0; i < cmd.spam; i++) {
-					if (controller_move_to(0, (float)(i + 1),
-							       (float)cmd.vel_mm_s,
-							       (float)cmd.acc_mm_s2) == CATS_OK) {
+					struct stm_move req = {
+						.axis = 0,
+						.mm = (float)(i + 1),
+						.mm_s = (float)cmd.vel_mm_s,
+						.mm_s2 = (float)cmd.acc_mm_s2,
+					};
+
+					if (controller_move(&req, 1u) == CATS_OK) {
 						ok++;
 					} else {
 						busy++;

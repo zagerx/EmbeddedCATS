@@ -21,7 +21,7 @@
  */
 sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	struct controller_sm *ctl = container_of(me, struct controller_sm, hsm);
+	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
@@ -33,7 +33,7 @@ sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 		break; /* 无出口动作 */
 
 	case CATS_SIG_TICK: {
-		uint32_t elapsed = stm_now_ms(ctl) - ctl->state_since_ms;
+		uint32_t elapsed = ctl->ops.now_ms(ctl->ops.ctx) - ctl->state_since_ms;
 
 		if (elapsed < PREPARE_SETTLE_MS) {
 			return SM_SUPER(&st_root); /* 静默期：心跳还是复位前的旧数据 */

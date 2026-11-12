@@ -19,7 +19,7 @@
 #include <stdbool.h>
 
 #include <hsm/sm_hsm.h>
-#include <statemachine/statemachine.h>
+#include <control/control.h>
 
 #define CATS_EVTQ_LEN 8u       /* 队列容量 */
 #define CATS_EVTQ_DRAIN_MAX 4u /* 每拍最多消费几条，防把 1 ms 节拍拉长 */

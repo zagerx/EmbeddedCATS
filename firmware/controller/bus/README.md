@@ -47,7 +47,7 @@ socketcan_open(&io, &dev, "can0");   /* 填好 io.ops / io.ctx */
 |---|---|
 | 实现 `<bus/can_io.h>` 的 4 个动作 | 任何协议词（NMT / SDO / PDO / EMCY / LSS） |
 | `linux/can.h`、socket、`poll`、`clock_gettime` | 对象号、`0x600/0x580` |
-| 平台条件编译 | include `canopen/driver/`、`cia402/`、`axis/`、`statemachine/` 的任何头 |
+| 平台条件编译 | include `canopen/driver/`、`cia402/`、`axis/`、`states/` 的任何头 |
 
 ## 谁调用它
 

@@ -39,5 +39,5 @@ master_sdo(&m, 1);                                     /* 该从站的 CO_SDOcli
 ## 本层不知道
 
 - 402 对象号、控制字/状态字、PDS 状态（`cia402`）；
-- "轴"、"mm"、业务状态机（`axis` / `statemachine`）；
+- "轴"、"mm"、业务状态机（`axis` / `states`）；
 - 线程与节拍（宿主决定）。

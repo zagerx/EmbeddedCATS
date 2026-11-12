@@ -4,8 +4,8 @@
  * 从 control.h 搬出来：状态与故障码属于"业务语义"，控制层只是转发布。
  */
 
-#ifndef STATEMACHINE_STATE_TYPES_H
-#define STATEMACHINE_STATE_TYPES_H
+#ifndef CONTROL_STATE_TYPES_H
+#define CONTROL_STATE_TYPES_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,4 +51,4 @@ enum cats_fault {
 } /* extern "C" */
 #endif
 
-#endif /* STATEMACHINE_STATE_TYPES_H */
+#endif /* CONTROL_STATE_TYPES_H */

@@ -122,43 +122,32 @@ target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controll
 target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 target_link_libraries(cats_axis PUBLIC cia402)
 
-# 应用层：QP 风格层次状态机（HSM）
-#   hsm/          机制层：sm_hsm 内核（层次 + LCA + INIT 下钻）
-#   evt_queue/    多生产者事件队列（外部线程投递 → 控制线程消费）
-#   states/       业务状态：一状态一文件，states.c 是唯一注册点
-#   control.c     装配与对外接口：API → 事件
 # 通用层次状态机内核：零业务依赖，谁都能链（可单独单测）
 add_library(cats_hsm STATIC controller/hsm/src/sm_hsm.c)
 target_include_directories(cats_hsm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/hsm/include)
 
-# 业务状态机：本机的状态图 + 事件队列（只拿轴的事实，不认识 canopen）
-add_library(cats_statemachine STATIC
-	controller/statemachine/src/statemachine.c
-	controller/statemachine/src/evt_queue/evt_queue.c
-	controller/statemachine/src/states/states.c
-	controller/statemachine/src/states/state_root.c
-	controller/statemachine/src/states/state_online.c
-	controller/statemachine/src/states/state_preparing.c
-	controller/statemachine/src/states/state_configuring.c
-	controller/statemachine/src/states/state_enabling.c
-	controller/statemachine/src/states/state_holding.c
-	controller/statemachine/src/states/state_moving.c
-	controller/statemachine/src/states/state_halting.c
-	controller/statemachine/src/states/state_fault.c
-	controller/statemachine/src/states/state_estop.c)
-target_include_directories(cats_statemachine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/statemachine/include)
-target_include_directories(cats_statemachine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/statemachine/src ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-target_link_libraries(cats_statemachine PUBLIC cats_hsm cats_axis)
-
-# 组合根：装配 + 推进步骤 + 发布（唯一知道全部的地方；不创建线程）
+# 控制层：组合根 + 输入事件队列 + 状态图，统一持有一个控制器上下文。
 add_library(cats_control STATIC
 	controller/controller.c
 	controller/controller_ops.c
-	controller/control_api.c)
+	controller/control_api.c
+	controller/evt_queue.c
+	controller/states/states.c
+	controller/states/state_root.c
+	controller/states/state_online.c
+	controller/states/state_preparing.c
+	controller/states/state_configuring.c
+	controller/states/state_enabling.c
+	controller/states/state_holding.c
+	controller/states/state_moving.c
+	controller/states/state_halting.c
+	controller/states/state_fault.c
+	controller/states/state_estop.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
-target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-# 本库只装配并调用各层，不创建线程
-target_link_libraries(cats_control PUBLIC cats_statemachine cats_axis cia402 canopen_sdo cats_master
+target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+# 本库持有控制对象并调用各层，不创建线程
+target_link_libraries(cats_control PUBLIC cats_hsm cats_axis cia402 canopen_sdo cats_master
 	Threads::Threads)
 target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
 

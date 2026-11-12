@@ -19,7 +19,7 @@
  */
 sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	struct controller_sm *ctl = container_of(me, struct controller_sm, hsm);
+	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
@@ -30,7 +30,7 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		break; /* 失败的那一步已经停下，正常完成时也不再发帧 */
 
 	case CATS_SIG_TICK: {
-		uint32_t elapsed = stm_now_ms(ctl) - ctl->state_since_ms;
+		uint32_t elapsed = ctl->ops.now_ms(ctl->ops.ctx) - ctl->state_since_ms;
 
 		if (axis_any_failed(ctl->axes, ctl->axis_count)) {
 			ctl->fault_code = CATS_FAULT_CONFIG_FAILED;

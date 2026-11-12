@@ -2,7 +2,7 @@
  * states.h — 状态函数的集中声明 + 共享工具
  *
  * 每个状态一个 .c 文件（state_*.c），这里只放它们的声明，
- * 以及"从 hsm 指针找回 app 上下文"的 container_of 小工具。
+ * 以及"从 hsm 指针找回 controller 上下文"的 container_of 小工具。
  *
  * 层次（父状态在各自的 return SM_SUPER(&父) 里，或见下方注释）：
  *   sm_top               框架提供的顶层（返回 IGNORED，冒泡终点）
@@ -24,7 +24,7 @@
 #ifndef CONTROL_STATES_H
 #define CONTROL_STATES_H
 
-#include "../statemachine_internal.h"
+#include "controller_internal.h"
 
 #include <stddef.h>
 

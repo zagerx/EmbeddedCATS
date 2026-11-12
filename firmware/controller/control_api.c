@@ -24,7 +24,16 @@ void controller_publish(void)
 	if (app->master.bus == NULL) {
 		return;
 	}
-	state = (int)stm_state(&app->stm);
+
+	/* 将当前 HSM 叶子映射为对外状态；未注册时沿用 PREPARING。 */
+	state = CATS_STATE_PREPARING;
+	for (i = 0u; i < CATS_STATE_COUNT; i++) {
+		if (states[i] == sm_hsm_state(&app->hsm)) {
+			state = (int)i;
+			break;
+		}
+	}
+
 	/* 换算在锁外做（axis_sample 只读本线程写的字段，不做 I/O） */
 	for (i = 0; i < CATS_MAX_AXES; i++) {
 		struct axis_sample s;
@@ -37,7 +46,7 @@ void controller_publish(void)
 	}
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
-	app->published_fault = (int)stm_fault(&app->stm);
+	app->published_fault = (int)app->fault_code;
 	for (i = 0; i < CATS_MAX_AXES; i++) {
 		app->published_axes[i] = samples[i];
 	}
@@ -58,7 +67,7 @@ void controller_estop(void)
 		return;
 	}
 	/* 插到队头：优先于已排队的所有命令 */
-	cats_evtq_push_front(&ctl->stm.evtq, &evt);
+	cats_evtq_push_front(&ctl->evtq, &evt);
 }
 
 /**
@@ -93,27 +102,7 @@ enum cats_result controller_move(const struct stm_move *reqs, uint8_t count)
 		evt.u.move.axis[i] = reqs[i];
 	}
 	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
-	return cats_evtq_push(&ctl->stm.evtq, &evt) ? CATS_OK : CATS_ERR_BUSY;
-}
-
-/**
- * controller_move_to - 提交单轴绝对位置指令
- * @axis: 轴索引
- * @mm: 目标位置，单位 mm
- * @mm_s: 速度，单位 mm/s
- * @mm_s2: 加速度和减速度，单位 mm/s²
- *
- * Return: CATS_OK 已入队；CATS_ERR_BUSY 队列满；CATS_ERR_PARAM 参数或状态无效。
- */
-enum cats_result controller_move_to(uint8_t axis, float mm, float mm_s, float mm_s2)
-{
-	struct stm_move mv;
-
-	mv.axis = axis;
-	mv.mm = mm;
-	mv.mm_s = mm_s;
-	mv.mm_s2 = mm_s2;
-	return controller_move(&mv, 1u);
+	return cats_evtq_push(&ctl->evtq, &evt) ? CATS_OK : CATS_ERR_BUSY;
 }
 
 /**
@@ -130,7 +119,7 @@ void controller_stop(void)
 		return;
 	}
 	/* 停止也插队：排在已有序命令前面 */
-	cats_evtq_push_front(&ctl->stm.evtq, &evt);
+	cats_evtq_push_front(&ctl->evtq, &evt);
 }
 
 /**

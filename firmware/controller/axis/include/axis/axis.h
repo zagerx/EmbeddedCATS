@@ -1,6 +1,6 @@
 /*
  * 轴层：一个轴对应一个节点，负责 mm ↔ pulse 换算和动作请求。
- * 402 流程由 cia402 实现，业务状态由 statemachine 管理。
+ * 402 流程由 cia402 实现，业务状态由 states 管理。
  */
 
 #ifndef AXIS_AXIS_H
