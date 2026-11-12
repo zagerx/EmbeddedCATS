@@ -1,13 +1,14 @@
 /*
- * device.c — device.h 的实现：装配、投递、推进
+ * device.c — device.h 的实现：装配、投递、推进、取反馈
  *
- * 本文件与 device.h 一一对应，只实现那三个对外动词：
+ * 本文件与 device.h 一一对应，只实现对外接口：
  *   cia402_init()     装配
  *   cia402_request()  投递（只回答收不收）
- *   cia402_poll()     推进一拍并把事实交出去
+ *   cia402_poll()     推进一拍并交出流程状态
+ *   cia402_get_feedback() 读取最新原始反馈
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
- * 状态与迁移条件在 states/ 下。本文件只负责把「请求槽、事务结果、取消」
+ * 状态与迁移条件在 states/ 下。本文件只负责把「邮箱、事务结果、取消」
  * 翻成 hsm 事件。
  *
  * 一次 poll 最多发起一笔对象事务：这条纪律让服务线程能在多个设备之间
@@ -53,10 +54,11 @@ void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8
  * @d: 设备对象
  * @req: 请求；HALT / QUICK_STOP 会抢占在途流程
  *
- * Return: CIA402_ACCEPTED 已受理；BUSY 上一条没结束；INVALID 请求不合法；
- * REFUSED 当前不允许（未配置就使能、未使能就运动）。
+ * 参数校验不加锁（只看 req 本身），「收不收」的判断在 admit 里加锁做。
+ *
+ * Return: 见 enum cia402_response；HALT / QUICK_STOP 不受 BUSY 限制。
  */
-enum cia402_ret cia402_request(struct cia402_device *d, const struct cia402_request *req)
+enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req)
 {
 	if (d == NULL || req == NULL) {
 		return CIA402_INVALID;
@@ -72,10 +74,10 @@ enum cia402_ret cia402_request(struct cia402_device *d, const struct cia402_requ
 }
 
 /**
- * cia402_poll - 推进一拍并交出这一刻的事实
+ * cia402_poll - 推进一拍并交出流程状态
  * @d: 设备对象
  * @now_ms: 当前单调毫秒时刻
- * @out: 事实输出；可为 NULL（只要推进）
+ * @out: 流程状态输出；可为 NULL（只要推进）
  *
  * 仅服务线程调用。out 在事件分发之后填，所以本拍刚产生的结论立刻可见。
  */
@@ -185,16 +187,16 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 		rc = CIA402_REFUSED;
 	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.enabled == 0u) {
 		rc = CIA402_REFUSED;
-	} else if (!urgent && (d->mailbox.executing != 0u || d->mailbox.pending != 0u)) {
-		rc = CIA402_BUSY; /* 普通请求排队：忙就拒，由调用方重试 */
+	} else if (!urgent && (d->outbox.phase != CIA402_PHASE_IDLE || d->mailbox.pending != 0u)) {
+		rc = CIA402_BUSY; /* 不排队：忙就拒，要不要重试由调用方定 */
 	}
 
 	if (rc == CIA402_ACCEPTED) {
 		d->mailbox.req = *req;
 		d->mailbox.pending = 1u;
 		/* 新流程开始：上一条的结论作废，免得被当成这一条的结论读走 */
-		d->outbox.result = CIA402_RESULT_NONE;
-		d->outbox.fail = CIA402_FAIL_NONE;
+		d->outbox.last.result = CIA402_OP_NONE;
+		d->outbox.last.fail = CIA402_OP_FAIL_NONE;
 		if (urgent) {
 			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 		}

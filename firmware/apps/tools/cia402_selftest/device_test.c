@@ -255,7 +255,7 @@ static void test_enable(void)
 	fx_poll(&f);
 
 	CHECK(f.st.enabled != 0);
-	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.st.last.result == CIA402_OP_DONE);
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 }
 
@@ -295,7 +295,7 @@ static void test_pp(void)
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 
-	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.st.last.result == CIA402_OP_DONE);
 	CHECK(f.dev.sdo.cw_ok == CIA402_CW_ENABLE_OP);
 }
 
@@ -320,7 +320,7 @@ static void test_quick_stop_preempts(void)
 	fx_complete(&f, -1, 0u); /* 被 abort 的旧事务 */
 	fx_poll(&f);
 	/* 旧流程作废：不能留下失败结论 */
-	CHECK(f.st.result == CIA402_RESULT_NONE);
+	CHECK(f.st.last.result == CIA402_OP_NONE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
@@ -333,7 +333,7 @@ static void test_quick_stop_preempts(void)
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
 	CHECK(f.st.enabled == 0u);
-	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.st.last.result == CIA402_OP_DONE);
 }
 
 /* 安全链：qstop 写超时仍读状态，读超时仍断使能 */
@@ -374,7 +374,7 @@ static void test_quick_stop_timeout_chain(void)
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
 	CHECK(f.st.enabled == 0u);
-	CHECK(f.st.result == CIA402_RESULT_DONE);
+	CHECK(f.st.last.result == CIA402_OP_DONE);
 }
 
 /* 发起被立即拒绝：下一拍给出失败结论 */
@@ -390,7 +390,7 @@ static void test_start_rejected(void)
 	fx_poll(&f);
 	fx_poll(&f);
 
-	CHECK(f.st.result == CIA402_RESULT_FAILED);
+	CHECK(f.st.last.result == CIA402_OP_FAILED);
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 	CHECK(f.st.failed != 0u);
 }
@@ -415,7 +415,7 @@ static void test_cancel_beats_pending_failure(void)
 		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
 	}
 	fx_poll(&f);
-	CHECK(f.st.result == CIA402_RESULT_NONE); /* 旧失败作废 */
+	CHECK(f.st.last.result == CIA402_OP_NONE); /* 旧失败作废 */
 
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
@@ -437,8 +437,8 @@ static void test_timeout(void)
 	fx_complete(&f, -1, 0u);
 	fx_poll(&f);
 
-	CHECK(f.st.result == CIA402_RESULT_FAILED);
-	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.st.last.result == CIA402_OP_FAILED);
+	CHECK(f.st.last.fail == CIA402_OP_FAIL_TIMEOUT);
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 }
 

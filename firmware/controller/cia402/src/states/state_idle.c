@@ -26,24 +26,22 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		uint8_t reason = d->operation.cancel;
 		int busy;
 
+		/* phase 还停在流程上 = 流程是被打断退出的（自己收尾的已由
+		 * dev_finish 归位），此时按 reason 决定要不要报失败。 */
 		pthread_mutex_lock(&d->lock);
-		busy = d->mailbox.executing;
+		busy = (d->outbox.phase != CIA402_PHASE_IDLE);
+		d->outbox.phase = CIA402_PHASE_IDLE;
 		pthread_mutex_unlock(&d->lock);
 		d->operation.cancel = CIA402_CANCEL_NONE;
-		d->outbox.phase = CIA402_PHASE_IDLE;
 		d->sdo.cw_next_valid = 0u;
 
 		if (busy == 0) {
-			break; /* 流程已自行收尾，或本来就在空闲 */
+			break; /* 本来就在空闲 */
 		}
 		if (reason == CIA402_CANCEL_TIMEOUT) {
-			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_TIMEOUT);
-		} else {
-			/* 被抢占或手动取消：这条流程的结论作废，不留下结果 */
-			pthread_mutex_lock(&d->lock);
-			d->mailbox.executing = 0u;
-			pthread_mutex_unlock(&d->lock);
+			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_TIMEOUT);
 		}
+		/* 被抢占：这条流程的结论作废，不留下结果 */
 		break;
 	}
 
@@ -51,11 +49,10 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		const struct request_evt *ev = SM_EVT_CAST(struct request_evt, e);
 
 		pthread_mutex_lock(&d->lock);
-		d->mailbox.executing = 1u;
 		d->outbox.phase = dev_phase_of(ev->req.kind);
 		pthread_mutex_unlock(&d->lock);
 
-		/* 当前流程的参数整块换新：以后状态函数只看 operation，不再看请求槽 */
+		/* 流程参数整块拷进 operation：状态函数只读 operation，不读 mailbox */
 		d->operation.kind = ev->req.kind;
 		d->operation.cancel = CIA402_CANCEL_NONE;
 		d->operation.deadline = 0u;
@@ -80,14 +77,14 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		case CIA402_REQ_QUICK_STOP:
 			return SM_TRAN(&st_qstop_write);
 		default:
-			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_NONE);
+			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_NONE);
 			return SM_HANDLED();
 		}
 	}
 
 	case CIA402_SIG_TICK:
-		/* 一轮读完（slot 回 0）才按间隔刷新 */
-		if (d->monitor.slot == 0u &&
+		/* 一轮读完（cursor 回 0）才按间隔刷新 */
+		if (d->monitor.cursor == 0u &&
 		    (uint32_t)(d->now_ms - d->monitor.last_ms) < CIA402_DEVICE_MON_INTERVAL_MS) {
 			return SM_HANDLED();
 		}
@@ -113,15 +110,13 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
  */
 sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e)
 {
-	static const uint16_t kMonitorIndex[4] = {
-		CIA402_OD_STATUSWORD, CIA402_OD_POSITION_ACTUAL,
-		CIA402_OD_VELOCITY_ACTUAL, CIA402_OD_ERROR_CODE
-	};
+	static const uint16_t kMonitorIndex[4] = {CIA402_OD_STATUSWORD, CIA402_OD_POSITION_ACTUAL,
+						  CIA402_OD_VELOCITY_ACTUAL, CIA402_OD_ERROR_CODE};
 	struct cia402_device *d = DEV_OF(me);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, kMonitorIndex[d->monitor.slot], CIA402_DEVICE_MON_TIMEOUT_MS);
+		dev_read(d, kMonitorIndex[d->monitor.cursor], CIA402_DEVICE_MON_TIMEOUT_MS);
 		break;
 
 	case CIA402_SIG_SDO_DONE: {
@@ -129,7 +124,7 @@ sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e)
 
 		if (r->status == 0) {
 			pthread_mutex_lock(&d->lock);
-			switch (d->monitor.slot) {
+			switch (d->monitor.cursor) {
 			case 0:
 				d->feedback.statusword = (uint16_t)(r->value & 0xFFFFu);
 				break;
@@ -146,12 +141,12 @@ sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e)
 			pthread_mutex_unlock(&d->lock);
 		}
 		/* 读失败也往下轮：保留旧值，不因此报故障 */
-		d->monitor.slot = (uint8_t)((d->monitor.slot + 1u) % 4u);
+		d->monitor.cursor = (uint8_t)((d->monitor.cursor + 1u) % 4u);
 		return SM_TRAN(&st_idle);
 	}
 
 	case CIA402_SIG_CANCEL:
-		d->monitor.slot = (uint8_t)((d->monitor.slot + 1u) % 4u);
+		d->monitor.cursor = (uint8_t)((d->monitor.cursor + 1u) % 4u);
 		return SM_TRAN(&st_idle);
 
 	default:

@@ -65,7 +65,7 @@ sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
 		}
 		if (cia402_parse((uint16_t)r->value) == CIA402_FAULT ||
 		    (int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_RESULT_FAILED, CIA402_FAIL_DRIVER);
+			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_halt_read);
@@ -95,7 +95,7 @@ sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e)
 		if (DEV_SDO_RESULT(e)->status != 0) {
 			dev_fail(d, DEV_SDO_RESULT(e));
 		} else {
-			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
+			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
 		}
 		return SM_TRAN(&st_idle);
 

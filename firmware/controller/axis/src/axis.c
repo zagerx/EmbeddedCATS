@@ -47,10 +47,10 @@ void axis_poll(struct cats_axis *a, uint32_t now_ms)
 		cia402_poll(&a->dev, now_ms, &st);
 		/* 结论是事件：只在有新结论时覆盖缓存。结论只保持到下次受理，
 		 * 每拍都覆盖的话，上层采样一慢就会整条错过。 */
-		if (st.result != CIA402_RESULT_NONE) {
-			a->status.result = st.result;
-			a->status.fail = st.fail;
-			a->status.abort_code = st.abort_code;
+		if (st.last.result != CIA402_OP_NONE) {
+			a->status.last.result = st.last.result;
+			a->status.last.fail = st.last.fail;
+			a->status.last.abort_code = st.last.abort_code;
 		}
 		a->status.phase = st.phase;
 		a->status.configured = st.configured;
@@ -114,7 +114,7 @@ int axis_halt(struct cats_axis *a)
  */
 uint32_t axis_abort_code(const struct cats_axis *a)
 {
-	return (a == NULL) ? 0U : a->status.abort_code;
+	return (a == NULL) ? 0U : a->status.last.abort_code;
 }
 
 /**
@@ -154,12 +154,12 @@ enum axis_motion axis_take_motion(struct cats_axis *a)
 	if (a == NULL) {
 		return AXIS_MOTION_NONE;
 	}
-	if (a->status.result == CIA402_RESULT_DONE) {
-		a->status.result = CIA402_RESULT_NONE; /* 取走即清：一次结论只报一次 */
+	if (a->status.last.result == CIA402_OP_DONE) {
+		a->status.last.result = CIA402_OP_NONE; /* 取走即清：一次结论只报一次 */
 		return AXIS_MOTION_DONE;
 	}
-	if (a->status.result == CIA402_RESULT_FAILED) {
-		a->status.result = CIA402_RESULT_NONE;
+	if (a->status.last.result == CIA402_OP_FAILED) {
+		a->status.last.result = CIA402_OP_NONE;
 		return AXIS_MOTION_FAILED;
 	}
 	return (a->status.phase != CIA402_PHASE_IDLE) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
@@ -322,7 +322,7 @@ static int axis_submit(struct cats_axis *a, const struct cia402_request *req)
 		return 1;
 	}
 	/* 新动作开始：上一条的结论作废，别让 MOVING 第一拍读到旧 DONE */
-	a->status.result = CIA402_RESULT_NONE;
-	a->status.fail = CIA402_FAIL_NONE;
+	a->status.last.result = CIA402_OP_NONE;
+	a->status.last.fail = CIA402_OP_FAIL_NONE;
 	return 0;
 }

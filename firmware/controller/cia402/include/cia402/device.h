@@ -49,11 +49,11 @@ struct cia402_request {
 };
 
 /* 投递结果：只说收不收，不承诺成功 */
-enum cia402_ret {
-	CIA402_ACCEPTED = 0, /* 已受理，成为当前流程 */
-	CIA402_BUSY,         /* 上一条还没结束 */
-	CIA402_INVALID,      /* 请求本身不合法（kind、参数）*/
-	CIA402_REFUSED       /* 合法但当前不允许（未配置/未使能）*/
+enum cia402_response {
+	CIA402_ACCEPTED = 0, /* 已放进邮箱，等待服务线程取走 */
+	CIA402_BUSY,         /* 有流程在跑或邮箱还有待办：重试可能成功 */
+	CIA402_INVALID,      /* 请求本身不合法（kind、未知参数）*/
+	CIA402_REFUSED       /* 前置条件不成立：先 ENABLE 再 MOVE，重试无用 */
 };
 
 /* ---- poll 的输出 ---- */
@@ -69,20 +69,20 @@ enum cia402_phase {
 	CIA402_PHASE_QUICK_STOP
 };
 
-/* 最近一条流程的结论；保持到下一次请求被受理 */
-enum cia402_result {
-	CIA402_RESULT_NONE = 0,
-	CIA402_RESULT_DONE,
-	CIA402_RESULT_FAILED
+/* 一次操作的结局；保持到下一次请求被受理 */
+enum cia402_operation_result {
+	CIA402_OP_NONE = 0, /* 还没有结局：流程在跑，或刚装配 */
+	CIA402_OP_DONE,
+	CIA402_OP_FAILED
 };
 
 /* 失败原因：上层据此判断"重试有没有意义" */
-enum cia402_fail {
-	CIA402_FAIL_NONE = 0,
-	CIA402_FAIL_TIMEOUT, /* 步骤超时：驱动器没按期响应 */
-	CIA402_FAIL_DRIVER,  /* 6041 报故障，复位也没成功 */
-	CIA402_FAIL_SDO,     /* 对象访问被 abort（见 abort_code）*/
-	CIA402_FAIL_CHECK    /* 回读值不符（例如模式没设进去）*/
+enum cia402_operation_fail {
+	CIA402_OP_FAIL_NONE = 0,
+	CIA402_OP_FAIL_TIMEOUT, /* 步骤超时：驱动器没按期响应 */
+	CIA402_OP_FAIL_DRIVER,  /* 6041 报故障，复位也没成功 */
+	CIA402_OP_FAIL_SDO,     /* 对象访问被 abort（见 abort_code）*/
+	CIA402_OP_FAIL_CHECK    /* 回读值不符（例如模式没设进去）*/
 };
 
 /* 驱动器原始反馈，仅作显示与诊断，不用来判断流程成败 */
@@ -94,13 +94,18 @@ struct cia402_feedback {
 };
 
 struct cia402_status {
-	enum cia402_phase phase;   /* 现在在做什么 */
-	enum cia402_result result; /* 最近一条流程的结论 */
-	enum cia402_fail fail;     /* result == FAILED 时的原因 */
-	uint32_t abort_code;       /* 失败对应的 SDO abort 码；0 = 没有 */
-	uint8_t configured;        /* 模式已确认 */
-	uint8_t enabled;           /* 当前确认处于使能态 */
-	uint8_t failed;            /* 有过失败记录，直到下一次 MOVE/CONFIG 受理 */
+	/* 现在 */
+	enum cia402_phase phase; /* 现在在做什么；IDLE = 没有流程在跑 */
+	uint8_t configured;      /* 模式已确认 */
+	uint8_t enabled;         /* 当前确认处于使能态 */
+	uint8_t failed;          /* 有过失败记录，直到下一次 MOVE/CONFIG 受理 */
+
+	/* 最近一次操作的结局 */
+	struct {
+		enum cia402_operation_result result;
+		enum cia402_operation_fail fail; /* result == CIA402_OP_FAILED 时的原因 */
+		uint32_t abort_code;             /* 失败对应的 SDO abort 码；0 = 没有 */
+	} last;
 };
 
 /* ---- 内部数据分组（纯数据，无逻辑；分组只为可读性）---- */
@@ -140,7 +145,7 @@ struct cia402_operation {
 
 /* 反馈轮转：仅服务线程使用 */
 struct cia402_monitor {
-	uint8_t slot;
+	uint8_t cursor; /* 下一项要读的反馈，0..3 轮转 */
 	uint32_t last_ms;
 };
 
@@ -156,8 +161,7 @@ struct cia402_device {
 	struct {
 		struct cia402_request req; /* 待办的便条 */
 		uint8_t pending;           /* 有待办 */
-		uint8_t executing; /* 服务线程正拿着上一张；控制线程读它判 BUSY */
-		uint8_t cancel;    /* enum cia402_cancel_reason */
+		uint8_t cancel;            /* enum cia402_cancel_reason */
 	} mailbox;
 
 	/* 服务线程 → 控制线程 */
@@ -165,11 +169,11 @@ struct cia402_device {
 	struct cia402_feedback feedback;
 
 	/* ==== 以下仅服务线程访问，不加锁 ==== */
-	struct sm_hsm hsm;             /* 状态机：当前状态由 hsm 维护 */
-	uint32_t now_ms;               /* 本拍时刻，用来算期限 */
-	struct cia402_sdo sdo;         /* 当前这笔对象事务 */
+	struct sm_hsm hsm;                 /* 状态机：当前状态由 hsm 维护 */
+	uint32_t now_ms;                   /* 本拍时刻，用来算期限 */
+	struct cia402_sdo sdo;             /* 当前这笔对象事务 */
 	struct cia402_operation operation; /* 当前执行的操作及其进度 */
-	struct cia402_monitor monitor; /* 反馈轮转 */
+	struct cia402_monitor monitor;     /* 反馈轮转 */
 };
 
 /* 对外接口 */
@@ -180,7 +184,7 @@ void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8
  * 投递一条请求。立即返回，不阻塞。
  * HALT / QUICK_STOP 会抢占在途流程；其余请求在忙时返回 CIA402_BUSY。
  */
-enum cia402_ret cia402_request(struct cia402_device *d, const struct cia402_request *req);
+enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 
 /*
  * 推进一拍；out 非空时把这一刻的事实拷出去（在事件分发之后填，

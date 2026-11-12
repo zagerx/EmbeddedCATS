@@ -73,40 +73,43 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
  * dev_finish - 结束当前流程并写结论
  * @d: 设备对象
  * @result: DONE 或 FAILED
- * @fail: 失败原因；成功时传 CIA402_FAIL_NONE
+ * @fail: 失败原因；成功时传 CIA402_OP_FAIL_NONE
  *
  * 调用方随后迁回 st_idle。被取消的流程不走这里（结论作废）。
  */
-void dev_finish(struct cia402_device *d, enum cia402_result result, enum cia402_fail fail)
+void dev_finish(struct cia402_device *d, enum cia402_operation_result result,
+		enum cia402_operation_fail fail)
 {
 	pthread_mutex_lock(&d->lock);
-	if (result == CIA402_RESULT_FAILED) {
+	if (result == CIA402_OP_FAILED) {
 		d->outbox.failed = 1u;
 	}
 	switch (d->operation.kind) {
 	case CIA402_REQ_CONFIG:
-		d->outbox.configured = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.configured = (uint8_t)(result == CIA402_OP_DONE);
 		break;
 	case CIA402_REQ_ENABLE:
-		d->outbox.enabled = (uint8_t)(result == CIA402_RESULT_DONE);
+		d->outbox.enabled = (uint8_t)(result == CIA402_OP_DONE);
 		break;
 	case CIA402_REQ_DISABLE:
 		/* 只有确认断开才改；失败时保持原值，免得上层误以为已经断了 */
-		if (result == CIA402_RESULT_DONE) {
+		if (result == CIA402_OP_DONE) {
 			d->outbox.enabled = 0u;
 		}
 		break;
 	case CIA402_REQ_QUICK_STOP:
-		if (result == CIA402_RESULT_DONE) {
+		if (result == CIA402_OP_DONE) {
 			d->outbox.enabled = 0u;
 		}
 		break;
 	default:
 		break;
 	}
-	d->outbox.result = result;
-	d->outbox.fail = fail;
-	d->mailbox.executing = 0u;
+	d->outbox.last.result = result;
+	d->outbox.last.fail = fail;
+	/* 流程自己收尾：把 phase 归位，st_idle 的 ENTRY 据此知道不必再补结论。
+	 * 被打断退出（SIG_DEV_CANCEL）不走这里，phase 仍是流程的。 */
+	d->outbox.phase = CIA402_PHASE_IDLE;
 	pthread_mutex_unlock(&d->lock);
 	d->sdo.cw_next_valid = 0u;
 }
@@ -118,17 +121,17 @@ void dev_finish(struct cia402_device *d, enum cia402_result result, enum cia402_
  */
 void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 {
-	enum cia402_fail fail = CIA402_FAIL_SDO;
+	enum cia402_operation_fail fail = CIA402_OP_FAIL_SDO;
 
 	if (result == NULL) {
-		fail = CIA402_FAIL_NONE;
+		fail = CIA402_OP_FAIL_NONE;
 	} else if (result->abort_code == 0u) {
-		fail = CIA402_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
+		fail = CIA402_OP_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
 	}
 	pthread_mutex_lock(&d->lock);
-	d->outbox.abort_code = (result != NULL) ? result->abort_code : 0u;
+	d->outbox.last.abort_code = (result != NULL) ? result->abort_code : 0u;
 	pthread_mutex_unlock(&d->lock);
-	dev_finish(d, CIA402_RESULT_FAILED, fail);
+	dev_finish(d, CIA402_OP_FAILED, fail);
 }
 
 /**
@@ -141,18 +144,6 @@ void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
 	pthread_mutex_lock(&d->lock);
 	d->feedback.statusword = statusword;
 	pthread_mutex_unlock(&d->lock);
-}
-
-/**
- * dev_running_kind - 取当前在执行的请求类别
- * @d: 设备对象
- *
- * Return: 当前流程类别；没有流程时返回 CIA402_REQ_CONFIG（调用方应先用
- * mailbox.executing 判断）。
- */
-enum cia402_kind dev_running_kind(const struct cia402_device *d)
-{
-	return d->operation.kind;
 }
 
 /**
@@ -176,9 +167,10 @@ enum cia402_phase dev_phase_of(enum cia402_kind kind)
 		return CIA402_PHASE_HALT;
 	case CIA402_REQ_QUICK_STOP:
 		return CIA402_PHASE_QUICK_STOP;
-	default:
-		return CIA402_PHASE_IDLE;
 	}
+	/* 故意不写 default：漏了某个 kind 时由 -Wswitch 报出来。
+	 * 走到这里说明 kind 越界（cia402_request 已校验过），返回 IDLE 不冒充"忙"。 */
+	return CIA402_PHASE_IDLE;
 }
 
 static void pend_failure(struct cia402_device *d)

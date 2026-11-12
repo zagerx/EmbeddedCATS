@@ -4,7 +4,7 @@
 
 | 子目录 | 说明 |
 |---|---|
-| `master_probe/` | 无界面宿主：I/O 与服务各一线程，主循环按 20 ms 推进状态机 |
+| `master_probe/` | 无界面宿主：I/O 与服务各一线程，主循环按 1 ms 推进状态机 |
 | `fake_drive/` | CANopen 从站模拟器：NMT、加速 SDO、心跳和最小 402/PP 模型 |
 | `cia402_selftest/` | PDS 状态解析与起点快进纯逻辑自测 |
 | `layering_check.sh` | 分层边界检查 R1–R10 |

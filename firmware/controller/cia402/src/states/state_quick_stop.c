@@ -106,7 +106,7 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 		if (DEV_SDO_RESULT(e)->status != 0) {
 			dev_fail(d, DEV_SDO_RESULT(e));
 		} else {
-			dev_finish(d, CIA402_RESULT_DONE, CIA402_FAIL_NONE);
+			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
 		}
 		return SM_TRAN(&st_idle);
 
