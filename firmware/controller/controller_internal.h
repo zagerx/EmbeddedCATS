@@ -50,6 +50,9 @@ struct controller {
 /* 取当前时刻；未接管主站时返回 0（I/O/服务线程用） */
 uint32_t now_ms(struct controller *app);
 
+/* 装配业务状态机并注入主站与时钟能力（仅初始化阶段调用） */
+void controller_stm_init(struct controller *app);
+
 /* 控制层单例（由 controller.c 创建；同层另一文件通过它拿上下文） */
 struct controller *control_ctx(void);
 

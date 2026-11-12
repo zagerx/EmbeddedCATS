@@ -5,17 +5,19 @@
 ```text
 controller/
 ├── bus/            CAN 帧契约与 SocketCAN 后端
-├── canopen_node/   CANopenNode CO_driver 移植层
-├── master/         主站、节点表、NMT、心跳和协议栈推进
-├── third_party/    CANopenNode，只读
-├── transport/      对象访问契约与 CANopen SDO 后端
+├── canopen/        CANopen 通信协议栈
+│   ├── driver/     CANopenNode CO_driver 移植层
+│   ├── master/     主站、节点表、NMT、心跳和协议栈推进
+│   └── transport/  对象访问契约与 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
+├── third_party/    CANopenNode，只读
 ├── axis/           单位换算与多轴请求
 ├── statemachine/   整机业务状态图
 ├── hsm/            通用层次状态机内核
 ├── config/         机械参数与 CANopen 对象字典
 ├── include/control/control.h
 ├── controller.c           组合根与 I/O、服务推进
+├── controller_ops.c       状态机能力适配与装配
 ├── control_api.c          状态机推进、指令与发布
 └── controller_internal.h
 ```

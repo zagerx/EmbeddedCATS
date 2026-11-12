@@ -31,8 +31,8 @@ target_include_directories(bus_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/con
 target_compile_definitions(bus_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
 
 # 主站层：一条总线 + 登记的从站（站号表 / 收发分派 / 心跳超时）
-add_library(cats_master STATIC controller/master/src/master.c)
-target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/master/include)
+add_library(cats_master STATIC controller/canopen/master/src/master.c)
+target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/master/include)
 # master.h 要用 <bus/can_io.h>：bus 是它的下层，路径向上游都可见
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
 target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan)
@@ -40,7 +40,7 @@ target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan)
 # ---------------------------------------------------------------
 # CANopenNode v4（第三方协议栈，原样参与构建）
 #   third_party/CANopenNode/  官方源码（只读，不改）
-#   canopen_node/             本机移植层：CO_driver 用我们的 bus 实现
+#   canopen/driver/         本机移植层：CO_driver 用我们的 bus 实现
 #   config/canopen_node/      对象字典：心跳消费 0x1016 / SDO 客户端 0x1280
 # 只开本工程用到的服务：NMT master、心跳消费（含查询）、SDO 客户端。
 # ---------------------------------------------------------------
@@ -59,11 +59,11 @@ add_library(canopen_node STATIC
 	${CANOPENNODE_DIR}/301/CO_SYNC.c
 	${CANOPENNODE_DIR}/301/CO_TIME.c
 	${CANOPENNODE_DIR}/301/crc16-ccitt.c
-	controller/canopen_node/co_driver_cats.c
+	controller/canopen/driver/co_driver_cats.c
 	controller/config/canopen_node/OD.c)
 target_include_directories(canopen_node PUBLIC
 	${CANOPENNODE_DIR}
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen_node
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/driver
 	${CMAKE_CURRENT_SOURCE_DIR}/controller/config/canopen_node
 	${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
 # 这些宏决定 CANopenNode 头里暴露哪些类型/服务，所有包含 CANopen.h 的
@@ -83,10 +83,10 @@ target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
 
 # 对象访问契约与 CANopen SDO 后端。契约不认识具体协议，后端不实现 DS402 语义。
 add_library(sdo_access INTERFACE)
-target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
+target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
 
-add_library(canopen_sdo STATIC controller/transport/src/sdo_client.c)
-target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/transport/include)
+add_library(canopen_sdo STATIC controller/canopen/transport/src/sdo_client.c)
+target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
 target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node Threads::Threads)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 
@@ -153,6 +153,7 @@ target_link_libraries(cats_statemachine PUBLIC cats_hsm cats_axis)
 # 组合根：装配 + 推进步骤 + 发布（唯一知道全部的地方；不创建线程）
 add_library(cats_control STATIC
 	controller/controller.c
+	controller/controller_ops.c
 	controller/control_api.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
 target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)

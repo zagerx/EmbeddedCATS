@@ -119,7 +119,7 @@ static int foo_wait(struct foo *f, uint32_t timeout_ms)
 [check_c_layout.sh](./scripts/check_c_layout.sh) 只读检查，违规时打印 `文件:行号: 原因` 并返回 1：
 
 ```bash
-./.github/skills/c-file-layout/scripts/check_c_layout.sh firmware/controller/transport/src/sdo_client.c
+./.github/skills/c-file-layout/scripts/check_c_layout.sh firmware/controller/canopen/transport/src/sdo_client.c
 ```
 
 它检查：分段标记、圆圈序号、缺 `Author`、文件头超 20 行、`static` 实现出现在对外函数之前。

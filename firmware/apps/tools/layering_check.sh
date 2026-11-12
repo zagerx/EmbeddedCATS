@@ -29,9 +29,9 @@ out=$(grep -nE 'canopen|ds301|0x600|0x580|<transport/|pthread|clock_' "${PDS_FIL
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R2：CO_driver 移植层不认识 402
-section "R2  canopen_node/ 不认识 402"
+section "R2  canopen/driver/ 不认识 402"
 out=$(grep -rnE '0x60(40|41|3[Ff])|0x606[014cC]|0x607[Aa]|ds402|cia402' \
-	"$SRC/canopen_node" $INC 2>/dev/null | code_only)
+	"$SRC/canopen/driver" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R3：限制 CANopenNode 头文件的使用范围
@@ -42,9 +42,9 @@ while IFS= read -r f; do
 	[ -z "$f" ] && continue
 	case "$f" in
 	controller/third_party/*) continue ;;
-	controller/canopen_node/*) continue ;;
-	controller/master/*) continue ;;
-	controller/transport/*) continue ;;
+	controller/canopen/driver/*) continue ;;
+	controller/canopen/master/*) continue ;;
+	controller/canopen/transport/*) continue ;;
 	controller/config/canopen_node/*) continue ;;
 	esac
 	viol+="$f"$'\n'
@@ -80,15 +80,15 @@ out=$(grep -rnE 'pthread_create|std::thread' "$SRC" $INC --include=*.cpp 2>/dev/
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R9：移植层不认识主站节点表
-section "R9  canopen_node/ 不认识主站"
+section "R9  canopen/driver/ 不认识主站"
 out=$(grep -rnE '\bmaster_[a-z_]*\(|node_count|MASTER_HB_TIMEOUT|<master/' \
-	"$SRC/canopen_node" $INC 2>/dev/null | code_only)
+	"$SRC/canopen/driver" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R10：主站不认识 402 与业务
-section "R10  master/ 不认识 402 与业务"
+section "R10  canopen/master/ 不认识 402 与业务"
 out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcats_|\bstm_|\baxis_|<cia402/|<transport/|<statemachine/' \
-	"$SRC/master" $INC 2>/dev/null | code_only)
+	"$SRC/canopen/master" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 if [ "$FAILS" -eq 0 ]; then
