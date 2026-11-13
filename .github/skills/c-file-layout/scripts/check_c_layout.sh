@@ -64,7 +64,7 @@ check_file() {
 	# 5. static 实现不得排在对外函数之前（实现应全部沉底）
 	# 只有往下第一个标点是 { 才算实现；多行原型后面跟的是 ;
 	first_priv=$(awk '
-		/^static[[:space:]]/ {
+		/^static[[:space:]][^=]*\(/ {
 			cand = NR
 			if ($0 ~ /\{/) { print cand; exit }
 			if ($0 ~ /;/) { cand = 0 }
