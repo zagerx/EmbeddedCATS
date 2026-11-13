@@ -1,8 +1,8 @@
 /*
  * control_api.c — 将控制 API 翻译成状态机操作并发布只读快照
  *
- * 外部指令经事件队列进入控制线程，查询接口读取发布值或轴事实。
- * 装配以及 I/O、控制、服务推进位于 controller.c。
+ * 外部指令经带锁队列进入工作线程，成功入队后用 eventfd 唤醒。
+ * 查询只读发布快照，不接触主站、CANopenNode 或设备内部对象。
  *
  * Author: zager
  */
@@ -12,20 +12,19 @@
 /**
  * controller_publish - 发布整机状态、故障和各轴反馈快照
  *
- * 只能由控制线程调用；轴单位换算在发布锁外完成。
+ * 只能由工作线程调用；轴单位换算与事实收集在发布锁外完成。
  */
 void controller_publish(void)
 {
 	struct controller *app = control_ctx();
 	int state;
 	struct controller_axis_sample samples[CONTROLLER_MAX_AXES];
+	uint32_t aborts[CONTROLLER_MAX_AXES];
 	uint8_t i;
 
 	if (app->master == NULL) {
 		return;
 	}
-
-	/* 将当前 HSM 叶子映射为对外状态；未注册时沿用 PREPARING。 */
 	state = CONTROLLER_STATE_PREPARING;
 	for (i = 0u; i < CONTROLLER_STATE_COUNT; i++) {
 		if (states[i] == sm_hsm_state(&app->hsm)) {
@@ -33,8 +32,6 @@ void controller_publish(void)
 			break;
 		}
 	}
-
-	/* 换算在锁外做（axis_sample 只读本线程写的字段，不做 I/O） */
 	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
 		struct axis_sample s;
 
@@ -43,12 +40,14 @@ void controller_publish(void)
 		samples[i].velocity_mm_s = s.velocity_mm_s;
 		samples[i].statusword = s.statusword;
 		samples[i].error_code = s.error_code;
+		aborts[i] = axis_abort_code(&app->axes[i]);
 	}
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
 	app->published_fault = (int)app->fault_code;
 	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
 		app->published_axes[i] = samples[i];
+		app->published_abort[i] = aborts[i];
 	}
 	pthread_mutex_unlock(&app->lock);
 }
@@ -56,7 +55,7 @@ void controller_publish(void)
 /**
  * controller_estop - 请求所有轴急停
  *
- * 任意线程均可调用；事件插入队头，ESTOP 只能重启退出。
+ * 任意线程均可调用；事件插入队头并立即唤醒工作线程。
  */
 void controller_estop(void)
 {
@@ -66,8 +65,8 @@ void controller_estop(void)
 	if (ctl->master == NULL) {
 		return;
 	}
-	/* 插到队头：优先于已排队的所有命令 */
 	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_wakeup();
 }
 
 /**
@@ -77,12 +76,13 @@ void controller_estop(void)
  *
  * 一批轴一起启动，全部到位才回 HOLDING。
  *
- * Return: CONTROLLER_OK 已入队；CONTROLLER_ERR_BUSY 队列满；CONTROLLER_ERR_PARAM 参数或状态无效。
+ * Return: OK 已入队并唤醒；BUSY 队列满；PARAM 参数无效或未初始化。
  */
 enum controller_result controller_move(const struct controller_move_req *reqs, uint8_t count)
 {
 	struct controller *ctl = control_ctx();
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_MOVE}};
+	enum controller_result result;
 	uint8_t i;
 
 	if (ctl->master == NULL || reqs == NULL || count == 0u || count > CONTROLLER_MAX_AXES) {
@@ -95,20 +95,22 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 		if (m->axis >= ctl->axis_count) {
 			return CONTROLLER_ERR_PARAM;
 		}
-		/* NaN 进到整数换算就是未定义行为：入口就拦住（±inf 由轴层饱和） */
 		if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
 			return CONTROLLER_ERR_PARAM;
 		}
 		evt.u.move.axis[i] = reqs[i];
 	}
-	/* 排到队尾：多条指令按顺序保留；队列满则本条被丢弃 */
-	return controller_evtq_push(&ctl->evtq, &evt) ? CONTROLLER_OK : CONTROLLER_ERR_BUSY;
+	result = controller_evtq_push(&ctl->evtq, &evt) ? CONTROLLER_OK : CONTROLLER_ERR_BUSY;
+	if (result == CONTROLLER_OK) {
+		controller_wakeup();
+	}
+	return result;
 }
 
 /**
  * controller_stop - 请求减速停并保持使能
  *
- * 任意线程均可调用；停止事件插入队头，由控制线程消费。
+ * 任意线程均可调用；停止事件插入队头并立即唤醒工作线程。
  */
 void controller_stop(void)
 {
@@ -118,8 +120,8 @@ void controller_stop(void)
 	if (ctl->master == NULL) {
 		return;
 	}
-	/* 停止也插队：排在已有序命令前面 */
 	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_wakeup();
 }
 
 /**
@@ -155,7 +157,7 @@ enum controller_state controller_state(void)
 }
 
 /**
- * controller_axis_abort - 读取轴最近一次 SDO abort 码
+ * controller_axis_abort - 读取已发布的 SDO abort 码
  * @axis: 轴索引
  *
  * Return: abort 码；没有记录或轴索引越界时返回 0。
@@ -163,11 +165,15 @@ enum controller_state controller_state(void)
 uint32_t controller_axis_abort(uint8_t axis)
 {
 	struct controller *ctl = control_ctx();
+	uint32_t abort_code;
 
-	if (axis >= ctl->axis_count) {
+	if (axis >= CONTROLLER_MAX_AXES) {
 		return 0U;
 	}
-	return axis_abort_code(&ctl->axes[axis]);
+	pthread_mutex_lock(&ctl->lock);
+	abort_code = ctl->published_abort[axis];
+	pthread_mutex_unlock(&ctl->lock);
+	return abort_code;
 }
 
 /**

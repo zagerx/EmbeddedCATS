@@ -1,43 +1,35 @@
-# master/ — 主站实体（CANopenNode 的薄壳）
+# master/ — CANopenLinux 主站生命周期与节点表
 
-**协议栈不再是我们自己写的**：NMT、心跳消费、SDO 客户端全部来自
-`controller/third_party/CANopenNode`（v4，Apache-2.0，原样参与构建）。
+NMT、心跳消费、PDO 和 SDO 客户端来自
+`controller/third_party/CANopenLinux/CANopenNode`。SocketCAN、epoll、timerfd 与
+eventfd 使用 CANopenLinux 的上游实现；不编译 `CO_main_basic.c`，也不运行 `canopend`。
 
-本目录只做三件"本机才有的事"：
+本目录负责：
 
-1. 把总线接到 CO_driver 的移植层（`../driver/CO_driver.c`）；
-2. **站号表**：这台机器登记了哪几个从站，第 i 个登记 ⇒ 第 i 条 SDO 客户端通道
-   （对应对象字典 `0x1280` / `0x1281`）；
-3. 每拍两段：`master_recv_step()` 抽帧交给栈，`master_send_step()` 调 `CO_process()`。
+1. 按接口名创建并释放主站，检查所有初始化返回值并处理失败回滚；
+2. 登记节点，第 i 个节点绑定对象字典第 i 条 SDO 客户端通道；
+3. 提供 NMT、心跳查询、eventfd 唤醒和通信复位重建接口。
 
-它**不认识** 402、对象语义、"轴"这些业务词（R10 检查）。
-
-## 对外
+## 资源与调用约束
 
 ```c
-master_init(&m, fd);                                   /* 借用宿主的 SocketCAN fd */
-master_add_node(&m, 1);                                /* 第 1 个 ⇒ OD 0x1280 那条通道 */
-master_add_node(&m, 2);                                /* 第 2 个 ⇒ OD 0x1281 那条通道 */
-master_set_state(&m, 0, MASTER_NMT_START);             /* 0 = 全站 */
-master_recv_step(&m, now_ms);                          /* ① 收 */
-   /* ② 宿主在这两段之间搬 SDO 请求/结果 */
-master_send_step(&m, now_ms);                          /* ③ CO_process：超时 + 发帧 */
-master_node_alive(&m, 1);                              /* 0 = 心跳 ACTIVE */
-master_sdo(&m, 1);                                     /* 该从站的 CO_SDOclient_t* */
+master_init(&m, "can0");
+master_add_node(&m, 1);
+master_add_node(&m, 2);
+/* 工作线程运行 controller_event_poll()，使用 m.ep 与 m.co */
+master_notify(&m);              /* 其他线程唤醒 eventfd */
+/* 工作线程退出并 join 后 */
+master_deinit(&m);
 ```
-
-## 关键约定
 
 | 约定 | 原因 |
 |---|---|
-| `CO_USE_GLOBALS=1` | 栈用静态实例，零 malloc，和项目风格一致 |
-| 站号 0 登记顺序必须与 OD 通道顺序一致 | 栈按 `ENTRY_H1280` **连续取** `CNT_SDO_CLI` 条 |
-| 主站自己的站号 `MASTER_NODE_ID=0x7F` | CANopenNode 在节点号未配置时 `CO_process()` 直接返回 |
-| **栈只在 I/O 线程里被调用** | 栈是单线程设计：收发 + SDO 步进都在 `master_*_step` 和 `sdo_client_io_poll` 里 |
-| 心跳超时来自 OD `0x1016`（本项目 750 ms） | CANopenNode 的模型：策略写在对象字典里 |
+| `CO_t` 动态分配 | 使用上游 Linux 动态对象模型；退出由 `CO_delete()` 释放 |
+| 站号登记顺序与 OD 通道一致 | `0x1280` / `0x1281` 连续对应节点 1 / 2 |
+| 本机站号为 `0x7F` | CANopenNode 要求有效的已配置站号 |
+| 单工作线程 | `CO_SINGLE_THREAD=1`；协议栈、SDO 与 NMT 不跨线程调用 |
+| 关闭 CAN 错误自动处理 | 防止上游错误处理自行执行 `ip link` 重启接口 |
+| 通信复位显式重建 | 保留 `CO_t` 与 SDO 客户端地址，已装配对象不必重绑 |
 
-## 本层不知道
-
-- 402 对象号、控制字/状态字、PDS 状态（`cia402`）；
-- "轴"、"mm"、业务状态机（`axis` / `states`）；
-- 线程与节拍（宿主决定）。
+本层不认识 CiA402 对象、轴或整机业务，也不创建线程。控制器负责在
+`CO_epoll_processRT()` 与 `CO_epoll_processMain()` 之间推进各轴 SDO。

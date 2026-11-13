@@ -49,18 +49,19 @@ struct controller {
 	int published_state;
 	int published_fault;
 	struct controller_axis_sample published_axes[CONTROLLER_MAX_AXES];
+	uint32_t published_abort[CONTROLLER_MAX_AXES];
 };
 
 /* 状态图注册表，由 states/states.c 定义；名称映射是对外接口（见 control.h） */
 extern const sm_state_t states[CONTROLLER_STATE_COUNT];
 sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 
-/* 状态图可用的动作：只登记意图，不认识主站、CANopenNode 或平台时钟 */
+/* 状态图只通过动作函数使用主站与时钟，不认识协议栈细节 */
 
-/* 广播 NMT Start（站号 0）；帧由 I/O 线程在下一拍发出 */
+/* 由工作线程广播 NMT Start（站号 0） */
 void controller_nmt_start(struct controller *ctl);
 
-/* 广播 NMT Reset Communication（站号 0）；帧由 I/O 线程在下一拍发出 */
+/* 由工作线程广播 NMT Reset Communication（站号 0） */
 void controller_nmt_reset_comm(struct controller *ctl);
 
 /* 总线侧单调毫秒计数；未接管主站时返回 0 */

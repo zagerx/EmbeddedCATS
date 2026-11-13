@@ -1,9 +1,8 @@
 /*
  * controller_actions.c — 状态图可用的动作与状态图装配
  *
- * 状态图只通过本文件与外部交互：广播 NMT 命令、读单调时钟。
- * 因此 states/ 不需要认识主站、CANopenNode 或平台时钟。
- * NMT 只登记，帧由 I/O 线程在 master_send_step() 里发出。
+ * 状态图只通过本文件广播 NMT 命令、读单调时钟。
+ * 动作与协议栈同属 CANopen 工作线程，不需要待发槽或收发线程。
  *
  * Author: zager
  */
@@ -15,10 +14,10 @@
 #include <time.h>
 
 /**
- * controller_nmt_start - 请求广播 NMT Start
+ * controller_nmt_start - 广播 NMT Start
  * @ctl: 控制上下文；为空时什么也不做
  *
- * 只登记，帧由 I/O 线程在下一拍发出；发不出去由后续心跳与使能结果判定。
+ * 只能由工作线程调用；发送结果由后续心跳与使能结果确认。
  */
 void controller_nmt_start(struct controller *ctl)
 {
@@ -29,7 +28,7 @@ void controller_nmt_start(struct controller *ctl)
 }
 
 /**
- * controller_nmt_reset_comm - 请求广播 NMT Reset Communication
+ * controller_nmt_reset_comm - 广播 NMT Reset Communication
  * @ctl: 控制上下文；为空时什么也不做
  *
  * 只复位通信层，不改对象字典里的配置。
@@ -46,7 +45,7 @@ void controller_nmt_reset_comm(struct controller *ctl)
  * controller_now_ms - 读取控制层当前时刻
  * @ctl: 控制上下文
  *
- * Return: 总线侧单调毫秒计数；未绑定总线时返回 0。
+ * Return: 单调毫秒计数；未绑定主站时返回 0。
  */
 uint32_t controller_now_ms(struct controller *ctl)
 {

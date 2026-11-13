@@ -80,7 +80,6 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
 void dev_finish(struct cia402_device *d, enum cia402_operation_result result,
 		enum cia402_operation_fail fail)
 {
-	pthread_mutex_lock(&d->lock);
 	if (result == CIA402_OP_FAILED) {
 		d->outbox.failed = 1u;
 	}
@@ -110,7 +109,6 @@ void dev_finish(struct cia402_device *d, enum cia402_operation_result result,
 	/* 流程自己收尾：把 phase 归位，st_idle 的 ENTRY 据此知道不必再补结论。
 	 * 被打断退出（SIG_DEV_CANCEL）不走这里，phase 仍是流程的。 */
 	d->outbox.phase = CIA402_PHASE_IDLE;
-	pthread_mutex_unlock(&d->lock);
 	d->sdo.cw_next_valid = 0u;
 }
 
@@ -128,9 +126,7 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 	} else if (result->abort_code == 0u) {
 		fail = CIA402_OP_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
 	}
-	pthread_mutex_lock(&d->lock);
 	d->outbox.last.abort_code = (result != NULL) ? result->abort_code : 0u;
-	pthread_mutex_unlock(&d->lock);
 	dev_finish(d, CIA402_OP_FAILED, fail);
 }
 
@@ -141,9 +137,7 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
  */
 void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
 {
-	pthread_mutex_lock(&d->lock);
 	d->feedback.statusword = statusword;
-	pthread_mutex_unlock(&d->lock);
 }
 
 /**

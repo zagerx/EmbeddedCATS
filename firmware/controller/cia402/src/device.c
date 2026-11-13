@@ -12,7 +12,7 @@
  * 状态与迁移条件在 states/ 下。本文件只负责把「邮箱、事务结果、取消」
  * 翻成 hsm 事件。
  *
- * 一次 poll 最多发起一笔对象事务：这条纪律让服务线程能在多个设备之间
+ * 一次 poll 最多发起一笔对象事务：这条纪律让工作线程能在多个设备之间
  * 公平轮转，任何一个设备在等应答都不会占住循环。
  *
  * Author: zager
@@ -44,7 +44,6 @@ static void snapshot(struct cia402_device *d, struct cia402_status *out);
 void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id)
 {
 	memset(d, 0, sizeof(*d));
-	pthread_mutex_init(&d->lock, NULL);
 	d->access = access;
 	d->node_id = node_id;
 	sm_hsm_init(&d->hsm, &device_initial);
@@ -55,7 +54,7 @@ void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8
  * @d: 设备对象
  * @req: 请求；HALT / QUICK_STOP 会抢占在途流程
  *
- * 参数校验不加锁（只看 req 本身），「收不收」的判断在 admit 里加锁做。
+ * 仅 CANopen 工作线程调用；请求直接登记，状态迁移由 poll 统一完成。
  *
  * Return: 见 enum cia402_response；HALT / QUICK_STOP 不受 BUSY 限制。
  */
@@ -80,7 +79,7 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
  * @now_ms: 当前单调毫秒时刻
  * @out: 流程状态输出；可为 NULL（只要推进）
  *
- * 仅服务线程调用。out 在事件分发之后填，所以本拍刚产生的结论立刻可见。
+ * 仅工作线程调用。out 在事件分发之后填，所以本拍刚产生的结论立刻可见。
  */
 void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status *out)
 {
@@ -96,10 +95,8 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 	}
 	d->now_ms = now_ms;
 
-	/* 取消值在一个短临界区里取走：后面全用副本，锁内不做 I/O 也不分发 */
-	pthread_mutex_lock(&d->lock);
+	/* 读取本轮取消原因，后续事件分发统一使用这个副本 */
 	cancel = d->mailbox.cancel;
-	pthread_mutex_unlock(&d->lock);
 
 	/* 抢占：先打断在途事务，让 take_result 尽快给出结论 */
 	if (cancel != CIA402_CANCEL_NONE && d->sdo.pending != 0u) {
@@ -164,16 +161,14 @@ done:
  * @d: 设备对象；NULL 安全
  * @out: 输出状态；NULL 时直接返回
  *
- * 任意线程均可调用；通过设备锁读取，不触发对象事务。
+ * 仅 CANopen 工作线程调用；跨线程查询使用控制层发布快照。
  */
 void cia402_get_status(const struct cia402_device *d, struct cia402_status *out)
 {
 	if (d == NULL || out == NULL) {
 		return;
 	}
-	pthread_mutex_lock((pthread_mutex_t *)&d->lock);
 	*out = d->outbox;
-	pthread_mutex_unlock((pthread_mutex_t *)&d->lock);
 }
 
 /**
@@ -191,10 +186,8 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d)
 	if (d == NULL) {
 		return CIA402_OP_NONE;
 	}
-	pthread_mutex_lock(&d->lock);
 	result = d->outbox.last.result;
 	d->outbox.last.result = CIA402_OP_NONE;
-	pthread_mutex_unlock(&d->lock);
 	return result;
 }
 
@@ -203,16 +196,14 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d)
  * @d: 设备对象；NULL 安全
  * @out: 输出反馈；NULL 时直接返回
  *
- * 任意线程均可调用，不触发对象事务。
+ * 仅 CANopen 工作线程调用，不触发对象事务。
  */
 void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out)
 {
 	if (d == NULL || out == NULL) {
 		return;
 	}
-	pthread_mutex_lock((pthread_mutex_t *)&d->lock);
 	*out = d->feedback;
-	pthread_mutex_unlock((pthread_mutex_t *)&d->lock);
 }
 
 static int admit(struct cia402_device *d, const struct cia402_request *req)
@@ -220,7 +211,6 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
 	int rc = CIA402_ACCEPTED;
 
-	pthread_mutex_lock(&d->lock);
 
 	/* 状态前提：未配置不能使能，未使能不能运动 */
 	if (req->kind == CIA402_REQ_ENABLE && d->outbox.configured == 0u) {
@@ -241,7 +231,6 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 		}
 	}
-	pthread_mutex_unlock(&d->lock);
 	return rc;
 }
 
@@ -249,13 +238,11 @@ static int pop_request(struct cia402_device *d, struct cia402_request *out)
 {
 	int has;
 
-	pthread_mutex_lock(&d->lock);
 	has = d->mailbox.pending;
 	if (has != 0) {
 		*out = d->mailbox.req;
 		d->mailbox.pending = 0u;
 	}
-	pthread_mutex_unlock(&d->lock);
 	return has;
 }
 
@@ -294,9 +281,7 @@ static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 	} else {
 		memset(&d->sdo.result, 0, sizeof(d->sdo.result));
 	}
-	pthread_mutex_lock(&d->lock);
 	d->mailbox.cancel = CIA402_CANCEL_NONE;
-	pthread_mutex_unlock(&d->lock);
 	d->operation.cancel = cancel;
 	evt.super.sig = CIA402_SIG_CANCEL;
 	evt.reason = cancel;
@@ -312,14 +297,10 @@ static void dispatch_tick(struct cia402_device *d)
 
 static void set_cancel(struct cia402_device *d, uint8_t reason)
 {
-	pthread_mutex_lock(&d->lock);
 	d->mailbox.cancel = reason;
-	pthread_mutex_unlock(&d->lock);
 }
 
 static void snapshot(struct cia402_device *d, struct cia402_status *out)
 {
-	pthread_mutex_lock(&d->lock);
 	*out = d->outbox; /* 内部就是同一类型，整块抄走 */
-	pthread_mutex_unlock(&d->lock);
 }

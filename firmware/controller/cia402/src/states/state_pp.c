@@ -7,7 +7,7 @@
  * 读到的可能是上一条运动的旧值。若 bit10 一开始就是 1，则读 6064 与目标
  * 比对，分辨"目标等于当前位置"和"旧值未清"。
  *
- * 每笔事务之间只隔一拍：服务线程可以在等待期间轮转其它设备。
+ * 每笔事务分轮推进：工作线程可以在等待期间处理其它设备。
  *
  * Author: zager
  */
@@ -257,9 +257,7 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		pthread_mutex_lock(&d->lock);
 		d->feedback.position = (int32_t)r->value;
-		pthread_mutex_unlock(&d->lock);
 		if ((int32_t)r->value == d->operation.pp.issued) {
 			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
 			return SM_TRAN(&st_idle);

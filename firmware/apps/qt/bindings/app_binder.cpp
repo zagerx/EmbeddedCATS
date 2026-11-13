@@ -14,9 +14,9 @@
 
 namespace
 {
-/* 界面刷新：50 ms 对人眼足够。控制节拍是 1 ms，那个在 CanThread 里，别混 */
+/* 界面刷新：50 ms 对人眼足够，与 CANopen 事件循环分开 */
 constexpr int kRefreshIntervalMs = 50;
-/* 节拍统计：每 5 s 往日志写一行，用来判断节拍稳不稳 */
+/* 循环统计：每 5 s 往日志写一行 */
 constexpr int kStatsIntervalMs = 5000;
 
 /* 状态字显示成 0x001F 这种定宽十六进制 */
@@ -75,28 +75,22 @@ AppBinder::AppBinder(QObject *parent) : QObject(parent)
 
 AppBinder::~AppBinder()
 {
-	worker_.stop(); /* 先停控制线程：之后没人再碰总线 */
-	if (channel_open_) {
-		controller_socketcan_close(fd_);
-	}
+	worker_.stop();
 }
 
 void AppBinder::attach(QWidget *root, const QString &ifname)
 {
 	findWidgets(root);
-	bindCommands(); /* 按钮先接上：通道打不开时也能看到拒绝理由 */
-	if (!openChannel(ifname)) {
-		return; /* 没通道就不起节拍 */
-	}
+	bindCommands();
 
 	QString err;
-	if (!worker_.start(fd_, &err)) {
-		pushLog(QStringLiteral("控制线程启动失败：%1").arg(err));
+	if (!worker_.start(ifname, &err)) {
+		pushLog(QStringLiteral("CANopen 工作线程启动失败：%1").arg(err));
 		return;
 	}
 
 	startTimers();
-	pushLog(QStringLiteral("控制线程已启动：1 ms 节拍"));
+	pushLog(QStringLiteral("CANopen 事件循环已启动"));
 	publish();
 }
 
@@ -216,19 +210,6 @@ void AppBinder::onEStop()
 	pushLog(QStringLiteral("已请求急停：所有轴 quick stop 并断使能"));
 }
 
-bool AppBinder::openChannel(const QString &ifname)
-{
-	fd_ = controller_socketcan_open(ifname.toUtf8().constData());
-	if (fd_ < 0) {
-		pushLog(QStringLiteral("打不开通道 %1（接口是否 up？）").arg(ifname));
-		return false;
-	}
-	channel_open_ = true;
-	/* 建主站与 controller_init 放到控制线程里做（见 CanThread）：它们会发 NMT 复位，
-	 * 而且之后所有状态都在那个线程里改 */
-	return true;
-}
-
 void AppBinder::startTimers()
 {
 	refresh_ = new QTimer(this);
@@ -318,7 +299,7 @@ void AppBinder::onStats()
 {
 	const CanThread::Stats s = worker_.stats();
 
-	pushLog(QStringLiteral("节拍 %1 拍，最大间隔 %2 µs，掉拍 %3 次")
+	pushLog(QStringLiteral("事件循环 %1 轮，最大间隔 %2 µs，超期 %3 次")
 			.arg(s.ticks)
 			.arg(s.max_gap_us)
 			.arg(s.late_ticks));

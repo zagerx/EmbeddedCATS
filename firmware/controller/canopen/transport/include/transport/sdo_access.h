@@ -27,7 +27,7 @@ struct sdo_result {
 };
 
 struct sdo_access {
-	/* 0 = 已排队；-1 = 参数错误、通道忙或实现不可用。 */
+	/* 0 = 已发起；-1 = 参数错误、通道忙或实现不可用。 */
 	int (*start)(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		     uint8_t size, uint32_t timeout_ms);
 	/* 0 = 取走一笔结果；1 = 尚无结果。 */

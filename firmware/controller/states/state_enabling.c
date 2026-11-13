@@ -24,7 +24,7 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		/* 先让节点进入运行态（广播所有节点）。手册例子也是先 NMT 再 SDO。
-		 * 这里只登记，帧由 I/O 线程发出：NMT 没有应答，发不出去或从站没收到，
+		 * 工作线程直接发 NMT；命令没有应答，发不出去或从站没收到，
 		 * 都由后面“心跳上来 + 使能成功”来判定，判不出来也会落 ENABLE_TIMEOUT。 */
 		controller_nmt_start(ctl);
 		(void)axis_enable_all(ctl->axes, ctl->axis_count);

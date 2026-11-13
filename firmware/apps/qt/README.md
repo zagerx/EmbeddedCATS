@@ -16,7 +16,7 @@
 | `ui/` | 区块控件：`state_bar`、`axis_card`、`log_panel`、`status_led` |
 | `theme/` | 调色板 `theme.h` + 样式表 `app.qss`（`@token` 由 `theme.cpp` 替换） |
 | `res/qt.qrc` | 资源打包（当前只有 `app.qss`） |
-| `bindings/` | 唯一接缝：`app_binder`（找控件、开通道、刷界面）、`can_thread`（控制线程） |
+| `bindings/` | 唯一接缝：`app_binder`（找控件、刷界面）、`can_thread`（CANopen 工作线程） |
 
 依赖方向：
 
@@ -27,15 +27,16 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 线程与时序
 
-- **控制线程**（`can_thread`）：调用 `controller_init()`，由控制层在持有对象上原地
-  初始化主站，再按 **1 ms** 绝对节拍调用 `controller_poll()`。
-- **界面线程**：`QTimer 50 ms` 读 `controller_state()` 刷状态条；`QTimer 5 s` 往日志
-  写一行节拍统计。界面不碰总线。
+- **CANopen 工作线程**：接收接口名，初始化主站并运行 `controller_event_poll()`。
+  CAN 数据、基础 timerfd 和命令 eventfd 都会唤醒它，不再运行三个固定节拍线程。
+- **界面线程**：`QTimer 50 ms` 读取发布快照刷状态与轴反馈；`QTimer 5 s` 写循环统计。
+  按钮通过命令队列下发，eventfd 立即唤醒工作线程，界面不碰总线或设备对象。
+- **退出**：停止标志 → eventfd 唤醒 → join → `controller_deinit()`。
 
 ## 区域布局
 
 1. **1 号区域**（最小高度 240 px，约占 1/3）：`1.1` = 状态条，`1.2` = 空白预留
-2. **2 号区域**：`2.1` = 急停 / 暂停 / 运动 三个按钮（仅界面，尚未绑定 `controller_*`），
+2. **2 号区域**：`2.1` = 急停 / 暂停 / 运动 三个按钮（已绑定 `controller_*`），
    `2.2` / `2.3` = `axis_card` ×2 左右等分
 3. **3 号区域**：日志面板
 
@@ -79,14 +80,13 @@ HALTING / FAULT / ESTOP）。
   主站自己的故障原因（`HEARTBEAT_LOST`、`ENABLE_FAILED`…）属于整机状态，
   显示在顶部状态区，不进轴卡片；SDO abort 只写日志。
 
-## 当前缺口（有意不加功能）
+## 运动与启动
 
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
-  `controller_move()` 的单位一致（整套业务单位就是 mm）。数值是 `float`，
-  取整到脉冲只发生在轴层，机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
-- `controller_move()` / `controller_stop()` / `controller_estop()` 还没有界面
-  入口（2.1 的三个按钮已摆好，但未绑定）。
-- 启动不需要按钮：`controller_init()` 建完即 `PREPARING`，之后由 poll 自己推进。
+  `controller_move()` 的单位一致。数值是 `float`，取整到脉冲只发生在轴层，
+  机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
+- 运动按钮按轴选择器提交单轴或双轴命令；暂停与急停分别调用停止和急停接口。
+- 启动不需要按钮：`controller_init()` 建完即 `PREPARING`，之后由事件循环自行推进。
 
 ## 命名规范
 
@@ -100,7 +100,7 @@ HALTING / FAULT / ESTOP）。
 ```bash
 cmake -S firmware -B firmware/build
 cmake --build firmware/build -j
-./firmware/build/cats_qt            # 需要 can0 已 up，否则日志里会提示打不开通道
+./firmware/build/cats_qt            # 需要 can0 已 up，否则日志里会提示初始化失败
 ```
 
 离屏冒烟（无显示器时确认能构造出界面）：

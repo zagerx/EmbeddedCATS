@@ -28,10 +28,8 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 
 		/* phase 还停在流程上 = 流程是被打断退出的（自己收尾的已由
 		 * dev_finish 归位），此时按 reason 决定要不要报失败。 */
-		pthread_mutex_lock(&d->lock);
 		busy = (d->outbox.phase != CIA402_PHASE_IDLE);
 		d->outbox.phase = CIA402_PHASE_IDLE;
-		pthread_mutex_unlock(&d->lock);
 		d->operation.cancel = CIA402_CANCEL_NONE;
 		d->sdo.cw_next_valid = 0u;
 
@@ -48,9 +46,7 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 	case CIA402_SIG_REQUEST: {
 		const struct request_evt *ev = SM_EVT_CAST(struct request_evt, e);
 
-		pthread_mutex_lock(&d->lock);
 		d->outbox.phase = dev_phase_of(ev->req.kind);
-		pthread_mutex_unlock(&d->lock);
 
 		/* 流程参数整块拷进 operation：状态函数只读 operation，不读 mailbox */
 		d->operation.kind = ev->req.kind;
@@ -123,7 +119,6 @@ sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e)
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
 
 		if (r->status == 0) {
-			pthread_mutex_lock(&d->lock);
 			switch (d->monitor.cursor) {
 			case 0:
 				d->feedback.statusword = (uint16_t)(r->value & 0xFFFFu);
@@ -138,7 +133,6 @@ sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e)
 				d->feedback.error_code = (uint16_t)(r->value & 0xFFFFu);
 				break;
 			}
-			pthread_mutex_unlock(&d->lock);
 		}
 		/* 读失败也往下轮：保留旧值，不因此报故障 */
 		d->monitor.cursor = (uint8_t)((d->monitor.cursor + 1u) % 4u);

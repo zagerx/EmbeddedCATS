@@ -1,4 +1,4 @@
-/* 单轴命令输入与反馈显示卡片；输入尚未绑定控制指令。 */
+/* 单轴命令输入与反馈显示卡片，由 AppBinder 读取命令并刷新反馈。 */
 
 #ifndef AXIS_CARD_H
 #define AXIS_CARD_H

@@ -19,7 +19,6 @@
 #include <hsm/sm_hsm.h>
 #include <transport/sdo_access.h>
 
-#include <pthread.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -50,7 +49,7 @@ struct cia402_request {
 
 /* 投递结果：只说收不收，不承诺成功 */
 enum cia402_response {
-	CIA402_ACCEPTED = 0, /* 已放进邮箱，等待服务线程取走 */
+	CIA402_ACCEPTED = 0, /* 已放进邮箱，等待CANopen 工作线程取走 */
 	CIA402_BUSY,         /* 有流程在跑或邮箱还有待办：重试可能成功 */
 	CIA402_INVALID,      /* 请求本身不合法（kind、未知参数）*/
 	CIA402_REFUSED       /* 前置条件不成立：先 ENABLE 再 MOVE，重试无用 */
@@ -117,7 +116,7 @@ enum cia402_cancel_reason {
 	CIA402_CANCEL_TIMEOUT  /* 单笔事务超时：报失败 */
 };
 
-/* 当前这笔对象事务的账，仅服务线程使用 */
+/* 当前这笔对象事务的账，仅CANopen 工作线程使用 */
 struct cia402_sdo {
 	uint8_t pending;          /* 有在途事务 */
 	uint8_t rejected;         /* 上一笔发起被拒：下一拍补一个失败事件 */
@@ -128,7 +127,7 @@ struct cia402_sdo {
 	uint8_t cw_next_valid;
 };
 
-/* 当前流程：仅服务线程使用 */
+/* 当前流程：仅CANopen 工作线程使用 */
 struct cia402_operation {
 	enum cia402_kind kind;
 	uint8_t cancel;    /* enum cia402_cancel_reason，交给 st_idle 决定要不要报失败 */
@@ -143,7 +142,7 @@ struct cia402_operation {
 	} pp;
 };
 
-/* 反馈轮转：仅服务线程使用 */
+/* 反馈轮转：仅CANopen 工作线程使用 */
 struct cia402_monitor {
 	uint8_t cursor; /* 下一项要读的反馈，0..3 轮转 */
 	uint32_t last_ms;
@@ -154,21 +153,16 @@ struct cia402_device {
 	const struct sdo_access *access;
 	uint8_t node_id;
 
-	/* ==== 跨线程：lock 保护 mailbox、outbox 与 feedback ==== */
-	pthread_mutex_t lock;
-
-	/* 控制线程 → 服务线程 */
+	/* 请求、状态与反馈只在同一个 CANopen 工作线程内访问 */
 	struct {
 		struct cia402_request req; /* 待办的便条 */
 		uint8_t pending;           /* 有待办 */
 		uint8_t cancel;            /* enum cia402_cancel_reason */
 	} mailbox;
 
-	/* 服务线程 → 控制线程 */
 	struct cia402_status outbox;
 	struct cia402_feedback feedback;
 
-	/* ==== 以下仅服务线程访问，不加锁 ==== */
 	struct sm_hsm hsm;                 /* 状态机：当前状态由 hsm 维护 */
 	uint32_t now_ms;                   /* 本拍时刻，用来算期限 */
 	struct cia402_sdo sdo;             /* 当前这笔对象事务 */
@@ -188,17 +182,17 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
 
 /*
  * 推进一拍；out 非空时把这一刻的事实拷出去（在事件分发之后填，
- * 因此本拍刚产生的结论立刻可见）。仅服务线程调用。
+ * 因此本拍刚产生的结论立刻可见）。仅 CANopen 工作线程调用。
  */
 void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status *out);
 
-/* 任意线程通过设备锁读取最新流程状态；d 或 out 为 NULL 时不执行任何操作。 */
+/* 工作线程读取流程状态；跨线程查询应由控制层发布快照。NULL 入参安全。 */
 void cia402_get_status(const struct cia402_device *d, struct cia402_status *out);
 
-/* 任意线程取走一次操作结论；取走后结果为 NONE，失败诊断保留。 */
+/* 工作线程取走一次操作结论；取走后结果为 NONE，失败诊断保留。 */
 enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 
-/* 任意线程读取最新原始反馈；d 或 out 为 NULL 时不执行任何操作。 */
+/* 工作线程读取最新原始反馈；d 或 out 为 NULL 时不执行任何操作。 */
 void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out);
 
 #ifdef __cplusplus

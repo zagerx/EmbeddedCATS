@@ -1,7 +1,7 @@
-# master_probe — 无界面运行器
+# master_probe — 无界面 CANopen 事件循环验证器
 
-界面层（`apps/qt/bindings/`）能跑同样的东西，但它的日志在面板里，
-不好 grep。这个小程序就是命令行版的“发动机”：开通道 → `controller_init()` 装配主站与状态机 → 周期推进。
+主线程就是唯一的 CANopen 工作线程。它按接口名调用 `controller_init()`，随后运行
+`controller_event_poll()`，定时命令在每轮事件后注入；退出时调用 `controller_deinit()`。
 
 ## 用法
 
@@ -13,38 +13,36 @@
 ### 注入指令（可选）
 
 ```bash
-# 2 mm 绝对位置，速度 4 mm/s；换算参数是**测试用**的（不是实测机械参数）
-./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 2000 --vel 4000
+# 单轴 5 mm，1 秒时发，1.2 秒时减速停，1.8 秒时急停
+./build/master_probe can0 6 --move 5 --move-at 1000 --stop-at 1200 --estop-at 1800
 
-# 运动中停（MOVING → STOPPING → READY）
-./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 20000 --vel 4000 --stop-at 2500
+# 两轴同时运动；move2-at 与 move-at 相同则走批量接口
+./build/master_probe can0 10 --move 5 --move2 8 --move-at 1500 --move2-at 1500
 
-# 运动中急停（MOVING → ESTOP）
-./build/master_probe can0 10 --pulses 10000 --lead 5000 --move 20000 --vel 2000 --estop-at 3000
+# 速度与加速度覆盖默认值 10 mm/s、50 mm/s²
+./build/master_probe can0 10 --move 5 --vel 4 --acc 20
 ```
 
 | 参数 | 含义 |
 |---|---|
-| `--move <mm>` / `--move-at <ms>` | 位置指令（默认 1500 ms 发，等使能完） |
-| `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度（默认 10 / 50） |
-| `--stop-at <ms>` / `--estop-at <ms>` | 到点发停止 / 急停 |
-| `--pulses <n>` / `--lead <mm>` | 每转脉冲数与每转毫米（开跑前打印一行提醒这是测试值） |
+| `--move <mm>` / `--move-at <ms>` | 轴 1 位置与注入时刻 |
+| `--move2 <mm>` / `--move2-at <ms>` | 轴 2 位置与注入时刻 |
+| `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度 |
+| `--stop-at <ms>` / `--estop-at <ms>` | 停止 / 急停注入时刻 |
+| `--spam <n>` / `--spam-at <ms>` | 连续提交 n 条命令，检查队列拒绝行为 |
 
-## 输出
+机械换算参数固定来自 `controller/config/cats_mech.h`，不再通过命令行覆盖。
+
+## 输出与验收
 
 ```text
-接口 can0，节点 1/2，节拍 1 ms
+接口 can0，节点 1/2，CANopenLinux epoll（基础定时 1 ms）
 [     0] state = PREPARING
-[  1012] state = RUNNING
+[   ...] state = CONFIGURING
+[   ...] state = ENABLING
+[   ...] state = HOLDING
 ```
 
-## 它能验证什么
-
-| 场景 | 期望 |
-|---|---|
-| 驱动器响应 0x82 并正常发心跳 | 静默 1000 ms 后 `state = RUNNING` |
-| 驱动器始终不发心跳 | 3000 ms 后 `state = FAULT (BOOTUP_TIMEOUT)` |
-| `RUNNING` 中停掉驱动器心跳 | 约 750 ms 后 `state = FAULT (HEARTBEAT_LOST)` |
-
-节拍 1 ms，与 I/O、服务线程一致：指令从下发到状态机响应只差一拍。
-750 ms 心跳判定误差 0.13%。
+配合 `fake_drive` 可检查双轴配置、使能、运动、停止、急停，以及 eventfd 唤醒后的
+命令响应。CAN 数据到来也会提前唤醒；基础定时器只负责周期推进和超时，不再是唯一
+的收帧途径。

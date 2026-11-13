@@ -22,7 +22,7 @@
 #include <control/control.h>
 
 #define CONTROLLER_EVTQ_LEN 8u       /* 队列容量 */
-#define CONTROLLER_EVTQ_DRAIN_MAX 4u /* 每拍最多消费几条，防把 1 ms 节拍拉长 */
+#define CONTROLLER_EVTQ_DRAIN_MAX 4u /* 每轮最多消费几条，限制单次事件处理时长 */
 
 /*
  * 位置指令载荷（对应 controller_move 的参数；业务单位 mm / mm·s⁻¹ / mm·s⁻²）。
@@ -49,7 +49,7 @@ struct controller_evtq {
 	pthread_mutex_t lock;
 };
 
-/* 清空并初始化锁（只允许在装配期调用一次） */
+/* 清空队列；互斥锁随静态控制器初始化，可重复复位 */
 void controller_evtq_init(struct controller_evtq *q);
 
 /* 尾部入队（普通命令）。false = 队列满，本事件被丢弃 */

@@ -10,20 +10,21 @@
 #include "evt_queue.h"
 
 /**
- * controller_evtq_init - 清空并初始化事件队列
+ * controller_evtq_init - 清空事件队列
  * @q: 队列对象；NULL 时直接返回
  *
- * 只能在装配期调用一次，初始化互斥锁。
+ * 互斥锁随静态控制器初始化；重复装配只复位队列内容。
  */
 void controller_evtq_init(struct controller_evtq *q)
 {
 	if (q == NULL) {
 		return;
 	}
+	pthread_mutex_lock(&q->lock);
 	q->head = 0u;
 	q->tail = 0u;
 	q->count = 0u;
-	pthread_mutex_init(&q->lock, NULL);
+	pthread_mutex_unlock(&q->lock);
 }
 
 /**

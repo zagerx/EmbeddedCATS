@@ -12,65 +12,18 @@ set(CMAKE_AUTOMOC ON) # Q_OBJECT 需要 moc
 set(CMAKE_AUTORCC ON) # qt.qrc 需要 rcc
 add_compile_options(-Wall -Wextra)
 
-# pthread 同步原语与宿主线程
+# pthread 同步原语、宿主线程与 Qt 界面
 find_package(Threads REQUIRED)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-# ---------------------------------------------------------------
-# 一层一个 target。依赖方向在链接关系里也要立得住：
-#   exe(qt) → control → master → canopen
-#   协议栈（canopen）不知道有几个从站；站号表与收发在 master
-#   SocketCAN 的文件描述符与帧操作集中在 canopen/driver
-# ---------------------------------------------------------------
+# 第三方入口集中管理 Linux 驱动、epoll 与裁剪后的 CANopenNode 服务。
+add_subdirectory(controller/third_party)
 
-# 控制层只认识自己定义的公共接口，SocketCAN 由 CO_driver 承接
-
-# 主站层：一条 SocketCAN 通道 + 登记的从站（站号表 / 收发分派 / 心跳超时）
+# 主站持有接口、epoll 和协议栈资源，不创建线程。
 add_library(cats_master STATIC controller/canopen/master/src/master.c)
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/master/include)
-target_link_libraries(cats_master PUBLIC canopen_node Threads::Threads)
-
-# ---------------------------------------------------------------
-# CANopenNode v4（第三方协议栈，原样参与构建）
-#   third_party/CANopenNode/  官方源码（只读，不改）
-#   canopen/driver/         SocketCAN 实现与 CANopenNode CO_driver 适配
-#   config/canopen_node/      对象字典：心跳消费 0x1016 / SDO 客户端 0x1280
-# 只开本工程用到的服务：NMT master、心跳消费（含查询）、SDO 客户端。
-# ---------------------------------------------------------------
-set(CANOPENNODE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenNode)
-add_library(canopen_node STATIC
-	${CANOPENNODE_DIR}/CANopen.c
-	${CANOPENNODE_DIR}/301/CO_Emergency.c
-	${CANOPENNODE_DIR}/301/CO_fifo.c
-	${CANOPENNODE_DIR}/301/CO_HBconsumer.c
-	${CANOPENNODE_DIR}/301/CO_NMT_Heartbeat.c
-	${CANOPENNODE_DIR}/301/CO_Node_Guarding.c
-	${CANOPENNODE_DIR}/301/CO_ODinterface.c
-	${CANOPENNODE_DIR}/301/CO_PDO.c
-	${CANOPENNODE_DIR}/301/CO_SDOclient.c
-	${CANOPENNODE_DIR}/301/CO_SDOserver.c
-	${CANOPENNODE_DIR}/301/CO_SYNC.c
-	${CANOPENNODE_DIR}/301/CO_TIME.c
-	${CANOPENNODE_DIR}/301/crc16-ccitt.c
-	controller/canopen/driver/CO_driver.c
-	controller/config/canopen_node/OD.c)
-target_include_directories(canopen_node PUBLIC
-	${CANOPENNODE_DIR}
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/driver
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/config/canopen_node)
-# 这些宏决定 CANopenNode 头里暴露哪些类型/服务，所有包含 CANopen.h 的
-# 编译单元必须一致 → PUBLIC
-target_compile_definitions(canopen_node PUBLIC
-	CO_USE_GLOBALS=1
-	CO_CONFIG_NMT=0x02
-	CO_CONFIG_HB_CONS=0x09
-	CO_CONFIG_FIFO=0x01
-	CO_CONFIG_SDO_CLI=0x01
-	CO_CONFIG_LSS=0
-	CO_CONFIG_LEDS=0
-	CO_CONFIG_GTW=0
-	CO_CONFIG_SRDO=0)
-# 第三方代码：按配置裁剪后会留下"未使用参数"，只对本 target 关掉这条告警
-target_compile_options(canopen_node PRIVATE -Wno-unused-parameter)
+target_link_libraries(cats_master PUBLIC canopen_node)
+target_compile_definitions(cats_master PRIVATE _DEFAULT_SOURCE)
 
 # 对象访问契约与 CANopen SDO 后端。契约不认识具体协议，后端不实现 DS402 语义。
 add_library(sdo_access INTERFACE)
@@ -78,7 +31,7 @@ target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/cont
 
 add_library(canopen_sdo STATIC controller/canopen/transport/src/sdo_client.c)
 target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
-target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node Threads::Threads)
+target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 
 # CiA 402：pds.c 为纯标准知识；device.c 为装配与推进；states/ 一状态一文件。
@@ -98,7 +51,7 @@ add_library(cia402 STATIC
         controller/cia402/src/states/state_quick_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
-target_link_libraries(cia402 PUBLIC sdo_access Threads::Threads)
+target_link_libraries(cia402 PUBLIC sdo_access)
 target_link_libraries(cia402 PUBLIC cats_hsm)
 
 # 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
@@ -143,7 +96,6 @@ target_link_libraries(cats_control PUBLIC cats_hsm cats_axis cia402 canopen_sdo 
 target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
 
 # 集成层：本机 Qt 壳（在 apps/ 下，与 controller/ 的库层分开：这一层产出可执行程序）
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 # 纯界面：shell 装配 / ui 区块 / theme 调色板；不引用 app、不选后端
 add_executable(cats_qt
@@ -161,7 +113,7 @@ target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
 # Qt 宿主链接完整控制栈与 SocketCAN 后端
 target_link_libraries(cats_qt PRIVATE cats_control Qt6::Widgets Threads::Threads)
 
-# 工具：无界面运行器。按固定节拍推进 cats_control_poll()，用来在没有界面时验证逻辑
+# 工具：主线程直接运行 CANopen epoll 循环，用于无界面端到端验证
 add_executable(master_probe apps/tools/master_probe/main.c)
 target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 target_link_libraries(master_probe PRIVATE cats_control)

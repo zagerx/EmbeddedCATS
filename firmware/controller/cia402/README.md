@@ -63,7 +63,7 @@ void         cia402_get_feedback(const struct cia402_device *d,
 | `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或单笔事务超时 | `st_running`：统一退出回 `st_idle` |
 | `CIA402_SIG_TICK` | 每拍一次 | `st_idle`：到间隔才进 `st_monitor` 读反馈 |
 
-一次 `poll` 最多发起一笔对象事务，因此服务线程能在多个设备之间公平轮转，
+一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。
 
 `last.result` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
@@ -90,7 +90,7 @@ Fault              → 故障复位状态链
 
 PP 依次写速度、加速度、减速度和目标位置，以 6040 bit4 边沿触发，再通过 6041 bit10 和必要的 6064 读数判断到位。
 
-Halt 与 Quick Stop 会抢占当前流程。服务线程先取消在途事务并丢弃旧结果，再启动停止状态链；Quick Stop 即使前序访问失败也继续尝试断使能。
+Halt 与 Quick Stop 会抢占当前流程。CANopen 工作线程先取消在途事务并丢弃旧结果，再启动停止状态链；Quick Stop 即使前序访问失败也继续尝试断使能。
 
 单次 SDO 超时与整个使能步骤、停车、PP 到位的业务期限分别管理。反馈只在设备空闲时轮转读取。
 

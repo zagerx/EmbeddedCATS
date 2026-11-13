@@ -44,7 +44,7 @@ enum axis_motion {
 /* 驱动对象由组合根装配（cia402_init）后再交给轴层；轴层只记站号 */
 void axis_init(struct axis *a, uint8_t node_id);
 
-/* 推进一次设备状态机并刷新本层缓存的事实；仅服务线程调用 */
+/* 推进一次设备状态机；仅 CANopen 工作线程调用 */
 void axis_poll(struct axis *a, uint32_t now_ms);
 
 /* 机械换算（每转脉冲数 / 每转毫米）见 config/cats_mech.h，编译期固定 */

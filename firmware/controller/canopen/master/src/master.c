@@ -1,63 +1,134 @@
 /*
- * master.c — 管理主站节点表并推进 CANopenNode 收发
+ * master.c — 管理 CANopenLinux 主站的生命周期与节点表
  *
- * 节点登记顺序对应对象字典中的 SDO 客户端通道。
- * 协议栈与总线只能由 I/O 线程推进，本层不认识 CiA 402 或业务状态。
+ * CANopenLinux 持有 SocketCAN、epoll、timerfd 和 eventfd。协议对象动态分配，
+ * 初始化失败逆序回收；所有协议调用只来自同一个 CANopen 工作线程。
+ * 关闭 CAN 错误自动处理，避免协议库自行执行 ip link 重启接口。
  *
  * Author: zager
  */
 
 #include <master/master.h>
 
-#include "OD.h" /* 本机的对象字典（心跳表 0x1016、SDO 客户端 0x1280/0x1281） */
+#include "OD.h"
 
+#include <errno.h>
+#include <net/if.h>
+#include <stdarg.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
+#include <syslog.h>
+#include <unistd.h>
 
-/* 每拍最多抽多少帧：防止总线上灌满无关帧时把状态机饿死 */
-#define MASTER_RX_BUDGET 64u
-
-/* CO_CANopenInit 的参数：本机选择 */
-#define MASTER_NMT_CONTROL 0u /* 不自动进 operational，由业务状态机下令 */
-#define MASTER_FIRST_HB_MS 500u /* 心跳生产者的首帧延时（本机不生产心跳，占位） */
+#define MASTER_INTERVAL_US 1000u
+#define MASTER_NMT_CONTROL 0u
+#define MASTER_FIRST_HB_MS 500u
 #define MASTER_SDO_SRV_TIMEOUT_MS 1000u
 #define MASTER_SDO_CLI_TIMEOUT_MS 500u
 
-/* 将站号映射到节点表下标，未登记时返回 -1 */
+/* 建立 CAN 与协议服务；调用前 CAN 必须处于配置状态 */
+static int master_communication_init(struct master *m);
+
+/* 按节点号查登记表，未登记返回 -1 */
 static int master_index(const struct master *m, uint8_t node_id);
 
-/* 立即发送一条 NMT 命令；会直接发帧，只能由 I/O 线程调用 */
-static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
+/**
+ * master_init - 创建 CANopenLinux 主站
+ * @m: 主站对象
+ * @ifname: SocketCAN 接口名，例如 can0
+ *
+ * 接口和定时器由本对象接管；失败时已释放所有已建资源。
+ *
+ * Return: 0 成功；-1 参数、接口、内存或协议初始化失败。
+ */
+int master_init(struct master *m, const char *ifname)
+{
+	if (m == NULL || ifname == NULL || ifname[0] == '\0' || m->co != NULL) {
+		return -1;
+	}
+	memset(m, 0, sizeof(*m));
+	m->ep.epoll_fd = -1;
+	m->ep.event_fd = -1;
+	m->ep.timer_fd = -1;
+	if (CO_epoll_create(&m->ep, MASTER_INTERVAL_US) != CO_ERROR_NO) {
+		goto fail;
+	}
+	m->can.can_ifindex = (int)if_nametoindex(ifname);
+	m->can.epoll_fd = m->ep.epoll_fd;
+	if (m->can.can_ifindex == 0) {
+		goto fail;
+	}
+	m->co = CO_new(NULL, NULL);
+	if (m->co == NULL || master_communication_init(m) != 0) {
+		goto fail;
+	}
+	return 0;
+
+fail:
+	master_deinit(m);
+	return -1;
+}
 
 /**
- * master_init - 绑定 SocketCAN 文件描述符并初始化 CANopenNode
- * @m: 主站对象
- * @fd: 已打开的 SocketCAN 文件描述符，由宿主持有
+ * master_deinit - 释放主站全部运行资源
+ * @m: 主站对象；NULL 安全
  *
- * 初始化过程不主动发送 NMT 帧；@m 为 NULL 时直接返回。
+ * 工作线程必须已经退出。静态互斥锁不属于这里，重复调用不会重复关 fd。
  */
-void master_init(struct master *m, int fd)
+void master_deinit(struct master *m)
 {
 	if (m == NULL) {
 		return;
 	}
-	memset(m, 0, sizeof(*m));
-	co_cats_can_init(&m->can, fd);
-	pthread_mutex_init(&m->nmt_lock, NULL);
-
-	/* CO_USE_GLOBALS：返回的是静态实例，不动态分配内存 */
-	m->co = CO_new(NULL, NULL);
-	if (m->co == NULL) {
-		return;
+	if (m->co != NULL) {
+		CO_CANsetConfigurationMode(&m->can);
+		CO_CANmodule_disable(m->co->CANmodule);
+		CO_delete(m->co);
+		m->co = NULL;
 	}
-	(void)CO_CANinit(m->co, &m->can, 0u); /* 波特率由平台侧配置 */
-	(void)CO_CANopenInit(m->co, NULL, NULL, OD, NULL, MASTER_NMT_CONTROL, MASTER_FIRST_HB_MS,
-			     MASTER_SDO_SRV_TIMEOUT_MS, MASTER_SDO_CLI_TIMEOUT_MS, false,
-			     MASTER_NODE_ID, NULL);
+	CO_epoll_close(&m->ep);
+	m->node_count = 0u;
+	memset(m->node_id, 0, sizeof(m->node_id));
 }
 
 /**
- * master_add_node - 登记一个从站并分配对应 SDO 通道
+ * master_reset_communication - 重建通信服务
+ * @m: 正在运行的主站
+ *
+ * CO_t 及其 SDO 客户端地址不变，已装配的轴不需要重新绑定。
+ *
+ * Return: 0 成功；-1 主站未初始化或协议重建失败。
+ */
+int master_reset_communication(struct master *m)
+{
+	if (m == NULL || m->co == NULL) {
+		return -1;
+	}
+	CO_CANsetConfigurationMode(&m->can);
+	CO_CANmodule_disable(m->co->CANmodule);
+	return master_communication_init(m);
+}
+
+/**
+ * master_notify - 唤醒事件循环
+ * @m: 主站对象；NULL 安全
+ *
+ * eventfd 已满表示已有唤醒待处理，不视为失败。
+ */
+void master_notify(struct master *m)
+{
+	uint64_t value = 1u;
+
+	if (m == NULL || m->ep.event_fd < 0) {
+		return;
+	}
+	while (write(m->ep.event_fd, &value, sizeof(value)) < 0 && errno == EINTR) {
+	}
+}
+
+/**
+ * master_add_node - 登记从站及其 SDO 通道
  * @m: 主站对象
  * @node_id: 从站站号，范围为 1 至 127
  *
@@ -69,10 +140,10 @@ int master_add_node(struct master *m, uint8_t node_id)
 		return 0;
 	}
 	if (m->node_count >= MASTER_MAX_NODES || m->node_count >= (uint8_t)OD_CNT_SDO_CLI) {
-		return 0; /* 没有多余的 SDO 通道 */
+		return 0;
 	}
 	if (master_index(m, node_id) >= 0) {
-		return 0; /* 重复登记 */
+		return 0;
 	}
 	m->node_id[m->node_count] = node_id;
 	m->node_count++;
@@ -80,10 +151,10 @@ int master_add_node(struct master *m, uint8_t node_id)
 }
 
 /**
- * master_node_count - 获取已登记从站数量
+ * master_node_count - 获取从站数量
  * @m: 主站对象；NULL 安全
  *
- * Return: 从站数量；@m 为 NULL 时返回 0。
+ * Return: 已登记数量；NULL 返回 0。
  */
 uint8_t master_node_count(const struct master *m)
 {
@@ -91,11 +162,11 @@ uint8_t master_node_count(const struct master *m)
 }
 
 /**
- * master_node_id - 按登记下标读取从站站号
- * @m: 主站对象；NULL 安全
+ * master_node_id - 按下标读取从站站号
+ * @m: 主站对象
  * @idx: 登记下标
  *
- * Return: 站号；主站为空或下标越界时返回 0。
+ * Return: 站号；主站为空或下标越界返回 0。
  */
 uint8_t master_node_id(const struct master *m, uint8_t idx)
 {
@@ -106,11 +177,11 @@ uint8_t master_node_id(const struct master *m, uint8_t idx)
 }
 
 /**
- * master_sdo - 获取从站对应的 SDO 客户端
+ * master_sdo - 获取从站的 SDO 客户端
  * @m: 主站对象
  * @node_id: 已登记的从站站号
  *
- * Return: SDO 客户端指针；未登记或主站未初始化时返回 NULL。
+ * Return: 客户端指针；未登记或主站未初始化返回 NULL。
  */
 CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id)
 {
@@ -123,100 +194,27 @@ CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id)
 }
 
 /**
- * master_request_nmt - 登记一条待发 NMT 命令
+ * master_request_nmt - 发送一条 NMT 命令
  * @m: 主站对象
  * @node_id: 目标站号，0 表示所有从站
  * @cmd: NMT 命令
  *
- * 任意线程可调。只登记不发送：帧由 I/O 线程在下一拍 master_send_step()
- * 开头发出，保证帧只从 I/O 线程出去。同一拍只保留最后一条登记。
- *
- * Return: 0 已登记；-1 主站未初始化。
+ * Return: 0 已提交；-1 未初始化、参数错误或发送缓冲忙。
  */
 int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
 {
 	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
 		return -1;
 	}
-	pthread_mutex_lock(&m->nmt_lock);
-	m->nmt_node_id = node_id;
-	m->nmt_cmd = cmd;
-	m->nmt_pending = 1u;
-	pthread_mutex_unlock(&m->nmt_lock);
-	return 0;
+	return (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) == CO_ERROR_NO) ? 0 : -1;
 }
 
 /**
- * master_recv_step - 非阻塞抽取本拍 CAN 帧并交给协议栈
- * @m: 主站对象
- * @now_ms: 本拍单调毫秒时刻
- *
- * 只能由 I/O 线程调用，每拍最多处理 MASTER_RX_BUDGET 帧。
- */
-void master_recv_step(struct master *m, uint32_t now_ms)
-{
-	CO_CANrxMsg_t frame;
-	uint8_t budget = (uint8_t)MASTER_RX_BUDGET;
-
-	if (m == NULL || m->can.fd < 0 || m->co == NULL) {
-		return;
-	}
-	m->now_ms = now_ms;
-
-	/* 把总线上已到的帧抽干（不阻塞），逐帧交给栈（软件匹配 ident/mask） */
-	while (budget > 0u) {
-		if (co_cats_can_read(&m->can, &frame, 0u) != CO_CATS_IO_OK) {
-			break; /* 本拍的帧已经抽完 */
-		}
-		budget--;
-		co_cats_can_receive(m->co->CANmodule, &frame);
-	}
-}
-
-/**
- * master_send_step - 推进协议栈并发送本拍待发帧
- * @m: 主站对象
- * @now_ms: 本拍单调毫秒时刻
- *
- * 只能由 I/O 线程调用，并与 master_recv_step 保持固定顺序。
- */
-void master_send_step(struct master *m, uint32_t now_ms)
-{
-	uint32_t now_us;
-	uint32_t dt_us;
-	uint8_t nmt_pending;
-	uint8_t nmt_node_id;
-	enum master_nmt_cmd nmt_cmd;
-
-	if (m == NULL || m->co == NULL) {
-		return;
-	}
-	m->now_ms = now_ms;
-	now_us = now_ms * 1000u;
-	dt_us = (m->last_us == 0u) ? 0u : (uint32_t)(now_us - m->last_us);
-	m->last_us = now_us;
-
-	/* 先发别线程登记的 NMT：它没有应答，先于本拍的 SDO 帧出去即可 */
-	pthread_mutex_lock(&m->nmt_lock);
-	nmt_pending = m->nmt_pending;
-	nmt_node_id = m->nmt_node_id;
-	nmt_cmd = m->nmt_cmd;
-	m->nmt_pending = 0u;
-	pthread_mutex_unlock(&m->nmt_lock);
-	if (nmt_pending != 0u) {
-		(void)master_nmt_send(m, nmt_node_id, nmt_cmd);
-	}
-
-	/* 栈的统一入口：心跳消费超时、SDO 超时、NMT 处理、发帧都在里面 */
-	(void)CO_process(m->co, false, dt_us, NULL);
-}
-
-/**
- * master_node_alive - 检查从站心跳是否处于 ACTIVE
+ * master_node_alive - 检查从站心跳
  * @m: 主站对象
  * @node_id: 从站站号
  *
- * Return: 0 心跳正常；非 0 未登记、未配置监控、未知或已超时。
+ * Return: 0 ACTIVE；非 0 未登记、未配置、未知或超时。
  */
 int master_node_alive(const struct master *m, uint8_t node_id)
 {
@@ -228,10 +226,52 @@ int master_node_alive(const struct master *m, uint8_t node_id)
 	}
 	hb_idx = CO_HBconsumer_getIdxByNodeId(m->co->HBcons, node_id);
 	if (hb_idx < 0) {
-		return 1; /* 没在 0x1016 里配置：监控不了 → 判不正常 */
+		return 1;
 	}
 	state = CO_HBconsumer_getState(m->co->HBcons, (uint8_t)hb_idx);
 	return (state == CO_HBconsumer_ACTIVE) ? 0 : 1;
+}
+
+/**
+ * log_printf - 输出 CANopenLinux 的警告与错误
+ * @priority: syslog 优先级
+ * @format: printf 格式串
+ */
+void log_printf(int priority, const char *format, ...)
+{
+	va_list ap;
+
+	if (priority > LOG_WARNING) {
+		return;
+	}
+	va_start(ap, format);
+	(void)vfprintf(stderr, format, ap);
+	va_end(ap);
+	(void)fputc('\n', stderr);
+}
+
+static int master_communication_init(struct master *m)
+{
+	CO_ReturnError_t err;
+	uint32_t err_info = 0u;
+
+	err = CO_CANinit(m->co, &m->can, 0u);
+	if (err == CO_ERROR_NO) {
+		err = CO_CANopenInit(m->co, NULL, NULL, OD, NULL, MASTER_NMT_CONTROL, MASTER_FIRST_HB_MS,
+				     MASTER_SDO_SRV_TIMEOUT_MS, MASTER_SDO_CLI_TIMEOUT_MS, false,
+				     MASTER_NODE_ID, &err_info);
+	}
+	if (err == CO_ERROR_NO) {
+		CO_epoll_initCANopenMain(&m->ep, m->co);
+		err = CO_CANopenInitPDO(m->co, m->co->em, OD, MASTER_NODE_ID, &err_info);
+	}
+	if (err != CO_ERROR_NO) {
+		log_printf(LOG_ERR, "CANopen init failed: %d, OD info 0x%X", (int)err,
+			   (unsigned)err_info);
+		return -1;
+	}
+	CO_CANsetNormalMode(m->co->CANmodule);
+	return m->co->CANmodule->CANnormal ? 0 : -1;
 }
 
 static int master_index(const struct master *m, uint8_t node_id)
@@ -247,15 +287,4 @@ static int master_index(const struct master *m, uint8_t node_id)
 		}
 	}
 	return -1;
-}
-
-static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
-{
-	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
-		return -1;
-	}
-	if (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) != CO_ERROR_NO) {
-		return -1;
-	}
-	return 0;
 }

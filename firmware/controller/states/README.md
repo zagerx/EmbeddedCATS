@@ -11,7 +11,7 @@
 
 ## 线程与边界
 
-- 状态图只由控制线程通过 `controller_poll()` 推进；
+- 状态图只由 CANopen 工作线程通过 `controller_poll()` 推进；
 - 状态函数使用 `controller` 中平铺的状态字段；
 - 时钟与 NMT 只经 `controller_now_ms()` / `controller_nmt_*()` 请求，状态图不
   直接依赖主站或平台时钟；

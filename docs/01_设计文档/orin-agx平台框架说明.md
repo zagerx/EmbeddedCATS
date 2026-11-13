@@ -89,7 +89,7 @@ main → lyos::init("xxx_driver") → 解析 --etc（默认 /app/etc）
 
 - **对等替换**：CATS 未来作为 `src/driver/` 下的新驱动包，与 `motor`（UDP）驱动同一层级。
 - **接入即换壳**：只替换 CATS 的集成层（进程入口 + 对外 topic 映射），内核层与设备/轴层不动。
-- **边界层统一**：开发机与 Orin-AGX 均使用 SocketCAN，由 `canopen/driver` 承接。
+- **边界层统一**：开发机与 Orin-AGX 均使用 SocketCAN，由上游 `CANopenLinux` 承接。
 
 对应关系：
 
@@ -99,4 +99,4 @@ main → lyos::init("xxx_driver") → 解析 --etc（默认 /app/etc）
 | 应用层 | 启动/使能/故障复位流程，节拍驱动 |
 | 轴层 | 2 个轴的目标与反馈，映射到 `motor_control` 消息字段 |
 | 设备层 + 内核层 | 原样保留 |
-| 边界层 | 换为平台 CAN 驱动实现 |
+| 边界层 | 沿用 CANopenLinux 的 SocketCAN 后端 |
