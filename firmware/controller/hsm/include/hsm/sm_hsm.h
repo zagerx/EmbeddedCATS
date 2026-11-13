@@ -187,9 +187,6 @@ void sm_hsm_init(struct sm_hsm *const me, sm_state_t const initial);
  */
 void sm_hsm_dispatch(struct sm_hsm *const me, const struct sm_event *const e);
 
-/* 当前活动配置是否包含 state（沿父链向上扫描，不是只比较最内层） */
-bool sm_hsm_is_in(struct sm_hsm *const me, sm_state_t const state);
-
 /* 当前活动配置的最内层状态 */
 sm_state_t sm_hsm_state(struct sm_hsm const *const me);
 

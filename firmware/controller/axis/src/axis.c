@@ -22,16 +22,6 @@ static int32_t scale_mm(float mm);
 static float unscale_mm(int32_t pulse);
 
 /**
- * axis_init - 初始化轴与节点的映射
- * @a: 轴对象，其设备实例须已装配
- * @node_id: CANopen 节点号
- */
-void axis_init(struct axis *a, uint8_t node_id)
-{
-	a->node_id = node_id;
-}
-
-/**
  * axis_poll - 推进一次设备状态机
  * @a: 轴对象；NULL 安全
  * @now_ms: 当前单调毫秒时刻

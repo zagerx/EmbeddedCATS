@@ -151,7 +151,6 @@ struct cia402_monitor {
 struct cia402_device {
 	/* 装配后只读 */
 	const struct sdo_access *access;
-	uint8_t node_id;
 
 	/* 请求、状态与反馈只在同一个 CANopen 工作线程内访问 */
 	struct {
@@ -172,7 +171,7 @@ struct cia402_device {
 
 /* 对外接口 */
 
-void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id);
+void cia402_init(struct cia402_device *d, const struct sdo_access *access);
 
 /*
  * 投递一条请求。立即返回，不阻塞。

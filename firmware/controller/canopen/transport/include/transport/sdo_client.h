@@ -37,7 +37,6 @@ struct sdo_client {
 
 void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client);
 void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_us);
-void sdo_client_abort(struct sdo_client *s);
 const struct sdo_access *sdo_client_access(const struct sdo_client *s);
 
 #ifdef __cplusplus

@@ -202,30 +202,6 @@ void sm_hsm_dispatch(struct sm_hsm *const me, const struct sm_event *const e)
 }
 
 /**
- * sm_hsm_is_in - 检查当前活动配置是否包含指定状态
- * @me: 状态机内核对象
- * @state: 待查询状态函数
- *
- * Return: true 当前叶子或其祖先包含 @state；false 不包含。
- */
-bool sm_hsm_is_in(struct sm_hsm *const me, sm_state_t const state)
-{
-	sm_state_t s = me->state;
-	sm_ret_t r;
-
-	for (;;) {
-		if (s == state)
-			return true;
-
-		r = s(me, SM_RES_EVT(SM_SIG_EMPTY));
-		s = me->temp;
-
-		if (r != SM_RET_SUPER)
-			return false;
-	}
-}
-
-/**
  * sm_hsm_state - 获取当前活动配置的最内层状态
  * @me: 状态机内核对象
  *

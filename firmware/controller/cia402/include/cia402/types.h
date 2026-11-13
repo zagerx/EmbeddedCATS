@@ -36,24 +36,11 @@ enum cia402_pds_state {
 #define CIA402_CW_NEW_SETPOINT 0x0010u /* bit4：PP 新目标 */
 #define CIA402_CW_HALT 0x0100u         /* bit8：暂停（减速停） */
 
-/* 状态字 6041 的位 */
-#define CIA402_SW_READY_TO_SWITCH_ON 0x0001u
-#define CIA402_SW_SWITCHED_ON 0x0002u
-#define CIA402_SW_OPERATION_ENABLED 0x0004u
-#define CIA402_SW_FAULT 0x0008u
-#define CIA402_SW_VOLTAGE_ENABLED 0x0010u
-#define CIA402_SW_QUICK_STOP 0x0020u
-#define CIA402_SW_SWITCH_ON_DISABLED 0x0040u
-#define CIA402_SW_WARNING 0x0080u
+/* 状态字 6041 的位（只列本工程实际使用的） */
 #define CIA402_SW_TARGET_REACHED 0x0400u /* bit10：PP 到位判据 */
-#define CIA402_SW_SETPOINT_ACK 0x1000u   /* bit12：新目标已被接收（握手，非到位） */
 
-/* 操作模式 6060 的值 */
-#define CIA402_MODE_PP 1u  /* Profile Position */
-#define CIA402_MODE_PV 3u  /* Profile Velocity */
-#define CIA402_MODE_HM 6u  /* Homing */
-#define CIA402_MODE_CSP 8u /* Cyclic Sync Position */
-#define CIA402_MODE_CSV 9u /* Cyclic Sync Velocity */
+/* 操作模式 6060 的值（只列本工程实际使用的） */
+#define CIA402_MODE_PP 1u /* Profile Position */
 
 #ifdef __cplusplus
 } /* extern "C" */

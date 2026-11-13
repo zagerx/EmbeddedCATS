@@ -9,7 +9,7 @@ cia402/
 ├── include/cia402/
 │   ├── types.h    PDS 状态、控制字/状态字位、模式号
 │   ├── od.h       DS402 对象号
-│   ├── pds.h      状态解析与序列表
+│   ├── pds.h      状态字解析
 │   └── device.h   对外接口 + 请求/状态/反馈结构 + 内部分组的设备实例
 └── src/
     ├── pds.c              纯标准知识
@@ -33,8 +33,7 @@ cia402/
 ## 对外接口
 
 ```c
-void         cia402_init(struct cia402_device *d, const struct sdo_access *access,
-                         uint8_t node_id);
+void         cia402_init(struct cia402_device *d, const struct sdo_access *access);
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 void         cia402_poll(struct cia402_device *d, uint32_t now_ms,
                          struct cia402_status *out);
@@ -107,7 +106,7 @@ cia402/pds    → 无依赖
 
 `apps/tools/cia402_selftest` 不需要 CAN 硬件，覆盖：
 
-- PDS 状态字解析与序列起点快进；
+- PDS 状态字解析；
 - 完整使能状态链；
 - PP 参数、触发和到位；
 - Quick Stop 抢占在途事务；

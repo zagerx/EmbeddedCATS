@@ -1,4 +1,4 @@
-/* DS402 状态解析与序列起点快进的纯逻辑自测。 */
+/* DS402 状态字解析的纯逻辑自测。 */
 
 #include <cia402/pds.h>
 
@@ -31,28 +31,9 @@ static void test_parse(void)
 	CHECK(cia402_parse(0x0627u) == CIA402_OP_ENABLED);
 }
 
-static void test_skip(void)
-{
-	uint8_t n = 0u;
-	const struct cia402_seq_step *seq = cia402_seq_enable(&n);
-
-	printf("skip：起点快进\n");
-	CHECK(n == 3u);
-	CHECK(cia402_seq_skip(0x0040u, seq, n) == 0u); /* 禁启动：从 06 开始 */
-	CHECK(cia402_seq_skip(0x0021u, seq, n) == 1u); /* Ready：跳过 06 */
-	CHECK(cia402_seq_skip(0x0023u, seq, n) == 2u); /* Switched on：直接 0F */
-	CHECK(cia402_seq_skip(0x0027u, seq, n) == 3u); /* 已使能：不用发帧 */
-
-	seq = cia402_seq_disable(&n);
-	CHECK(n == 1u);
-	CHECK(cia402_seq_skip(0x0027u, seq, n) == 0u); /* 使能中 → 要写 00 */
-	CHECK(cia402_seq_skip(0x0040u, seq, n) == 1u); /* 已禁启动 → 无需动作 */
-}
-
 int main(void)
 {
 	test_parse();
-	test_skip();
 	s_fail += cia402_device_tests();
 
 	if (s_fail == 0) {

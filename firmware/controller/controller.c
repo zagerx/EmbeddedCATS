@@ -29,6 +29,9 @@ static uint8_t heartbeat_fact(const struct controller *ctl);
 /* 推进各轴非阻塞设备状态机 */
 static void controller_axis_poll(struct controller *ctl);
 
+/* 推进一次业务状态机并发布快照 */
+static enum controller_result controller_poll(void);
+
 /**
  * control_ctx - 获取控制层单例上下文
  *
@@ -73,8 +76,7 @@ enum controller_result controller_init(const char *can_ifname)
 		CO_SDOclient_t *sdo = master_sdo(&master_instance, node_id);
 
 		sdo_client_init(&ctl->axes[i].sdo, sdo);
-		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo), node_id);
-		axis_init(&ctl->axes[i], node_id);
+		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo));
 	}
 	ctl->master = &master_instance;
 	controller_stm_init(ctl);
@@ -152,7 +154,7 @@ enum controller_result controller_event_poll(void)
  *
  * Return: OK 推进成功；STATE 尚未初始化。
  */
-enum controller_result controller_poll(void)
+static enum controller_result controller_poll(void)
 {
 	static const struct sm_event evt_tick = {CONTROLLER_SIG_TICK};
 	struct controller *ctl = control_ctx();
@@ -201,7 +203,8 @@ static uint8_t heartbeat_fact(const struct controller *ctl)
 	uint8_t i;
 
 	for (i = 0u; i < ctl->axis_count; i++) {
-		if (master_node_alive(ctl->master, ctl->axes[i].node_id) != 0) {
+		/* 轴下标与主站登记下标一致：站号只在主站登记一次 */
+		if (master_node_alive(ctl->master, master_node_id(ctl->master, i)) != 0) {
 			ok = 0u;
 			break;
 		}

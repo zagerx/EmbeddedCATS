@@ -37,15 +37,13 @@ static void snapshot(struct cia402_device *d, struct cia402_status *out);
  * cia402_init - 装配一台设备
  * @d: 设备对象
  * @access: 对象事务通道（设备之间共享，由上层注入）
- * @node_id: CANopen 节点号
  *
  * 装配后设备处于空闲、未配置、未使能；hsm 只保留初始转移。
  */
-void cia402_init(struct cia402_device *d, const struct sdo_access *access, uint8_t node_id)
+void cia402_init(struct cia402_device *d, const struct sdo_access *access)
 {
 	memset(d, 0, sizeof(*d));
 	d->access = access;
-	d->node_id = node_id;
 	sm_hsm_init(&d->hsm, &device_initial);
 }
 
@@ -211,7 +209,6 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
 	int rc = CIA402_ACCEPTED;
 
-
 	/* 状态前提：未配置不能使能，未使能不能运动 */
 	if (req->kind == CIA402_REQ_ENABLE && d->outbox.configured == 0u) {
 		rc = CIA402_REFUSED;
@@ -227,6 +224,10 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 		/* 新流程开始：上一条的结论作废，免得被当成这一条的结论读走 */
 		d->outbox.last.result = CIA402_OP_NONE;
 		d->outbox.last.fail = CIA402_OP_FAIL_NONE;
+		/* 失败标记按文档语义"直到下一次 MOVE/CONFIG 受理"清零 */
+		if (req->kind == CIA402_REQ_MOVE || req->kind == CIA402_REQ_CONFIG) {
+			d->outbox.failed = 0u;
+		}
 		if (urgent) {
 			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 		}

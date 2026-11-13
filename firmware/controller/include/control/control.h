@@ -35,9 +35,6 @@ enum controller_result controller_deinit(void);
 /* 等待并处理一轮 CANopen、轴与整机事件 */
 enum controller_result controller_event_poll(void);
 
-/* 只推进整机业务状态机并发布快照；非阻塞，仅工作线程调用 */
-enum controller_result controller_poll(void);
-
 /* 唤醒等待中的事件循环；用于外部命令和宿主退出 */
 void controller_wakeup(void);
 

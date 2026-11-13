@@ -21,7 +21,6 @@ enum sdo_dir {
 
 struct sdo_result {
 	int8_t status; /* 0 成功；-1 失败、取消或超时 */
-	uint8_t len;
 	uint32_t value;
 	uint32_t abort_code;
 };

@@ -18,7 +18,6 @@ extern "C" {
 /* 一个轴 = 一个节点 + 该节点的驱动对象与独立 SDO 通道。
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct axis {
-	uint8_t node_id;
 	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
 	struct sdo_client sdo;    /* 本轴独享的异步对象访问通道 */
 };
@@ -40,9 +39,6 @@ enum axis_motion {
 	AXIS_MOTION_DONE,     /* 到了 / 停稳了 */
 	AXIS_MOTION_FAILED    /* 超时 / abort / 驱动器故障 */
 };
-
-/* 驱动对象由组合根装配（cia402_init）后再交给轴层；轴层只记站号 */
-void axis_init(struct axis *a, uint8_t node_id);
 
 /* 推进一次设备状态机；仅 CANopen 工作线程调用 */
 void axis_poll(struct axis *a, uint32_t now_ms);

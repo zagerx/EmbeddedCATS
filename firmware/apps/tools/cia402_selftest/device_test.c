@@ -131,7 +131,7 @@ static void fx_init(struct fx *f)
 	f->fake.access.take_result = fake_take_result;
 	f->fake.access.abort = fake_abort;
 	f->fake.access.ctx = &f->fake;
-	cia402_init(&f->dev, &f->fake.access, 1u);
+	cia402_init(&f->dev, &f->fake.access);
 }
 
 static void fx_request(struct fx *f, enum cia402_kind kind)
@@ -165,7 +165,6 @@ static void fx_complete(struct fx *f, int status, uint32_t value)
 	memset(&f->fake.result, 0, sizeof(f->fake.result));
 	f->fake.result.status = (int8_t)status;
 	f->fake.result.value = value;
-	f->fake.result.len = (f->fake.dir == SDO_DIR_READ) ? f->fake.size : 0u;
 	f->fake.result_ready = 1u;
 }
 

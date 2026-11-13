@@ -22,6 +22,9 @@ static int sc_take_result(void *ctx, struct sdo_result *result);
 /* 通过公共取消入口登记取消请求 */
 static void sc_abort(void *ctx);
 
+/* 请求取消当前事务，由后续 step 发送协议 abort */
+static void sdo_client_abort(struct sdo_client *s);
+
 /**
  * sdo_client_init - 初始化一条异步 SDO 通道
  * @s: 通道对象，生命周期内地址不变
@@ -58,22 +61,21 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 		r = CO_SDOclientDownload(s->co, dt_us, send_abort, false, &abort_code, NULL,
 					 timer_next_us);
 	} else {
-		r = CO_SDOclientUpload(s->co, dt_us, send_abort, &abort_code, NULL, NULL, timer_next_us);
+		r = CO_SDOclientUpload(s->co, dt_us, send_abort, &abort_code, NULL, NULL,
+				       timer_next_us);
 	}
 	if (r == CO_SDO_RT_ok_communicationEnd && s->dir == SDO_DIR_READ && s->cancel == 0u) {
 		uint8_t data[4] = {0u, 0u, 0u, 0u};
-		size_t n = CO_SDOclientUploadBufRead(s->co, data, sizeof(data));
 
+		(void)CO_SDOclientUploadBufRead(s->co, data, sizeof(data));
 		s->result.value = (uint32_t)data[0] | ((uint32_t)data[1] << 8) |
 				  ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
-		s->result.len = (uint8_t)n;
 	}
 	if (r == CO_SDO_RT_ok_communicationEnd || r < 0) {
 		CO_SDOclientClose(s->co);
 		s->result.status = (r == CO_SDO_RT_ok_communicationEnd && s->cancel == 0u) ? 0 : -1;
 		s->result.abort_code = (s->result.status == 0) ? 0u : (uint32_t)abort_code;
 		if (s->cancel != 0u) {
-			s->result.len = 0u;
 			s->result.value = 0u;
 			s->result.abort_code = 0u;
 		}
@@ -88,7 +90,7 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
  *
  * 后续 step 发送协议 abort 并生成取消结果，结果取走前不能发起新事务。
  */
-void sdo_client_abort(struct sdo_client *s)
+static void sdo_client_abort(struct sdo_client *s)
 {
 	if (s == NULL || s->state != SDO_CLIENT_RUNNING) {
 		return;
@@ -120,15 +122,14 @@ static int sc_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_
 	}
 	s->dir = dir;
 	s->result.status = -1;
-	s->result.len = 0u;
 	s->result.value = 0u;
 	s->result.abort_code = 0u;
 	if (dir == SDO_DIR_WRITE) {
 		uint8_t buf[4];
 		uint8_t i;
 
-		r = CO_SDOclientDownloadInitiate(s->co, index, sub, (size_t)size, (uint16_t)timeout_ms,
-						 false);
+		r = CO_SDOclientDownloadInitiate(s->co, index, sub, (size_t)size,
+						 (uint16_t)timeout_ms, false);
 		for (i = 0u; i < size; i++) {
 			buf[i] = (uint8_t)((value >> (8u * i)) & 0xFFu);
 		}
