@@ -12,6 +12,8 @@
 
 #include <master/master.h>
 
+#include <time.h>
+
 /**
  * controller_nmt_start - 请求广播 NMT Start
  * @ctl: 控制上下文；为空时什么也不做
@@ -48,13 +50,13 @@ void controller_nmt_reset_comm(struct controller *ctl)
  */
 uint32_t controller_now_ms(struct controller *ctl)
 {
-	struct can_io *bus;
+	struct timespec ts;
 
 	if (ctl == NULL || ctl->master == NULL) {
 		return 0u;
 	}
-	bus = master_bus(ctl->master);
-	return (bus != NULL) ? can_io_now_ms(bus) : 0u;
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint32_t)(ts.tv_sec * 1000u + (uint32_t)ts.tv_nsec / 1000000u);
 }
 
 /**

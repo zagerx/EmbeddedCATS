@@ -45,12 +45,12 @@ CanThread::~CanThread()
 	stop();
 }
 
-bool CanThread::start(struct can_io *bus, QString *err)
+bool CanThread::start(int fd, QString *err)
 {
 	std::promise<bool> init_done;
 	std::future<bool> init_result = init_done.get_future();
 
-	if (bus == nullptr) {
+	if (fd < 0) {
 		if (err != nullptr) {
 			*err = QStringLiteral("CAN 通道为空");
 		}
@@ -63,7 +63,7 @@ bool CanThread::start(struct can_io *bus, QString *err)
 		return false;
 	}
 
-	bus_ = bus;
+	fd_ = fd;
 	stop_.store(false, std::memory_order_relaxed);
 	thread_ = std::thread(
 		[this, done = std::move(init_done)]() mutable { run(std::move(done)); });
@@ -129,7 +129,7 @@ void CanThread::run_svc()
 void CanThread::run(std::promise<bool> init_done)
 {
 	/* 主站对象归控制层持有，宿主只提供已打开的 CAN 通道。 */
-	const bool ok = controller_init(bus_) == CONTROLLER_OK;
+	const bool ok = controller_init(fd_) == CONTROLLER_OK;
 	init_done.set_value(ok);
 	if (!ok) {
 		return;

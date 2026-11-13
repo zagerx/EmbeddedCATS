@@ -15,7 +15,7 @@
 ## 对外
 
 ```c
-master_init(&m, bus);                                  /* CO_new / CO_CANinit / CO_CANopenInit */
+master_init(&m, fd);                                   /* 借用宿主的 SocketCAN fd */
 master_add_node(&m, 1);                                /* 第 1 个 ⇒ OD 0x1280 那条通道 */
 master_add_node(&m, 2);                                /* 第 2 个 ⇒ OD 0x1281 那条通道 */
 master_set_state(&m, 0, MASTER_NMT_START);             /* 0 = 全站 */

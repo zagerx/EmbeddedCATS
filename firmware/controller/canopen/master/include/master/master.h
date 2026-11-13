@@ -1,9 +1,7 @@
-/* 主站：一条总线、节点表及 CANopenNode 的收发推进。 */
+/* 主站：一条 SocketCAN 通道、节点表及 CANopenNode 的收发推进。 */
 
 #ifndef MASTER_MASTER_H
 #define MASTER_MASTER_H
-
-#include <bus/can_io.h>
 
 #include "CANopen.h" /* CANopenNode 的 CO_t / CO_SDOclient_t */
 #include "co_driver_cats.h"
@@ -35,9 +33,8 @@ enum master_nmt_cmd {
  * SDO 通道（OD 里 0x1280/0x1281 就是这么配的）。
  */
 struct master {
-	struct can_io *bus; /* 只借用；通道由壳创建与关闭 */
-	uint32_t now_ms;    /* 上一拍的时刻 */
-	uint32_t last_us;   /* 上一拍的微秒时刻（CO_process 要 timeDifference） */
+	uint32_t now_ms;  /* 上一拍的时刻 */
+	uint32_t last_us; /* 上一拍的微秒时刻（CO_process 要 timeDifference） */
 	uint8_t node_count;
 	uint8_t node_id[MASTER_MAX_NODES];
 
@@ -48,11 +45,11 @@ struct master {
 	enum master_nmt_cmd nmt_cmd;
 
 	CO_t *co;               /* CANopenNode 实例（静态） */
-	struct co_cats_can can; /* 移植层句柄：总线 + 收发错误标记 */
+	struct co_cats_can can; /* SocketCAN 移植层句柄：借用 fd + 收发错误标记 */
 };
 
-/* 绑定总线并初始化 CANopenNode。不发任何帧 */
-void master_init(struct master *m, struct can_io *bus);
+/* 绑定借用的 SocketCAN fd 并初始化 CANopenNode，不发任何帧 */
+void master_init(struct master *m, int fd);
 
 /* 登记一个从站（第 i 个登记 ⇒ 第 i 条 SDO 通道）。重复登记、超上限返回 0 */
 int master_add_node(struct master *m, uint8_t node_id);
@@ -64,9 +61,6 @@ uint8_t master_node_id(const struct master *m, uint8_t idx);
 /* 取某个从站的 SDO 客户端；没登记过返回 NULL */
 CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id);
 
-/* 总线句柄（壳取当前时刻用）；未装配返回 NULL */
-struct can_io *master_bus(struct master *m);
-
 /*
  * 登记一条待发 NMT 命令；站号 0 = 总线上所有从站。任意线程可调。
  * 只登记不发送：帧由 I/O 线程在下一拍 master_send_step() 开头发出，
@@ -76,10 +70,9 @@ struct can_io *master_bus(struct master *m);
 int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
 
 /*
- * 一拍两段（**必须在同一个线程里按顺序调**：总线只有一个收发者）：
- *   ① master_recv_step()  抽帧交给栈
- *   ② master_send_step()  CO_process（心跳超时、SDO 超时、NMT、发帧）
- * 中间可以插入别的事（宿主正是在两段之间搬 SDO 请求/结果）。
+ * 一拍两段（必须在同一个线程里按顺序调：总线只有一个收发者）：
+ *   收帧交给栈，随后推进 CO_process（心跳超时、SDO 超时、NMT、发帧）。
+ * 中间可以插入 SDO 请求与结果搬移。
  */
 void master_recv_step(struct master *m, uint32_t now_ms);
 void master_send_step(struct master *m, uint32_t now_ms);

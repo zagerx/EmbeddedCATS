@@ -57,9 +57,13 @@ out=$(grep -rnE 'cia402_device_service|cia402_device_pp_move|sdo_client_write|sd
 	"$SRC/control_api.c" "$SRC/states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
-# R5：bus 不认识协议
-section "R5  bus/ 不认识协议"
-out=$(grep -rniE 'nmt|sdo|pdo|emcy|lss|0x600|0x580' "$SRC/bus" $INC 2>/dev/null || true)
+# R5：SocketCAN 只由 CO_driver 承接，不再保留通用 bus 层
+section "R5  SocketCAN 仅由 CO_driver 承接"
+out=$(grep -rlE 'linux/can.h|sys/socket.h' "$SRC" $INC --exclude-dir=third_party | \
+	grep -v '^controller/canopen/driver/CO_driver.c$' || true)
+if [ -d "$SRC/bus" ]; then
+	bad "$SRC/bus: 通用 bus 目录不应再存在"
+fi
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 # R6：业务状态机不访问协议、传输与主站层

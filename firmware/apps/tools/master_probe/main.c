@@ -4,7 +4,7 @@
  */
 
 #include <control/control.h>
-#include <socketcan/can_io_socketcan.h>
+#include "co_driver_cats.h"
 
 #include <cats_mech.h>
 
@@ -98,8 +98,10 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 }
 
 static volatile sig_atomic_t s_stop = 0;
-static struct can_io *s_io; /* 只给时间戳用 */
-static uint32_t s_base_ms;  /* 时间零点：开跑时刻 */
+static pthread_t s_io_thread;
+static pthread_t s_svc_thread;
+static uint32_t s_base_ms; /* 时间零点：开跑时刻 */
+static uint32_t probe_now_ms(void);
 
 /* ---- 宿主起的两条工作线程（controller 只提供步骤，不创建线程） ---- */
 
@@ -129,17 +131,22 @@ static void *svc_thread_main(void *arg)
 
 static int start_worker_threads(void)
 {
-	pthread_t t;
-
-	if (pthread_create(&t, NULL, io_thread_main, NULL) != 0) {
+	if (pthread_create(&s_io_thread, NULL, io_thread_main, NULL) != 0) {
 		return -1;
 	}
-	pthread_detach(t);
-	if (pthread_create(&t, NULL, svc_thread_main, NULL) != 0) {
+	if (pthread_create(&s_svc_thread, NULL, svc_thread_main, NULL) != 0) {
+		s_run_threads = 0;
+		(void)pthread_join(s_io_thread, NULL);
 		return -1;
 	}
-	pthread_detach(t);
 	return 0;
+}
+
+static void stop_worker_threads(void)
+{
+	s_run_threads = 0;
+	(void)pthread_join(s_io_thread, NULL);
+	(void)pthread_join(s_svc_thread, NULL);
 }
 
 static void on_sigint(int sig)
@@ -149,7 +156,7 @@ static void on_sigint(int sig)
 }
 
 /* 睡到绝对时刻 deadline_ms：早于该时刻返回才算正常，不累积漂移。
- * 时间基准与 can_io_now_ms 同源（CLOCK_MONOTONIC 毫秒）。 */
+ * 时间基准与 probe_now_ms 同源（CLOCK_MONOTONIC 毫秒）。 */
 static void sleep_until_ms(uint32_t deadline_ms)
 {
 	const struct timespec ts = {
@@ -162,9 +169,6 @@ static void sleep_until_ms(uint32_t deadline_ms)
 
 int main(int argc, char **argv)
 {
-	static struct socketcan_dev dev; /* 静态：全程不用 malloc */
-
-	struct can_io io;
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
 	long seconds = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;
 	struct probe_cmd cmd = probe_cmd_parse(argc, argv);
@@ -178,32 +182,33 @@ int main(int argc, char **argv)
 	int spammed = 0;
 	int stopped = 0;
 	int estopped = 0;
+	int fd = controller_socketcan_open(ifname);
 
-	if (socketcan_open(&io, &dev, ifname) != CAN_IO_OK) {
+	if (fd < 0) {
 		fprintf(stderr, "打不开 %s（接口是否 up？）\n", ifname);
 		return 1;
 	}
-	s_io = &io;
 
 	signal(SIGINT, on_sigint);
 
 	printf("接口 %s，节点 1/2，节拍 %u ms\n", ifname, POLL_INTERVAL_MS);
 	fflush(stdout);
 
-	if (controller_init(&io) != CONTROLLER_OK) {
+	if (controller_init(fd) != CONTROLLER_OK) {
 		fprintf(stderr, "controller_init 失败\n");
-		can_io_close(&io);
+		controller_socketcan_close(fd);
 		return 1;
 	}
 
 	/* 宿主职责：起 I/O 与服务两条线程（controller 自己不创建线程） */
 	if (start_worker_threads() != 0) {
 		fprintf(stderr, "起线程失败\n");
-		can_io_close(&io);
+		stop_worker_threads();
+		controller_socketcan_close(fd);
 		return 1;
 	}
 
-	start_ms = can_io_now_ms(&io);
+	start_ms = probe_now_ms();
 	s_base_ms = start_ms;
 	next = start_ms;
 
@@ -217,7 +222,7 @@ int main(int argc, char **argv)
 	while (!s_stop) {
 		(void)controller_poll(); /* ② 业务状态机走一拍 */
 
-		now = can_io_now_ms(&io);
+		now = probe_now_ms();
 		if (cmd.armed) {
 			long t = (long)(now - s_base_ms);
 
@@ -346,7 +351,16 @@ int main(int argc, char **argv)
 		sleep_until_ms(next);
 	}
 
-	can_io_close(&io);
+	stop_worker_threads();
+	controller_socketcan_close(fd);
 	printf("退出\n");
 	return 0;
+}
+
+static uint32_t probe_now_ms(void)
+{
+	struct timespec ts;
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint32_t)(ts.tv_sec * 1000u + (uint32_t)ts.tv_nsec / 1000000u);
 }

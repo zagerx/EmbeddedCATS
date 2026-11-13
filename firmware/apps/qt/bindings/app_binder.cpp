@@ -77,7 +77,7 @@ AppBinder::~AppBinder()
 {
 	worker_.stop(); /* 先停控制线程：之后没人再碰总线 */
 	if (channel_open_) {
-		can_io_close(&bus_);
+		controller_socketcan_close(fd_);
 	}
 }
 
@@ -90,7 +90,7 @@ void AppBinder::attach(QWidget *root, const QString &ifname)
 	}
 
 	QString err;
-	if (!worker_.start(&bus_, &err)) {
+	if (!worker_.start(fd_, &err)) {
 		pushLog(QStringLiteral("控制线程启动失败：%1").arg(err));
 		return;
 	}
@@ -218,7 +218,8 @@ void AppBinder::onEStop()
 
 bool AppBinder::openChannel(const QString &ifname)
 {
-	if (socketcan_open(&bus_, &dev_, ifname.toUtf8().constData()) != CAN_IO_OK) {
+	fd_ = controller_socketcan_open(ifname.toUtf8().constData());
+	if (fd_ < 0) {
 		pushLog(QStringLiteral("打不开通道 %1（接口是否 up？）").arg(ifname));
 		return false;
 	}

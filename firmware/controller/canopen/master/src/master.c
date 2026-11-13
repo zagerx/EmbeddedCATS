@@ -18,7 +18,7 @@
 #define MASTER_RX_BUDGET 64u
 
 /* CO_CANopenInit 的参数：本机选择 */
-#define MASTER_NMT_CONTROL 0u   /* 不自动进 operational，由业务状态机下令 */
+#define MASTER_NMT_CONTROL 0u /* 不自动进 operational，由业务状态机下令 */
 #define MASTER_FIRST_HB_MS 500u /* 心跳生产者的首帧延时（本机不生产心跳，占位） */
 #define MASTER_SDO_SRV_TIMEOUT_MS 1000u
 #define MASTER_SDO_CLI_TIMEOUT_MS 500u
@@ -30,20 +30,19 @@ static int master_index(const struct master *m, uint8_t node_id);
 static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
 
 /**
- * master_init - 绑定总线并初始化 CANopenNode
+ * master_init - 绑定 SocketCAN 文件描述符并初始化 CANopenNode
  * @m: 主站对象
- * @bus: CAN 通道，由调用方持有
+ * @fd: 已打开的 SocketCAN 文件描述符，由宿主持有
  *
  * 初始化过程不主动发送 NMT 帧；@m 为 NULL 时直接返回。
  */
-void master_init(struct master *m, struct can_io *bus)
+void master_init(struct master *m, int fd)
 {
 	if (m == NULL) {
 		return;
 	}
 	memset(m, 0, sizeof(*m));
-	m->bus = bus;
-	co_cats_can_init(&m->can, bus);
+	co_cats_can_init(&m->can, fd);
 	pthread_mutex_init(&m->nmt_lock, NULL);
 
 	/* CO_USE_GLOBALS：返回的是静态实例，不动态分配内存 */
@@ -124,38 +123,6 @@ CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id)
 }
 
 /**
- * master_bus - 获取主站绑定的 CAN 通道
- * @m: 主站对象；NULL 安全
- *
- * Return: 借用通道指针；@m 为 NULL 时返回 NULL。
- */
-struct can_io *master_bus(struct master *m)
-{
-	return (m == NULL) ? NULL : m->bus;
-}
-
-/**
- * master_nmt_send - 立即发送一条 NMT 命令
- * @m: 主站对象
- * @node_id: 目标站号，0 表示所有从站
- * @cmd: NMT 命令
- *
- * 经 CO_NMT_sendCommand 直接发帧（不排队），因此只能在 I/O 线程里调用。
- *
- * Return: 0 已交给协议栈发送；-1 主站未初始化或发送失败。
- */
-static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
-{
-	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
-		return -1;
-	}
-	if (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) != CO_ERROR_NO) {
-		return -1;
-	}
-	return 0;
-}
-
-/**
  * master_request_nmt - 登记一条待发 NMT 命令
  * @m: 主站对象
  * @node_id: 目标站号，0 表示所有从站
@@ -188,17 +155,17 @@ int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cm
  */
 void master_recv_step(struct master *m, uint32_t now_ms)
 {
-	struct can_io_frame frame;
+	CO_CANrxMsg_t frame;
 	uint8_t budget = (uint8_t)MASTER_RX_BUDGET;
 
-	if (m == NULL || m->bus == NULL || m->co == NULL) {
+	if (m == NULL || m->can.fd < 0 || m->co == NULL) {
 		return;
 	}
 	m->now_ms = now_ms;
 
 	/* 把总线上已到的帧抽干（不阻塞），逐帧交给栈（软件匹配 ident/mask） */
 	while (budget > 0u) {
-		if (can_io_recv(m->bus, &frame, 0u) != CAN_IO_OK) {
+		if (co_cats_can_read(&m->can, &frame, 0u) != CO_CATS_IO_OK) {
 			break; /* 本拍的帧已经抽完 */
 		}
 		budget--;
@@ -280,4 +247,15 @@ static int master_index(const struct master *m, uint8_t node_id)
 		}
 	}
 	return -1;
+}
+
+static int master_nmt_send(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd)
+{
+	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
+		return -1;
+	}
+	if (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) != CO_ERROR_NO) {
+		return -1;
+	}
+	return 0;
 }

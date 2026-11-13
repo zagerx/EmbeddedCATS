@@ -89,7 +89,7 @@ main → lyos::init("xxx_driver") → 解析 --etc（默认 /app/etc）
 
 - **对等替换**：CATS 未来作为 `src/driver/` 下的新驱动包，与 `motor`（UDP）驱动同一层级。
 - **接入即换壳**：只替换 CATS 的集成层（进程入口 + 对外 topic 映射），内核层与设备/轴层不动。
-- **边界层替换**：把本机 socketcan 换成平台提供的 CAN 驱动。
+- **边界层统一**：开发机与 Orin-AGX 均使用 SocketCAN，由 `canopen/driver` 承接。
 
 对应关系：
 

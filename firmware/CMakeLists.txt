@@ -17,30 +17,22 @@ find_package(Threads REQUIRED)
 
 # ---------------------------------------------------------------
 # 一层一个 target。依赖方向在链接关系里也要立得住：
-#   exe(qt) → control → master → canopen → bus
+#   exe(qt) → control → master → canopen
 #   协议栈（canopen）不知道有几个从站；站号表与收发在 master
+#   SocketCAN 的文件描述符与帧操作集中在 canopen/driver
 # ---------------------------------------------------------------
 
-# 内核层：平台无关，只认识自己定义的 can_io.h / master.h
-# （具体定义见下方 canopen_node / canopen_kernel）
+# 控制层只认识自己定义的公共接口，SocketCAN 由 CO_driver 承接
 
-# 边界层：一帧 CAN 的收发能力（契约 + 平台实现）。不认识任何协议
-add_library(bus_socketcan STATIC controller/bus/socketcan/src/can_io_socketcan.c)
-target_include_directories(bus_socketcan PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/socketcan/include)
-target_include_directories(bus_socketcan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
-target_compile_definitions(bus_socketcan PRIVATE _POSIX_C_SOURCE=200809L)
-
-# 主站层：一条总线 + 登记的从站（站号表 / 收发分派 / 心跳超时）
+# 主站层：一条 SocketCAN 通道 + 登记的从站（站号表 / 收发分派 / 心跳超时）
 add_library(cats_master STATIC controller/canopen/master/src/master.c)
 target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/master/include)
-# master.h 要用 <bus/can_io.h>：bus 是它的下层，路径向上游都可见
-target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
-target_link_libraries(cats_master PUBLIC canopen_node bus_socketcan Threads::Threads)
+target_link_libraries(cats_master PUBLIC canopen_node Threads::Threads)
 
 # ---------------------------------------------------------------
 # CANopenNode v4（第三方协议栈，原样参与构建）
 #   third_party/CANopenNode/  官方源码（只读，不改）
-#   canopen/driver/         本机移植层：CO_driver 用我们的 bus 实现
+#   canopen/driver/         SocketCAN 实现与 CANopenNode CO_driver 适配
 #   config/canopen_node/      对象字典：心跳消费 0x1016 / SDO 客户端 0x1280
 # 只开本工程用到的服务：NMT master、心跳消费（含查询）、SDO 客户端。
 # ---------------------------------------------------------------
@@ -64,8 +56,7 @@ add_library(canopen_node STATIC
 target_include_directories(canopen_node PUBLIC
 	${CANOPENNODE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/driver
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/config/canopen_node
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/bus/include)
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/config/canopen_node)
 # 这些宏决定 CANopenNode 头里暴露哪些类型/服务，所有包含 CANopen.h 的
 # 编译单元必须一致 → PUBLIC
 target_compile_definitions(canopen_node PUBLIC
@@ -168,10 +159,10 @@ add_executable(cats_qt
 	apps/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
 # Qt 宿主链接完整控制栈与 SocketCAN 后端
-target_link_libraries(cats_qt PRIVATE cats_control bus_socketcan Qt6::Widgets Threads::Threads)
+target_link_libraries(cats_qt PRIVATE cats_control Qt6::Widgets Threads::Threads)
 
 # 工具：无界面运行器。按固定节拍推进 cats_control_poll()，用来在没有界面时验证逻辑
 add_executable(master_probe apps/tools/master_probe/main.c)
 target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-target_link_libraries(master_probe PRIVATE cats_control bus_socketcan)
+target_link_libraries(master_probe PRIVATE cats_control)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)

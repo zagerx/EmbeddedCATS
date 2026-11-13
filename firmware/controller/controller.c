@@ -32,17 +32,17 @@ struct controller *control_ctx(void)
 
 /**
  * controller_init - 装配控制层并进入初始业务状态
- * @bus: 已打开的 CAN 通道，由宿主持有
+ * @fd: 已打开的 SocketCAN 文件描述符，由宿主持有并负责关闭
  *
  * 只能在控制线程调用且只能成功初始化一次；主站在最终对象中原地初始化。
  *
  * Return: CONTROLLER_OK 成功；CONTROLLER_ERR_PARAM 参数无效；CONTROLLER_ERR_STATE 重复初始化。
  */
-enum controller_result controller_init(struct can_io *bus)
+enum controller_result controller_init(int fd)
 {
 	uint8_t i;
 
-	if (bus == NULL) {
+	if (fd < 0) {
 		return CONTROLLER_ERR_PARAM;
 	}
 	if (controller_singleton.master != NULL) {
@@ -50,7 +50,7 @@ enum controller_result controller_init(struct can_io *bus)
 	}
 
 	controller_singleton.master = &master_instance;
-	master_init(&master_instance, bus);
+	master_init(&master_instance, fd);
 	(void)master_add_node(&master_instance, 1);
 	(void)master_add_node(&master_instance, 2);
 

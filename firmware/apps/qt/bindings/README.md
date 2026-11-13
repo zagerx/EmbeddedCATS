@@ -17,7 +17,7 @@
 | 控制节拍（`CanThread`，1 ms） | `controller_poll()` |
 | 顶部状态条 | `controller_state()` / `controller_state_name()` |
 | 故障原因 | `controller_fault_code()` / `controller_fault_name()` |
-| 通道开/关 | `socketcan_open()` / `can_io_close()`（选后端只在集成层） |
+| 通道开/关 | `controller_socketcan_open()` / `controller_socketcan_close()`（fd 由宿主管理） |
 
 已实现的：节拍、状态条、通道开与 app 初始化。
 尚未实现的：轴卡片反馈、各按钮（当前一律不绑定）、日志面板内容（等 app 重新提供日志）。

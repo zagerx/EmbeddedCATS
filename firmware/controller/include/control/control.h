@@ -17,8 +17,6 @@
 
 #include <stdint.h>
 
-struct can_io;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,9 +33,9 @@ struct controller_move_req {
  * 业务状态使用层次状态机，与 NMT、DS402 状态相互独立。
  * PREPARING → CONFIGURING → ENABLING → HOLDING ⇄ MOVING；
  * MOVING 可经 HALTING 回 HOLDING；FAULT/ESTOP 为终态。
- * 初始化时在控制层持有的主站对象上登记节点 1、2；bus 由宿主提供。
+ * 初始化时在控制层持有的主站对象上登记节点 1、2；fd 由宿主提供并保持打开。
  */
-enum controller_result controller_init(struct can_io *bus);
+enum controller_result controller_init(int fd);
 
 /* 推进一次业务状态机并发布快照；非阻塞。 */
 enum controller_result controller_poll(void);

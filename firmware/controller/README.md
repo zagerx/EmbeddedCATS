@@ -4,9 +4,8 @@
 
 ```text
 controller/
-├── bus/            CAN 帧契约与 SocketCAN 后端
 ├── canopen/        CANopen 通信协议栈
-│   ├── driver/     CANopenNode CO_driver 移植层
+│   ├── driver/     SocketCAN 实现与 CANopenNode CO_driver 适配
 │   ├── master/     主站、节点表、NMT、心跳和协议栈推进
 │   └── transport/  对象访问契约与 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
