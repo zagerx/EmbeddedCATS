@@ -30,6 +30,7 @@
 | `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度 |
 | `--stop-at <ms>` / `--estop-at <ms>` | 停止 / 急停注入时刻 |
 | `--spam <n>` / `--spam-at <ms>` | 连续提交 n 条命令，检查队列拒绝行为 |
+| `--no-enable` | 不自动请求使能，用于验证停在 `IDLE` |
 
 机械换算参数固定来自 `controller/config/cats_mech.h`，不再通过命令行覆盖。
 
@@ -39,6 +40,7 @@
 接口 can0，节点 1/2，CANopenLinux epoll（基础定时 1 ms）
 [     0] state = PREPARING
 [   ...] state = CONFIGURING
+[   ...] state = IDLE —— 自动请求使能
 [   ...] state = ENABLING
 [   ...] state = HOLDING
 ```

@@ -81,6 +81,7 @@ add_library(cats_control STATIC
 	controller/states/state_online.c
 	controller/states/state_preparing.c
 	controller/states/state_configuring.c
+	controller/states/state_idle.c
 	controller/states/state_enabling.c
 	controller/states/state_holding.c
 	controller/states/state_moving.c

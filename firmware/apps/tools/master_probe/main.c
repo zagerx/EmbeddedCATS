@@ -35,6 +35,7 @@ struct probe_cmd {
 	int has_estop;
 	int has_spam;
 	int armed;
+	int no_enable; /* 置位后不自动发使能，用来验证停在 IDLE */
 };
 
 static volatile sig_atomic_t s_stop;
@@ -198,6 +199,11 @@ int main(int argc, char **argv)
 				}
 				printf(")");
 			}
+			/* 配置完成、停在空闲态时自动请求使能；--no-enable 可关掉以验证停在 IDLE */
+			if (last == CONTROLLER_STATE_IDLE && !cmd.no_enable) {
+				printf(" —— 自动请求使能");
+				(void)controller_enable();
+			}
 			printf("\n");
 			fflush(stdout);
 		}
@@ -224,9 +230,19 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.estop_at_ms = -1;
 	c.spam = -1;
 	c.spam_at_ms = -1;
-	for (i = 3; i + 1 < argc; i += 2) {
+	for (i = 3; i < argc; i++) {
 		const char *k = argv[i];
-		double v = strtod(argv[i + 1], NULL);
+		double v;
+
+		if (strcmp(k, "--no-enable") == 0) {
+			c.no_enable = 1;
+			continue;
+		}
+		if (i + 1 >= argc) {
+			break;
+		}
+		v = strtod(argv[i + 1], NULL);
+		i++; /* 消费参数值 */
 
 		if (strcmp(k, "--move") == 0) {
 			c.move_mm = v;

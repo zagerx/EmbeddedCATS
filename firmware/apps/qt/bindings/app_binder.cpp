@@ -31,9 +31,11 @@ to_bar_state(enum controller_state s)
 {
 	switch (s) {
 	case CONTROLLER_STATE_PREPARING:
+	case CONTROLLER_STATE_CONFIGURING: /* 复位通信与写参数同属“正在准备” */
 		return StateBar::State::Preparing;
-	/* CONFIGURING（写参数）与 ENABLING（使能）在界面上合成一档“正在准备驱动器” */
-	case CONTROLLER_STATE_CONFIGURING:
+	/* IDLE：已配置、未使能，等外部使能指令 */
+	case CONTROLLER_STATE_IDLE:
+		return StateBar::State::Idle;
 	case CONTROLLER_STATE_ENABLING:
 		return StateBar::State::Enabling;
 	/* HOLDING 与 MOVING 在界面上合成一档“已使能” */
@@ -61,7 +63,7 @@ QString result_text(enum controller_result r)
 	case CONTROLLER_ERR_BUSY:
 		return QStringLiteral("命令队列满，稍后重试");
 	case CONTROLLER_ERR_PARAM:
-		return QStringLiteral("当前状态不接受位置指令或参数无效");
+		return QStringLiteral("当前状态不接受该指令或参数无效");
 	case CONTROLLER_ERR_STATE:
 		return QStringLiteral("控制层未初始化");
 	}
@@ -109,6 +111,7 @@ void AppBinder::findWidgets(QWidget *root)
 	}
 
 	axis_selector_ = root->findChild<QComboBox *>(QStringLiteral("axisSelector"));
+	btn_enable_ = root->findChild<QPushButton *>(QStringLiteral("btn_enable"));
 	btn_move_ = root->findChild<QPushButton *>(QStringLiteral("btn_move"));
 	btn_halt_ = root->findChild<QPushButton *>(QStringLiteral("btn_halt"));
 	btn_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_estop"));
@@ -120,7 +123,11 @@ void AppBinder::bindCommands()
 		pushLog(QStringLiteral("绑定：找不到 2.1 的按钮，指令无法下发"));
 		return;
 	}
+	if (btn_enable_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到使能按钮，无法从空闲态启动"));
+	}
 
+	connect(btn_enable_, &QPushButton::clicked, this, &AppBinder::onEnable);
 	connect(btn_move_, &QPushButton::clicked, this, &AppBinder::onMove);
 	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
 	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
@@ -129,6 +136,10 @@ void AppBinder::bindCommands()
 
 void AppBinder::updateCommands(enum controller_state s)
 {
+	if (btn_enable_ != nullptr) {
+		/* 使能只在空闲态有意义：其余状态点下去只会被丢弃 */
+		btn_enable_->setEnabled(s == CONTROLLER_STATE_IDLE);
+	}
 	if (btn_move_ != nullptr) {
 		/* 只有 HOLDING 接受位置指令；其余状态点下去只会被丢弃 */
 		btn_move_->setEnabled(s == CONTROLLER_STATE_HOLDING);
@@ -139,6 +150,17 @@ void AppBinder::updateCommands(enum controller_state s)
 	}
 	if (btn_estop_ != nullptr) {
 		btn_estop_->setEnabled(s != CONTROLLER_STATE_ESTOP);
+	}
+}
+
+void AppBinder::onEnable()
+{
+	const enum controller_result r = controller_enable();
+
+	if (r == CONTROLLER_OK) {
+		pushLog(QStringLiteral("已请求使能"));
+	} else {
+		pushLog(QStringLiteral("使能请求被拒：%1").arg(result_text(r)));
 	}
 }
 

@@ -57,6 +57,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 
 	auto *top_reserved = new QWidget(top_area);
 	top_reserved->setObjectName(QStringLiteral("topReserved"));
+	/* 1.2 预留区：安全相关与整机动作都放这里，左对齐贴顶部 */
+	auto *top_reserved_layout = new QHBoxLayout(top_reserved);
+	top_reserved_layout->setContentsMargins(16, 10, 16, 10);
+	top_reserved_layout->setSpacing(8);
+
+	auto *btn_enable = new QPushButton(QStringLiteral("使能"), top_reserved);
+	btn_enable->setObjectName(QStringLiteral("btn_enable"));
+	auto *btn_estop = new QPushButton(QStringLiteral("急停"), top_reserved);
+	btn_estop->setObjectName(QStringLiteral("btn_estop"));
+	auto *btn_halt = new QPushButton(QStringLiteral("暂停"), top_reserved);
+	btn_halt->setObjectName(QStringLiteral("btn_halt"));
+	auto *btn_clear_estop = new QPushButton(QStringLiteral("解除急停"), top_reserved);
+	btn_clear_estop->setObjectName(QStringLiteral("btn_clear_estop"));
+	for (QPushButton *button : {btn_enable, btn_estop, btn_halt, btn_clear_estop}) {
+		button->setMinimumWidth(92);
+		top_reserved_layout->addWidget(button, 0, Qt::AlignTop);
+	}
+	top_reserved_layout->addStretch(1);
 	top_layout->addWidget(top_reserved, 1);
 
 	top_area->setMinimumHeight(240); /* 保证 1 号区域约占可用高度的 1/3 */
@@ -85,16 +103,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	axis_selector->setCurrentIndex(2); /* 默认双轴：一台驱动器带一个机构 */
 	reserved_layout->addWidget(axis_selector, 0, Qt::AlignVCenter);
 
-	auto *btn_estop = new QPushButton(QStringLiteral("急停"), reserved_area_);
-	btn_estop->setObjectName(QStringLiteral("btn_estop"));
-	auto *btn_halt = new QPushButton(QStringLiteral("暂停"), reserved_area_);
-	btn_halt->setObjectName(QStringLiteral("btn_halt"));
 	auto *btn_move = new QPushButton(QStringLiteral("运动"), reserved_area_);
 	btn_move->setObjectName(QStringLiteral("btn_move"));
-	for (QPushButton *button : {btn_estop, btn_halt, btn_move}) {
-		button->setMinimumWidth(92);
-		reserved_layout->addWidget(button, 0, Qt::AlignVCenter);
-	}
+	btn_move->setMinimumWidth(92);
+	reserved_layout->addWidget(btn_move, 0, Qt::AlignVCenter);
 	reserved_layout->addStretch(1);
 
 	work_layout->addWidget(reserved_area_);

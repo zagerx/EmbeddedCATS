@@ -9,7 +9,8 @@
  *   └── st_root          公共规则：置了故障码 → FAULT；ESTOP 事件 → ESTOP
  *       ├── st_preparing 等心跳（此时心跳还没有是正常的，所以不挂 ONLINE）
  *       ├── st_online    运行期父状态：心跳丢失 → 置码，由 ROOT 迁 FAULT
- *       │   ├── st_configuring / st_enabling / st_holding / st_moving / st_halting
+ *       │   ├── st_configuring / st_idle_ctrl / st_enabling /
+ *       │   │   st_holding / st_moving / st_halting
  *       ├── st_fault     （直接挂 root：安全态不继承运行期动作）
  *       └── st_estop
  *
@@ -39,6 +40,8 @@ sm_ret_t st_root(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_online(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e);
+/* 已配置、未使能的空闲态；idle 与 cia402 层同名，故带 _ctrl 后缀 */
+sm_ret_t st_idle_ctrl(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e);

@@ -51,15 +51,17 @@ main → shell → ui → theme（这一支完全不认识业务）
 ## 状态显示
 
 状态条的**状态码不在界面里写死**：由 `bindings` 传 `controller_state_name()` 的结果，
-保证界面与日志同一套名字（PREPARING / CONFIGURING / ENABLING / HOLDING / MOVING /
-HALTING / FAULT / ESTOP）。
+保证界面与日志同一套名字（PREPARING / CONFIGURING / IDLE / ENABLING / HOLDING /
+MOVING / HALTING / FAULT / ESTOP）。
 
 界面只按**粗粒度档位**决定圆点颜色与说明文字：
 
 | 控制层状态 | 界面档位 | 圆点 | 说明 |
 |---|---|---|---|
-| `PREPARING` | `Preparing` | 蓝 | 正在复位节点 / 写参数 / 使能 |
-| `CONFIGURING`、`ENABLING` | `Enabling` | 蓝 | 正在让驱动器进入 PP 并使能 |
+| `PREPARING` | `Preparing` | 蓝 | 正在复位节点 |
+| `CONFIGURING` | `Preparing` | 蓝 | 正在写参数 |
+| `IDLE` | `Idle` | 黄 | 已配置，等待使能指令 |
+| `ENABLING` | `Enabling` | 蓝 | 正在让驱动器进入 PP 并使能 |
 | `HOLDING`、`MOVING` | `Running` | 绿 | 保持位置，可接受位置指令 |
 | `HALTING` | `Halting` | 蓝 | 正在减速停在当前位置 |
 | `FAULT` | `Fault` | 红 | 已停住，需重启程序 |
@@ -86,7 +88,8 @@ HALTING / FAULT / ESTOP）。
   `controller_move()` 的单位一致。数值是 `float`，取整到脉冲只发生在轴层，
   机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
 - 运动按钮按轴选择器提交单轴或双轴命令；暂停与急停分别调用停止和急停接口。
-- 启动不需要按钮：`controller_init()` 建完即 `PREPARING`，之后由事件循环自行推进。
+- 启动不需要按钮：`controller_init()` 建完即 `PREPARING`；配置完成后停在 `IDLE`，
+  点“使能”按钮才进 `ENABLING`。
 
 ## 命名规范
 

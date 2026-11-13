@@ -9,6 +9,18 @@
 - `states.c` 注册状态函数，并提供状态与故障名称映射；
 - `states.h` 集中声明状态函数，并提供从 HSM 成员找回 `struct controller` 的工具。
 
+## 状态流
+
+```text
+PREPARING → CONFIGURING → IDLE ──CONTROLLER_SIG_ENABLE──> ENABLING → HOLDING ⇄ MOVING
+                                                          ↑              │
+                                                          └─ HALTING ────┘
+FAULT / ESTOP 为终态。
+```
+
+`IDLE` 表示"已配置、未使能"：配置完成后停在这里，只有 `controller_enable()` 投递的
+使能事件才继续。状态函数名是 `st_idle_ctrl`，因为 `st_idle` 已被 cia402 设备层占用。
+
 ## 线程与边界
 
 - 状态图只由 CANopen 工作线程通过 `controller_poll()` 推进；

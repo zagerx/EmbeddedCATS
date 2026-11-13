@@ -16,6 +16,7 @@ class StateBar : public QWidget
 	/* 粗粒度档位：只用于圆点颜色与说明文字，不追求与 controller_state 一一对应 */
 	enum class State {
 		Preparing = 0,
+		Idle,
 		Enabling,
 		Running,
 		Halting,

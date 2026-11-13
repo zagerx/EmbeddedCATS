@@ -18,7 +18,8 @@ struct StateInfo {
 
 /* 粗粒度档位表（顺序与 StateBar::State 一致）；状态码本身由外部传入 */
 const StateInfo kStates[] = {
-	{"准备中", "正在复位节点 / 写参数 / 使能", StatusLed::State::Busy, 12},
+	{"准备中", "正在复位节点 / 写参数", StatusLed::State::Busy, 12},
+	{"空闲", "已配置，等待使能指令", StatusLed::State::Idle, 12},
 	{"使能中", "正在让驱动器进入 PP 并使能", StatusLed::State::Busy, 12},
 	{"已使能", "保持位置，可接受位置指令", StatusLed::State::Ok, 12},
 	{"减速停", "正在减速停在当前位置", StatusLed::State::Busy, 12},

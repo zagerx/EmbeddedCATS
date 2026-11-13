@@ -21,10 +21,15 @@ enum controller_result {
 	CONTROLLER_ERR_BUSY   /* 事件队列已满：这条指令没进队，请稍后重试 */
 };
 
-/* 业务运行状态（与 NMT 状态、402 状态三者不混） */
+/*
+ * 业务运行状态（与 NMT 状态、402 状态三者不混）。
+ * PREPARING → CONFIGURING → IDLE ──使能指令──> ENABLING → HOLDING ⇄ MOVING；
+ * MOVING 可经 HALTING 回 HOLDING；FAULT / ESTOP 为终态。
+ */
 enum controller_state {
 	CONTROLLER_STATE_PREPARING = 0,
 	CONTROLLER_STATE_CONFIGURING,
+	CONTROLLER_STATE_IDLE,
 	CONTROLLER_STATE_ENABLING,
 	CONTROLLER_STATE_HOLDING,
 	CONTROLLER_STATE_MOVING,

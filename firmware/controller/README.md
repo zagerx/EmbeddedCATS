@@ -27,17 +27,19 @@ controller/
 - 宿主只提供接口名并创建一个 CANopen 工作线程，不持有 fd、主站或设备对象。
 - `controller_init(ifname)` 装配资源；`controller_event_poll()` 处理一轮事件；
   `controller_deinit()` 在线程退出后释放资源，支持安全重复调用。
-- 提供位置、停止、急停、状态、故障和轴样本接口。
+- 提供使能、位置、停止、急停、状态、故障和轴样本接口。
 - 不创建线程，不直接操作 SocketCAN 或 CANopen PDO 字节。
 
 ## 状态机
 
 ```text
-PREPARING → CONFIGURING → ENABLING → HOLDING ⇄ MOVING
-                                      ↑           │
-                                      └─ HALTING ─┘
+PREPARING → CONFIGURING → IDLE ──controller_enable()──> ENABLING → HOLDING ⇄ MOVING
+                                                         ↑               │
+                                                         └── HALTING ────┘
 FAULT / ESTOP 为终态。
 ```
+
+`IDLE` 是“已配置、未使能”的空闲态：配置完成后停在这里，直到外部下发使能请求。
 
 `ROOT` 统一处理故障与急停，`ONLINE` 为运行期子状态统一检查心跳。
 

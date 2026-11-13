@@ -41,6 +41,12 @@ void controller_wakeup(void);
 enum controller_state controller_state(void);
 
 /*
+ * 请求各轴使能。只有 IDLE（已配置、未使能）接受，其余状态直接丢弃。
+ * 返回 OK 仅表示入队；BUSY 表示队列满，STATE 表示控制层未初始化。
+ */
+enum controller_result controller_enable(void);
+
+/*
  * 同时下发 1..CONTROLLER_MAX_AXES 条绝对位置指令（mm、mm/s、mm/s²）：
  * 这批轴一起启动，全部到位才回 HOLDING。
  * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、条数或参数无效。

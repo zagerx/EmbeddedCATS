@@ -36,6 +36,7 @@ class AppBinder : public QObject
       private slots:
 	void onRefresh(); /* 50 ms：状态 → 控件 */
 	void onStats();   /* 5 s：循环统计 → 日志 */
+	void onEnable();  /* 空闲态下发使能请求 */
 	void onMove();    /* 按轴选择下发位置指令 */
 	void onHalt();    /* 减速停在当前位置 */
 	void onEStop();   /* 所有轴 quick stop 并断使能 */
@@ -43,7 +44,7 @@ class AppBinder : public QObject
       private:
 	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */
 	void startTimers();              /* 刷新与统计两个界面定时器 */
-	void bindCommands();             /* 2.1 的轴选择与三个按钮 */
+	void bindCommands();             /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
 	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
 	void updateCommands(enum controller_state s); /* 按钮可用性跟随状态 */
 	void tickPrefill();                /* 首次进 HOLDING：目标位置 = 实际位置 */
@@ -59,6 +60,7 @@ class AppBinder : public QObject
 	LogPanel *log_panel_ = nullptr;
 	AxisCard *axis_cards_[2] = {nullptr, nullptr}; /* 轴 1 / 轴 2，按 objectName 取 */
 	QComboBox *axis_selector_ = nullptr;           /* 运动下发到哪一轴 */
+	QPushButton *btn_enable_ = nullptr;
 	QPushButton *btn_move_ = nullptr;
 	QPushButton *btn_halt_ = nullptr;
 	QPushButton *btn_estop_ = nullptr;

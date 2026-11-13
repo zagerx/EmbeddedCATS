@@ -70,6 +70,28 @@ void controller_estop(void)
 }
 
 /**
+ * controller_enable - 请求各轴使能
+ *
+ * 任意线程均可调用；只有 IDLE 会接受，其余状态由状态机丢弃。
+ *
+ * Return: OK 已入队并唤醒；BUSY 队列满；STATE 控制层未初始化。
+ */
+enum controller_result controller_enable(void)
+{
+	struct controller *ctl = control_ctx();
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ENABLE}};
+
+	if (ctl->master == NULL) {
+		return CONTROLLER_ERR_STATE;
+	}
+	if (!controller_evtq_push(&ctl->evtq, &evt)) {
+		return CONTROLLER_ERR_BUSY;
+	}
+	controller_wakeup();
+	return CONTROLLER_OK;
+}
+
+/**
  * controller_move - 同时提交一批绝对位置指令
  * @reqs: 指令数组，每条含轴号与目标位置/速度/加速度
  * @count: 条数（1..CONTROLLER_MAX_AXES）
