@@ -33,11 +33,13 @@ static int fake_take(void *ctx, struct sdo_result *result);
 static void fake_abort(void *ctx);
 static void fake_complete(struct sdo_arbiter *a, int status, uint32_t value);
 static void test_control_preempts_feedback(void);
+static void test_queued_control_abort(void);
 static void test_control_result_isolated(void);
 
 int main(void)
 {
 	test_control_preempts_feedback();
+	test_queued_control_abort();
 	test_control_result_isolated();
 	if (failures != 0) {
 		printf("sdo_arbiter_selftest: %d 项失败\n", failures);
@@ -110,16 +112,49 @@ static void test_control_preempts_feedback(void)
 
 	CHECK(feedback->start(feedback->ctx, SDO_DIR_READ, 0x6041u, 0u, 0u, 0u, 100u) == 0);
 	CHECK(control->start(control->ctx, SDO_DIR_WRITE, 0x6060u, 0u, 1u, 1u, 200u) == 0);
-	CHECK(fake.aborts == 1u);
+	/* 不打断在途反馈：总线上不会有 abort 帧与迟到应答 */
+	CHECK(fake.aborts == 0u);
+	CHECK(control->started(control->ctx) == 0);
 	sdo_arbiter_step(&arbiter);
-	CHECK(fake.aborts == 1u);
-	fake_complete(&arbiter, -1, 0u);
-	CHECK(arbiter.owner == SDO_ARBITER_CONTROL);
+	CHECK(fake.aborts == 0u);
+	CHECK(control->started(control->ctx) == 0);
+
+	/* 反馈自然完成：结果交回反馈会话，控制随后上线 */
+	fake_complete(&arbiter, 0, 0x0440u);
 	CHECK(feedback->take_result(feedback->ctx, &result) == 0);
-	CHECK(result.status == -1);
+	CHECK(result.value == 0x0440u);
+	CHECK(arbiter.owner == SDO_ARBITER_CONTROL);
+	CHECK(control->started(control->ctx) == 1);
+
 	fake_complete(&arbiter, 0, 0u);
 	CHECK(control->take_result(control->ctx, &result) == 0);
 	CHECK(result.status == 0);
+}
+
+/* 排队中被取消也要给出结果，不能静默丢弃 */
+static void test_queued_control_abort(void)
+{
+	struct fake_client fake;
+	struct sdo_arbiter arbiter;
+	const struct sdo_access *control;
+	const struct sdo_access *feedback;
+	struct sdo_result result;
+
+	memset(&fake, 0, sizeof(fake));
+	fake.client.access.start = fake_start;
+	fake.client.access.take_result = fake_take;
+	fake.client.access.abort = fake_abort;
+	fake.client.access.ctx = &fake.client;
+	sdo_arbiter_init(&arbiter, &fake.client);
+	control = sdo_arbiter_control(&arbiter);
+	feedback = sdo_arbiter_feedback(&arbiter);
+
+	CHECK(feedback->start(feedback->ctx, SDO_DIR_READ, 0x6041u, 0u, 0u, 0u, 100u) == 0);
+	CHECK(control->start(control->ctx, SDO_DIR_WRITE, 0x6060u, 0u, 1u, 1u, 200u) == 0);
+	control->abort(control->ctx);
+	CHECK(control->take_result(control->ctx, &result) == 0);
+	CHECK(result.status == -1);
+	CHECK(fake.aborts == 0u); /* 尚未上总线，不应产生 abort 帧 */
 }
 
 static void test_control_result_isolated(void)

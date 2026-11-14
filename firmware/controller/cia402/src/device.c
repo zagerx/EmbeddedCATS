@@ -8,7 +8,7 @@
  *   cia402_get_status() / cia402_take_result() 读取确认结果 / 消费回执
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
- * 状态与迁移条件在 states/ 下。本文件只负责把「邮箱、事务结果、取消」
+ * 状态骨架在 states/，操作流程在 operations/。本文件只负责把「邮箱、事务结果、取消」
  * 翻成 hsm 事件。
  *
  * 一次 poll 最多发起一笔对象事务：这条纪律让工作线程能在多个设备之间
@@ -31,6 +31,8 @@ static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
 static void dispatch_tick(struct cia402_device *d);
 static void set_cancel(struct cia402_device *d, uint8_t reason);
 static void snapshot(struct cia402_device *d, struct cia402_status *out);
+/* 事务是否已在总线上；通道未提供查询时按已在传输处理 */
+static int sdo_transferring(const struct cia402_device *d);
 
 /**
  * cia402_init - 装配一台设备
@@ -117,16 +119,22 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 
 	if (d->sdo.pending != 0u) {
 		if (d->access->take_result(d->access->ctx, &result) != 0) {
-			/* 结果还没到：只判单笔事务的期限 */
-			if (cancel == CIA402_CANCEL_NONE &&
-			    (int32_t)(now_ms - d->sdo.deadline) >= 0) {
-				set_cancel(d, CIA402_CANCEL_TIMEOUT);
-				d->access->abort(d->access->ctx);
+			/* 结果还没到：事务真正上总线后才起算期限，排队等待不计超时 */
+			if (cancel == CIA402_CANCEL_NONE && sdo_transferring(d) != 0) {
+				if (d->sdo.armed == 0u) {
+					d->sdo.armed = 1u;
+					d->sdo.deadline = now_ms + d->sdo.timeout_ms;
+				}
+				if ((int32_t)(now_ms - d->sdo.deadline) >= 0) {
+					set_cancel(d, CIA402_CANCEL_TIMEOUT);
+					d->access->abort(d->access->ctx);
+				}
 			}
 			dispatch_tick(d);
 			goto done;
 		}
 		d->sdo.pending = 0u;
+		d->sdo.armed = 0u;
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result); /* 结论作废，abort 码留着 */
 		} else {
@@ -288,4 +296,12 @@ static void set_cancel(struct cia402_device *d, uint8_t reason)
 static void snapshot(struct cia402_device *d, struct cia402_status *out)
 {
 	*out = d->outbox; /* 内部就是同一类型，整块抄走 */
+}
+
+static int sdo_transferring(const struct cia402_device *d)
+{
+	if (d->access->started == NULL) {
+		return 1;
+	}
+	return d->access->started(d->access->ctx);
 }

@@ -22,20 +22,22 @@ cia402/
     ├── pds.c              纯标准知识
     ├── device.c           装配、service 推进、事件构造、读写原语、查询
     ├── device_internal.h  事件、超时常量、状态函数声明
-    └── states/
-        ├── states.h       状态函数公用工具
-        ├── states.c       顶层初始转移
-        ├── state_idle.c   st_idle：无流程与流程收尾
-        ├── state_running.c  所有流程的父状态（取消在此统一退出）
-        ├── state_config.c   写 6060 并回读 6061
-        ├── state_enable.c   使能链（10 个状态）
-        ├── state_disable.c  断使能
-        ├── state_pp.c       PP 参数、触发、到位
-        └── state_halt.c / state_quick_stop.c
+    ├── states/          状态机骨架
+    │   ├── states.h     状态函数公用工具
+    │   ├── states.c     顶层初始转移
+    │   ├── idle.c       无流程与流程收尾
+    │   └── operation_active.c  操作进行中的公共父状态（取消在此统一退出）
+    └── operations/      各操作的一串状态实现
+        ├── config.c     写 6060 并回读 6061
+        ├── enable.c     使能链（10 个状态）
+        ├── disable.c    断使能
+        ├── move.c       PP 参数、触发、到位
+        ├── halt.c       减速停
+        └── quick_stop.c 快速停
 ```
 
-层次只有三层：`sm_top → st_running → 具体流程状态`。`st_idle`
-直接挂在 `sm_top` 下，不属于任何流程，因此不继承 `st_running` 的"被抢占"语义。
+层次只有三层：`sm_top → st_operation_active → 具体操作状态链`。`st_idle`
+直接挂在 `sm_top` 下，不属于任何操作，因此不继承 `st_operation_active` 的"被抢占"语义。
 
 ## 对外接口
 
@@ -64,7 +66,7 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 |---|---|---|
 | `CIA402_SIG_REQUEST` | 邮箱里取出新请求（载荷是 `struct cia402_request`）| `st_idle`：按 kind 迁到该流程的第一个状态 |
 | `CIA402_SIG_SDO_DONE` | 一笔事务有了结果 | 当前状态：判结果、决定下一步或收尾 |
-| `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或单笔事务超时 | `st_running`：统一退出回 `st_idle` |
+| `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或单笔事务超时 | `st_operation_active`：统一退出回 `st_idle` |
 | `CIA402_SIG_TICK` | 每拍一次 | 空闲时消费；本模块不主动读取反馈 |
 
 一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
@@ -75,11 +77,11 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 `cia402_get_status()` 读取主站确认结果、通过 `cia402_take_result()` 消费操作回执。
 
 被打断时结论作废还是报失败，由 `st_idle` 的 ENTRY 按取消原因决定
-（`st_running` 只负责退出，不碰结论文档）。正常收尾流程不进这条路径。
+（`st_operation_active` 只负责退出，不碰结论文档）。正常收尾流程不进这条路径。
 
 安全链是例外：`st_qstop_*` 三个状态自己处理 `CIA402_SIG_CANCEL`——写超时仍去读状态、
 读超时仍去断使能，只有最后一步失败才报失败。安全动作不允许因为单笔事务超时
-而停在"还在使能"的状态，所以它不继承 `st_running` 的统一退出。
+而停在"还在使能"的状态，所以它不采用 `st_operation_active` 的统一退出。
 
 配置、使能、PP 和停止均不阻塞。状态机通过异步 `sdo_access` 发起对象读写，不使用循环等待或条件变量。
 

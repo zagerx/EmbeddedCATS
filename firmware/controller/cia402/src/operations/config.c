@@ -1,5 +1,5 @@
 /*
- * state_config.c — 写 6060 并回读 6061 确认模式
+ * config.c — PP 配置操作：写 6060 并回读 6061 确认模式
  *
  * 模式设不进去就等于后面所有 PP 都跑错，所以这一步必须回读比对；
  * 回读值不等于请求值即判失败，不做重试（重试由上层决定）。
@@ -7,7 +7,7 @@
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 /* 写 6060 与读 6061 之间没有额外等待 */
 
@@ -38,7 +38,7 @@ sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *co
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -72,6 +72,6 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }

@@ -1,5 +1,5 @@
 /*
- * state_enable.c — 使能流程：故障复位 → Shutdown → Switch on → Enable operation
+ * enable.c — 使能操作：故障复位 → Shutdown → Switch on → Enable operation
  *
  * 每一步都是「写一条控制字，然后反复读 6041 等它到位」。读到意外状态就按
  * PDS 现状重新选路（例如中途报故障就转复位链），只有超时才判失败。
@@ -9,7 +9,7 @@
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 /* 读到一个 PDS 状态后该去哪；OP_ENABLED / 未知状态当场收尾 */
 static sm_state_t route_from(struct cia402_device *d, enum cia402_pds_state pds);
@@ -46,7 +46,7 @@ sm_ret_t st_enable_read_pds(struct sm_hsm *const me, const struct sm_event *cons
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -73,7 +73,7 @@ sm_ret_t st_enable_reset_low(struct sm_hsm *const me, const struct sm_event *con
 		return SM_TRAN(&st_enable_reset_high);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -101,7 +101,7 @@ sm_ret_t st_enable_reset_high(struct sm_hsm *const me, const struct sm_event *co
 		return SM_TRAN(&st_enable_read_reset);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -142,7 +142,7 @@ sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *co
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -170,7 +170,7 @@ sm_ret_t st_enable_write_shutdown(struct sm_hsm *const me, const struct sm_event
 		return SM_TRAN(&st_enable_read_ready);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -201,7 +201,7 @@ sm_ret_t st_enable_read_ready(struct sm_hsm *const me, const struct sm_event *co
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -229,7 +229,7 @@ sm_ret_t st_enable_write_switch_on(struct sm_hsm *const me, const struct sm_even
 		return SM_TRAN(&st_enable_read_switched_on);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -261,7 +261,7 @@ sm_ret_t st_enable_read_switched_on(struct sm_hsm *const me, const struct sm_eve
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -289,7 +289,7 @@ sm_ret_t st_enable_write_enable_op(struct sm_hsm *const me, const struct sm_even
 		return SM_TRAN(&st_enable_read_enabled);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -322,7 +322,7 @@ sm_ret_t st_enable_read_enabled(struct sm_hsm *const me, const struct sm_event *
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 

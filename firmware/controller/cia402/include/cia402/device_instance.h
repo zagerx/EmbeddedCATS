@@ -30,8 +30,10 @@ enum cia402_cancel_reason {
 struct cia402_sdo {
 	uint8_t pending;          /* 有在途事务 */
 	uint8_t rejected;         /* 上一笔发起被拒：下一拍补一个失败事件 */
+	uint8_t armed;            /* 事务已上总线，deadline 已起算 */
 	struct sdo_result result; /* 最近一笔结果 */
-	uint32_t deadline;        /* 单笔事务期限 */
+	uint32_t timeout_ms;      /* 本笔事务的业务期限长度 */
+	uint32_t deadline;        /* 事务上总线后才起算的期限 */
 	uint16_t cw_ok;           /* 已确认的控制字 */
 	uint16_t cw_next;         /* 在途的控制字 */
 	uint8_t cw_next_valid;

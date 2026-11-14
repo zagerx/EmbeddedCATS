@@ -1,16 +1,16 @@
 /*
- * state_quick_stop.c — 快速停：6040 = 02，等驱动器自己停下，再断使能
+ * quick_stop.c — 快速停操作：6040 = 02，等驱动器自己停下，再断使能
  *
  * 这条链即使中途失败也要走完：写失败仍去读状态，读失败仍去断使能。
  * 安全动作不允许因为一笔事务没成而停在「还在使能」的状态。
  *
  * 因此三个状态都自己处理 CIA402_SIG_CANCEL（单笔超时/被抢断），而不是让
- * st_running 的统一退出把整条链一起收掉；只有最后一步失败才报失败。
+ * st_operation_active 的统一退出把整条链一起收掉；只有最后一步失败才报失败。
  *
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 /**
  * st_qstop_write - 写快速停控制字
@@ -40,7 +40,7 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_qstop_read);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -82,7 +82,7 @@ sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_qstop_disable);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -115,6 +115,6 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 		return SM_TRAN(&st_idle);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }

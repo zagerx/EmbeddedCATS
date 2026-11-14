@@ -33,6 +33,8 @@ struct sdo_access {
 	int (*take_result)(void *ctx, struct sdo_result *result);
 	/* 请求取消当前事务；结果仍通过 take_result 返回。 */
 	void (*abort)(void *ctx);
+	/* 1 = 事务已在总线上；0 = 尚未开始或已结束。可为 NULL，视作已开始。 */
+	int (*started)(void *ctx);
 	void *ctx;
 };
 

@@ -22,10 +22,12 @@ static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t
 				 uint32_t value, uint8_t size, uint32_t timeout_ms);
 static int arbiter_control_take(void *ctx, struct sdo_result *result);
 static void arbiter_control_abort(void *ctx);
+static int arbiter_control_started(void *ctx);
 static int arbiter_feedback_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
 				  uint32_t value, uint8_t size, uint32_t timeout_ms);
 static int arbiter_feedback_take(void *ctx, struct sdo_result *result);
 static void arbiter_feedback_abort(void *ctx);
+static int arbiter_feedback_started(void *ctx);
 
 /**
  * sdo_arbiter_init - 在一条底层通道上装配两个会话
@@ -39,10 +41,12 @@ void sdo_arbiter_init(struct sdo_arbiter *a, struct sdo_client *client)
 	a->control.start = arbiter_control_start;
 	a->control.take_result = arbiter_control_take;
 	a->control.abort = arbiter_control_abort;
+	a->control.started = arbiter_control_started;
 	a->control.ctx = a;
 	a->feedback.start = arbiter_feedback_start;
 	a->feedback.take_result = arbiter_feedback_take;
 	a->feedback.abort = arbiter_feedback_abort;
+	a->feedback.started = arbiter_feedback_started;
 	a->feedback.ctx = a;
 	a->owner = SDO_ARBITER_NONE;
 }
@@ -123,6 +127,10 @@ static void arbiter_start_control(struct sdo_arbiter *a)
 	a->owner = SDO_ARBITER_CONTROL;
 }
 
+/*
+ * 控制请求排队，不打断已在传输的反馈：反馈超时有上限，且中止会在总线上
+ * 留下迟到的 abort 应答，反而干扰下一笔事务。
+ */
 static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
 				 uint32_t value, uint8_t size, uint32_t timeout_ms)
 {
@@ -134,9 +142,6 @@ static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t
 	}
 	a->control_request = (struct sdo_request){dir, index, sub, value, size, timeout_ms};
 	a->control_pending = 1u;
-	if (a->owner == SDO_ARBITER_FEEDBACK) {
-		a->client->access.abort(a->client->access.ctx);
-	}
 	arbiter_start_control(a);
 	return 0;
 }
@@ -163,10 +168,23 @@ static void arbiter_control_abort(void *ctx)
 	if (a == NULL) {
 		return;
 	}
-	a->control_pending = 0u;
 	if (a->owner == SDO_ARBITER_CONTROL) {
 		a->client->access.abort(a->client->access.ctx);
+		return; /* 结果仍由 route 交回控制会话 */
 	}
+	/* 还在排队：不能静默丢弃，否则上层永远等不到结果 */
+	if (a->control_pending != 0u) {
+		a->control_pending = 0u;
+		a->control_result = (struct sdo_result){.status = -1};
+		a->control_ready = 1u;
+	}
+}
+
+static int arbiter_control_started(void *ctx)
+{
+	const struct sdo_arbiter *a = ctx;
+
+	return (a != NULL && a->owner == SDO_ARBITER_CONTROL) ? 1 : 0;
 }
 
 static int arbiter_feedback_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
@@ -209,4 +227,11 @@ static void arbiter_feedback_abort(void *ctx)
 	if (a != NULL && a->owner == SDO_ARBITER_FEEDBACK) {
 		a->client->access.abort(a->client->access.ctx);
 	}
+}
+
+static int arbiter_feedback_started(void *ctx)
+{
+	const struct sdo_arbiter *a = ctx;
+
+	return (a != NULL && a->owner == SDO_ARBITER_FEEDBACK) ? 1 : 0;
 }

@@ -25,6 +25,9 @@ static void sc_abort(void *ctx);
 /* 请求取消当前事务，由后续 step 发送协议 abort */
 static void sdo_client_abort(struct sdo_client *s);
 
+/* 事务是否已在总线上（区别于只登记、还没开始发帧） */
+static int sc_started(void *ctx);
+
 /**
  * sdo_client_init - 初始化一条异步 SDO 通道
  * @s: 通道对象，生命周期内地址不变
@@ -38,6 +41,7 @@ void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client)
 	s->access.start = sc_start;
 	s->access.take_result = sc_take_result;
 	s->access.abort = sc_abort;
+	s->access.started = sc_started;
 	s->access.ctx = s;
 }
 
@@ -82,20 +86,6 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 		s->state = SDO_CLIENT_DONE;
 		s->cancel = 0u;
 	}
-}
-
-/**
- * sdo_client_abort - 请求取消当前事务
- * @s: 通道对象；NULL 安全
- *
- * 后续 step 发送协议 abort 并生成取消结果，结果取走前不能发起新事务。
- */
-static void sdo_client_abort(struct sdo_client *s)
-{
-	if (s == NULL || s->state != SDO_CLIENT_RUNNING) {
-		return;
-	}
-	s->cancel = 1u;
 }
 
 /**
@@ -164,4 +154,19 @@ static int sc_take_result(void *ctx, struct sdo_result *result)
 static void sc_abort(void *ctx)
 {
 	sdo_client_abort((struct sdo_client *)ctx);
+}
+
+static int sc_started(void *ctx)
+{
+	const struct sdo_client *s = ctx;
+
+	return (s != NULL && s->state == SDO_CLIENT_RUNNING) ? 1 : 0;
+}
+
+static void sdo_client_abort(struct sdo_client *s)
+{
+	if (s == NULL || s->state != SDO_CLIENT_RUNNING) {
+		return;
+	}
+	s->cancel = 1u;
 }

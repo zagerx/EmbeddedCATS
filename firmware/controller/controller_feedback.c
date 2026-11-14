@@ -12,7 +12,7 @@
 
 #include <cia402/od.h>
 
-#define CONTROLLER_FEEDBACK_TIMEOUT_MS 100u
+#define CONTROLLER_FEEDBACK_TIMEOUT_MS 30u
 
 /* 保存一项读取结果；旧值只在成功时替换 */
 static void feedback_store(struct controller_axis_feedback *feedback, uint8_t item,
@@ -39,22 +39,23 @@ void controller_feedback_poll(struct controller *ctl, uint32_t now_ms)
 		struct axis *axis = &ctl->axes[i];
 		struct controller_axis_feedback *feedback = &ctl->feedback[i];
 		const struct sdo_access *access = sdo_arbiter_feedback(&axis->arb);
-		uint8_t item = feedback->next;
+		uint8_t item;
 
 		if (access == NULL) {
 			continue;
 		}
+		item = feedback->next;
 		if (access->take_result(access->ctx, &result) == 0) {
 			if (result.status == 0) {
 				feedback_store(feedback, item, &result);
 				feedback->updated_ms[item] = now_ms;
 			}
-			feedback->next = (uint8_t)((item + 1u) % 4u);
+			/* 先推进项号再发起，下一次读的就是下一项 */
+			item = (uint8_t)((item + 1u) % 4u);
+			feedback->next = item;
 		}
-		if (access->start(access->ctx, SDO_DIR_READ, index[item], 0u, 0u, 0u,
-				  CONTROLLER_FEEDBACK_TIMEOUT_MS) != 0) {
-			continue;
-		}
+		(void)access->start(access->ctx, SDO_DIR_READ, index[item], 0u, 0u, 0u,
+				    CONTROLLER_FEEDBACK_TIMEOUT_MS);
 	}
 }
 

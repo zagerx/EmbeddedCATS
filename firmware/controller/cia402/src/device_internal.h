@@ -1,7 +1,7 @@
 /*
  * device_internal.h — cia402 状态机的内部契约
  *
- * 设备层是一个 hsm 状态机：状态函数在 states/ 下，一流程族一个文件。
+ * 设备层是一个 hsm 状态机：states/ 提供骨架，operations/ 按操作实现状态链。
  * 本头给出四样东西：
  *   1. 业务事件（派生自 struct sm_event）；
  *   2. 超时常量；
@@ -72,7 +72,7 @@ enum cia402_phase dev_phase_of(enum cia402_kind kind);
 sm_ret_t device_initial(struct sm_hsm *const me, const struct sm_event *const e);
 
 sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_running(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *const e);
 
 sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *const e);

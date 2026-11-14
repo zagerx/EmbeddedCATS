@@ -1,10 +1,10 @@
 /*
- * state_disable.c — 断使能：写 6040 = 00 并等 Switch on disabled
+ * disable.c — 断使能操作：写 6040 = 00 并等 Switch on disabled
  *
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 /**
  * st_disable_write - 写断使能控制字
@@ -30,7 +30,7 @@ sm_ret_t st_disable_write(struct sm_hsm *const me, const struct sm_event *const 
 		return SM_TRAN(&st_disable_read);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -69,6 +69,6 @@ sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }

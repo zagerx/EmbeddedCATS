@@ -17,6 +17,8 @@
 struct fake_access {
 	struct sdo_access access;
 	uint8_t started;
+	uint8_t on_bus; /* 模拟“已上总线”：仲裁器排队时为 0 */
+	uint8_t hold;   /* start 受理但不立即上总线 */
 	uint8_t dir;
 	uint8_t size;
 	uint16_t index;
@@ -37,6 +39,7 @@ static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint3
 		      uint8_t size, uint32_t timeout_ms);
 static int fake_take_result(void *ctx, struct sdo_result *result);
 static void fake_abort(void *ctx);
+static int fake_started(void *ctx);
 
 static void fx_init(struct fx *f);
 static void fx_request(struct fx *f, enum cia402_kind kind);
@@ -53,6 +56,7 @@ static void test_quick_stop_timeout_chain(void);
 static void test_start_rejected(void);
 static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
+static void test_queued_not_timed_out(void);
 
 static int failures;
 
@@ -80,6 +84,7 @@ int cia402_device_tests(void)
 	test_start_rejected();
 	test_cancel_beats_pending_failure();
 	test_timeout();
+	test_queued_not_timed_out();
 	return failures;
 }
 
@@ -94,6 +99,7 @@ static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint3
 		return -1;
 	}
 	fake->started = 1u;
+	fake->on_bus = (fake->hold != 0u) ? 0u : 1u;
 	fake->dir = dir;
 	fake->index = index;
 	fake->value = value;
@@ -112,6 +118,7 @@ static int fake_take_result(void *ctx, struct sdo_result *result)
 	*result = fake->result;
 	fake->result_ready = 0u;
 	fake->started = 0u;
+	fake->on_bus = 0u;
 	return 0;
 }
 
@@ -122,13 +129,22 @@ static void fake_abort(void *ctx)
 	fake->aborts++;
 }
 
+static int fake_started(void *ctx)
+{
+	const struct fake_access *fake = ctx;
+
+	return fake->on_bus != 0u ? 1 : 0;
+}
+
 static void fx_init(struct fx *f)
 {
 	memset(f, 0, sizeof(*f));
 	f->fake.access.start = fake_start;
 	f->fake.access.take_result = fake_take_result;
 	f->fake.access.abort = fake_abort;
+	f->fake.access.started = fake_started;
 	f->fake.access.ctx = &f->fake;
+	f->fake.on_bus = 1u;
 	cia402_init(&f->dev, &f->fake.access);
 }
 
@@ -447,4 +463,28 @@ static void test_timeout(void)
 	CHECK(f.st.last.result == CIA402_OP_FAILED);
 	CHECK(f.st.last.fail == CIA402_OP_FAIL_TIMEOUT);
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
+}
+
+/* 排队等待通道时不计超时：期限从真正上总线开始 */
+static void test_queued_not_timed_out(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.fake.hold = 1u; /* start 受理，但事务还在排队 */
+	f.dev.outbox.mode_confirmed = 1u;
+	fx_request(&f, CIA402_REQ_ENABLE);
+
+	fx_poll_at(&f, 0u);
+	fx_poll_at(&f, 1000u); /* 排队远超期限：不得判超时 */
+	CHECK(f.fake.aborts == 0u);
+	CHECK(f.st.last.result == CIA402_OP_NONE);
+
+	f.fake.on_bus = 1u; /* 仲裁器真正开始传输 */
+	fx_poll_at(&f, 1000u);
+	fx_poll_at(&f, 1100u); /* 起算后 100ms：仍在期限内 */
+	CHECK(f.fake.aborts == 0u);
+
+	fx_poll_at(&f, 1300u); /* 起算后 300ms：超时 */
+	CHECK(f.fake.aborts == 1u);
 }

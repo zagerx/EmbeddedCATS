@@ -29,13 +29,19 @@ static void pend_failure(struct cia402_device *d);
  */
 void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	d->sdo.deadline = d->now_ms + timeout_ms;
+	d->sdo.timeout_ms = timeout_ms;
+	d->sdo.armed = 0u;
 	d->sdo.cw_next_valid = 0u;
 	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
 		pend_failure(d);
 		return;
 	}
 	d->sdo.pending = 1u;
+	if (d->access->started == NULL || d->access->started(d->access->ctx) != 0) {
+		/* 已经上总线：期限从现在起算；排队实现由 poll 在真正开始时起算 */
+		d->sdo.armed = 1u;
+		d->sdo.deadline = d->now_ms + timeout_ms;
+	}
 }
 
 /**
@@ -52,7 +58,8 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms)
 {
-	d->sdo.deadline = d->now_ms + timeout_ms;
+	d->sdo.timeout_ms = timeout_ms;
+	d->sdo.armed = 0u;
 	if (index == CIA402_OD_CONTROLWORD) {
 		d->sdo.cw_next = (uint16_t)value;
 		d->sdo.cw_next_valid = 1u;
@@ -66,6 +73,11 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
 		return;
 	}
 	d->sdo.pending = 1u;
+	if (d->access->started == NULL || d->access->started(d->access->ctx) != 0) {
+		/* 已经上总线：期限从现在起算；排队实现由 poll 在真正开始时起算 */
+		d->sdo.armed = 1u;
+		d->sdo.deadline = d->now_ms + timeout_ms;
+	}
 }
 
 /**

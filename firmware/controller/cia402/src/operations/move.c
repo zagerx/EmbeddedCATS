@@ -1,5 +1,5 @@
 /*
- * state_pp.c — PP 绝对位置运动
+ * move.c — PP 绝对位置运动操作
  *
  * 写四个参数 → 6040 bit4 上升沿（再落沿）触发 → 读 6041 等到位。
  *
@@ -12,7 +12,7 @@
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 static void arm_arrive(struct cia402_device *d);
 
@@ -39,7 +39,7 @@ sm_ret_t st_pp_write_velocity(struct sm_hsm *const me, const struct sm_event *co
 		return SM_TRAN(&st_pp_write_accel);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -66,7 +66,7 @@ sm_ret_t st_pp_write_accel(struct sm_hsm *const me, const struct sm_event *const
 		return SM_TRAN(&st_pp_write_decel);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -93,7 +93,7 @@ sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const
 		return SM_TRAN(&st_pp_write_target);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -123,7 +123,7 @@ sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *cons
 		return SM_TRAN(&st_pp_trigger_high);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -150,7 +150,7 @@ sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *cons
 		return SM_TRAN(&st_pp_trigger_low);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -179,7 +179,7 @@ sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const
 		return SM_TRAN(&st_pp_read_status);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -229,7 +229,7 @@ sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -268,7 +268,7 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 

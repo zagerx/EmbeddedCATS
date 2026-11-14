@@ -44,14 +44,14 @@ add_library(cia402 STATIC
         controller/cia402/src/device.c
         controller/cia402/src/device_internal.c
         controller/cia402/src/states/states.c
-        controller/cia402/src/states/state_idle.c
-        controller/cia402/src/states/state_running.c
-        controller/cia402/src/states/state_config.c
-        controller/cia402/src/states/state_enable.c
-        controller/cia402/src/states/state_disable.c
-        controller/cia402/src/states/state_pp.c
-        controller/cia402/src/states/state_halt.c
-        controller/cia402/src/states/state_quick_stop.c)
+        controller/cia402/src/states/idle.c
+        controller/cia402/src/states/operation_active.c
+        controller/cia402/src/operations/config.c
+        controller/cia402/src/operations/enable.c
+        controller/cia402/src/operations/disable.c
+        controller/cia402/src/operations/move.c
+        controller/cia402/src/operations/halt.c
+        controller/cia402/src/operations/quick_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
 target_link_libraries(cia402 PUBLIC sdo_access)

@@ -1,5 +1,5 @@
 /*
- * state_running.c — 所有流程状态的父状态
+ * operation_active.c — 操作进行中的公共父状态
  *
  * 这一层只做三件事，全部流程状态共同继承：
  *   1. 被抢占或单笔事务超时时统一退出（结论由 st_idle 处理）；
@@ -12,13 +12,15 @@
 #include "states.h"
 
 /**
- * st_running - 流程中的公共规则
+ * st_operation_active - 操作进行中的公共规则
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
+ * 具体操作状态链都是本状态的子状态；Quick Stop 自行覆盖取消规则。
+ *
  * Return: 取消迁回 st_idle；其余上抛。
  */
-sm_ret_t st_running(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
 

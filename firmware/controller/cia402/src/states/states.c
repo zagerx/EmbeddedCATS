@@ -1,9 +1,9 @@
 /*
  * states.c — 设备状态机的入口与层次约定
  *
- * 层次只有三层：sm_top → st_running → 具体流程状态。
- * st_idle 直接挂在 sm_top 下：它不属于任何流程，
- * 因此不继承 st_running 的「被抢占」语义。
+ * 层次只有三层：sm_top → st_operation_active → 具体操作状态链。
+ * st_idle 直接挂在 sm_top 下：它不属于任何操作，
+ * 因此不继承 st_operation_active 的「被抢占」语义。
  *
  * Author: zager
  */

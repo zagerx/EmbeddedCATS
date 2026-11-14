@@ -1,12 +1,12 @@
 /*
- * state_halt.c — 减速停：6040 bit8 置位，等停稳后清位
+ * halt.c — 减速停操作：6040 bit8 置位，等停稳后清位
  *
  * 清 bit8 是为了保持使能（有保持力矩），停稳后可以立刻接下一句运动。
  *
  * Author: zager
  */
 
-#include "states.h"
+#include "../states/states.h"
 
 /**
  * st_halt_write - 置 6040 bit8（Halt）
@@ -32,7 +32,7 @@ sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_halt_read);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -71,7 +71,7 @@ sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
 	}
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }
 
@@ -99,6 +99,6 @@ sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_idle);
 
 	default:
-		return SM_SUPER(&st_running);
+		return SM_SUPER(&st_operation_active);
 	}
 }

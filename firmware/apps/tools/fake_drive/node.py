@@ -260,10 +260,12 @@ class Node:
             + value.to_bytes(entry.size, "little")
         )
         self.send_cob(0x580 + self.node_id, data)
-        self.log(
-            f"SDO 读 0x{index:04X}:{sub:02X} = "
-            f"0x{value:0{entry.size * 2}X}  （{entry.name}）"
-        )
+        # 周期反馈刷屏；--trace 仍可查看完整 CAN 帧
+        if index not in (0x6041, 0x6064, 0x606C, 0x603F):
+            self.log(
+                f"SDO 读 0x{index:04X}:{sub:02X} = "
+                f"0x{value:0{entry.size * 2}X}  （{entry.name}）"
+            )
 
     def sdo_download(self, index: int, sub: int, d: bytes) -> None:
         expedited = bool(d[0] & 0x02)
