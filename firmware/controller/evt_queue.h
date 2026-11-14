@@ -26,11 +26,11 @@
 
 /*
  * 位置指令载荷（对应 controller_move 的参数；业务单位 mm / mm·s⁻¹ / mm·s⁻²）。
- * 一批可以是 1..CONTROLLER_MAX_AXES 条：它们一起启动，全部到位才算完成。
+ * 一批可以是 1..CONTROLLER_AXIS_COUNT 条：它们一起启动，全部到位才算完成。
  */
 struct controller_move_cmd {
 	uint8_t count;
-	struct controller_move_req axis[CONTROLLER_MAX_AXES];
+	struct controller_move_req axis[CONTROLLER_AXIS_COUNT];
 };
 
 /* 队列元素：取最大的一种事件。以后加别的带参事件就往 union 里加成员 */

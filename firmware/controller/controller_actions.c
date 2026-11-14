@@ -1,7 +1,7 @@
 /*
- * controller_actions.c — 状态图可用的动作与状态图装配
+ * controller_actions.c — 状态图的时间基准与状态图装配
  *
- * 状态图只通过本文件广播 NMT 命令、读单调时钟。
+ * 状态图直接使用主站的 NMT 与节点查询，本文件只提供统一的时钟源和装配入口。
  * 动作与协议栈同属 CANopen 工作线程，不需要待发槽或收发线程。
  *
  * Author: zager
@@ -9,37 +9,7 @@
 
 #include "controller_internal.h"
 
-#include <master/master.h>
-
 #include <time.h>
-
-/**
- * controller_nmt_start - 广播 NMT Start
- * @ctl: 控制上下文；为空时什么也不做
- *
- * 只能由工作线程调用；发送结果由后续心跳与使能结果确认。
- */
-void controller_nmt_start(struct controller *ctl)
-{
-	if (ctl == NULL || ctl->master == NULL) {
-		return;
-	}
-	(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
-}
-
-/**
- * controller_nmt_reset_comm - 广播 NMT Reset Communication
- * @ctl: 控制上下文；为空时什么也不做
- *
- * 只复位通信层，不改对象字典里的配置。
- */
-void controller_nmt_reset_comm(struct controller *ctl)
-{
-	if (ctl == NULL || ctl->master == NULL) {
-		return;
-	}
-	(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
-}
 
 /**
  * controller_now_ms - 读取控制层当前时刻

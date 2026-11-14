@@ -11,8 +11,15 @@
 extern "C" {
 #endif
 
-/* 整机最多几条轴（= 主站最多登记几个节点中参与控制的） */
-#define CONTROLLER_MAX_AXES 2
+/*
+ * 轴索引：0..N-1，与 CANopen 节点号差 1（节点 1 → 索引 0）。
+ * 轴与节点的对应关系固定在 config/axis_map.h，不随登记顺序变化。
+ */
+enum controller_axis {
+	CONTROLLER_AXIS_1 = 0,
+	CONTROLLER_AXIS_2,
+	CONTROLLER_AXIS_COUNT /* 轴个数：数组长度与循环上界都用它 */
+};
 
 enum controller_result {
 	CONTROLLER_OK = 0,

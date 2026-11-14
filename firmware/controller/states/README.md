@@ -5,7 +5,7 @@
 ## 职责
 
 - 输入事实：心跳、各轴配置/使能/故障与运动结论；
-- 输出动作：通过 `controller_*` 动作函数与轴接口下发 NMT 与轴请求；
+- 输出动作：通过主站 NMT 接口与轴接口下发通信与轴请求；
 - `states.c` 注册状态函数，并提供状态与故障名称映射；
 - `states.h` 集中声明状态函数，并提供从 HSM 成员找回 `struct controller` 的工具。
 
@@ -23,10 +23,11 @@ FAULT / ESTOP 为终态。
 
 ## 线程与边界
 
-- 状态图只由 CANopen 工作线程通过 `controller_poll()` 推进；
+- 状态图只由 CANopen 工作线程推进：对外入口是 `controller_event_poll()`，每轮内部
+  调一次 `controller_poll()` 分发事件并投递节拍；
 - 状态函数使用 `controller` 中平铺的状态字段；
-- 时钟与 NMT 只经 `controller_now_ms()` / `controller_nmt_*()` 请求，状态图不
-  直接依赖主站或平台时钟；
+- 时钟经 `controller_now_ms()` 取得，NMT 直接调 `master_request_nmt()`；状态图不
+  依赖 CANopenNode 头、SDO 传输层或平台 socket；
 - 不处理 402 对象号、SDO/PDO 或 CAN 帧。
 
 ## 加一个状态

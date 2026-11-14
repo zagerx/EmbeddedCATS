@@ -26,7 +26,7 @@ sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		/* 复位通信（广播所有节点）：只复位通信层，不改动对象字典里的配置 */
-		controller_nmt_reset_comm(ctl);
+		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_COMM);
 		break;
 
 	case SM_SIG_EXIT:

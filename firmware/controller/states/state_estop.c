@@ -22,7 +22,7 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		axis_quick_stop_all(ctl->axes, ctl->axis_count);
+		controller_quick_stop_all(ctl);
 		/* 进终态：丢掉还没处理的命令 */
 		controller_evtq_clear(&ctl->evtq);
 		break;

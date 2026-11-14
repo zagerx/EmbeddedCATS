@@ -60,20 +60,14 @@ uint32_t axis_abort_code(const struct axis *a);
 /* 读取最近一次反馈快照，不触发总线传输。 */
 void axis_sample(const struct axis *a, struct axis_sample *out);
 
-/* ---- 批量动作 ---- */
+/* 写运动模式（PP）：已配过的轴会被设备层拒绝，不算错 */
+int axis_config_movemode(struct axis *a);
 
-/* 请求所有轴写参数（上电一次：模式等）：0 = 已受理；-1 = 没有轴或参数不对 */
-int axis_config_all(struct axis *axes, uint8_t count);
+/* 请求使能：已使能时会被内部拒绝，不算错 */
+int axis_enable(struct axis *a);
 
-/* 请求所有轴使能：0 = 已受理；-1 = 没有轴或参数不对 */
-int axis_enable_all(struct axis *axes, uint8_t count);
-
-/* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
-void axis_quick_stop_all(struct axis *axes, uint8_t count);
-
-int axis_all_configured(const struct axis *axes, uint8_t count);
-int axis_all_enabled(const struct axis *axes, uint8_t count);
-int axis_any_failed(const struct axis *axes, uint8_t count);
+/* quick stop → 断使能（由本轴的异步推进器走完） */
+int axis_quick_stop(struct axis *a);
 
 #ifdef __cplusplus
 } /* extern "C" */

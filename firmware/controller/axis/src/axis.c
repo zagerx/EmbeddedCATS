@@ -1,8 +1,9 @@
 /*
- * axis.c — 换算业务单位并转发单轴与多轴动作请求
+ * axis.c — 换算业务单位并转发单轴动作请求
  *
  * 一个轴对应一个 CiA 402 设备实例，业务状态由状态机管理。
  * 机械换算参数来自 cats_mech.h，编译期固定。
+ * 集合级动作与汇总判定在 controller 层，本层只管一个轴。
  *
  * Author: zager
  */
@@ -156,140 +157,53 @@ enum axis_motion axis_take_motion(struct axis *a)
 }
 
 /**
- * axis_config_all - 逐轴调用配置请求
- * @axes: 轴数组
- * @count: 轴数量
+ * axis_config_movemode - 给本轴写运动模式
+ * @a: 轴对象；NULL 时拒绝
  *
- * Return: 0 数组有效，不表示每轴均受理；-1 数组为空或数量为 0。
+ * 已配过的轴会被设备层拒绝，不算错。
+ *
+ * Return: 0 已受理；1 设备忙；-1 轴为空。
  */
-int axis_config_all(struct axis *axes, uint8_t count)
+int axis_config_movemode(struct axis *a)
 {
-	uint8_t i;
+	const struct cia402_request req = {.kind = CIA402_REQ_CONFIG};
 
-	if (axes == NULL || count == 0U) {
+	if (a == NULL) {
 		return -1;
 	}
-	for (i = 0; i < count; i++) {
-		const struct cia402_request req = {.kind = CIA402_REQ_CONFIG};
-
-		/* 已配过时会被内部拒绝，不算错 */
-		(void)axis_submit(&axes[i], &req);
-	}
-	return 0;
+	return axis_submit(a, &req);
 }
 
 /**
- * axis_enable_all - 逐轴调用使能请求
- * @axes: 轴数组
- * @count: 轴数量
+ * axis_enable - 请求本轴使能
+ * @a: 轴对象；NULL 时拒绝
  *
- * Return: 0 数组有效，不表示每轴均受理；-1 数组为空或数量为 0。
+ * Return: 0 已受理；1 设备忙；-1 轴为空。已使能时会被内部拒绝，不算错。
  */
-int axis_enable_all(struct axis *axes, uint8_t count)
+int axis_enable(struct axis *a)
 {
-	uint8_t i;
+	const struct cia402_request req = {.kind = CIA402_REQ_ENABLE};
 
-	if (axes == NULL || count == 0U) {
+	if (a == NULL) {
 		return -1;
 	}
-	for (i = 0; i < count; i++) {
-		const struct cia402_request req = {.kind = CIA402_REQ_ENABLE};
-
-		/* 已使能时会被内部拒绝，不算错 */
-		(void)axis_submit(&axes[i], &req);
-	}
-	return 0;
+	return axis_submit(a, &req);
 }
 
 /**
- * axis_quick_stop_all - 请求所有轴快速停止并断使能
- * @axes: 轴数组；NULL 时直接返回
- * @count: 轴数量
- */
-void axis_quick_stop_all(struct axis *axes, uint8_t count)
-{
-	uint8_t i;
-
-	if (axes == NULL) {
-		return;
-	}
-	for (i = 0; i < count; i++) {
-		const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
-
-		(void)axis_submit(&axes[i], &req);
-	}
-}
-
-/**
- * axis_all_configured - 检查是否所有轴均已配置
- * @axes: 轴数组
- * @count: 轴数量
+ * axis_quick_stop - 请求本轴快速停止并断使能
+ * @a: 轴对象；NULL 时拒绝
  *
- * Return: 1 全部配置；0 存在未配置轴或参数无效。
+ * Return: 0 已受理；1 设备忙；-1 轴为空。
  */
-int axis_all_configured(const struct axis *axes, uint8_t count)
+int axis_quick_stop(struct axis *a)
 {
-	struct cia402_status status;
-	uint8_t i;
+	const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
 
-	if (axes == NULL || count == 0U) {
-		return 0;
+	if (a == NULL) {
+		return -1;
 	}
-	for (i = 0; i < count; i++) {
-		cia402_get_status(&axes[i].dev, &status);
-		if (status.configured == 0u) {
-			return 0;
-		}
-	}
-	return 1;
-}
-
-/**
- * axis_all_enabled - 检查是否所有轴均已使能
- * @axes: 轴数组
- * @count: 轴数量
- *
- * Return: 1 全部使能；0 存在未使能轴或参数无效。
- */
-int axis_all_enabled(const struct axis *axes, uint8_t count)
-{
-	struct cia402_status status;
-	uint8_t i;
-
-	if (axes == NULL || count == 0U) {
-		return 0;
-	}
-	for (i = 0; i < count; i++) {
-		cia402_get_status(&axes[i].dev, &status);
-		if (status.enabled == 0u) {
-			return 0;
-		}
-	}
-	return 1;
-}
-
-/**
- * axis_any_failed - 检查是否存在失败轴
- * @axes: 轴数组；NULL 安全
- * @count: 轴数量
- *
- * Return: 1 至少一轴失败；0 无失败轴或数组为空。
- */
-int axis_any_failed(const struct axis *axes, uint8_t count)
-{
-	struct cia402_status status;
-	uint8_t i;
-
-	if (axes == NULL) {
-		return 0;
-	}
-	for (i = 0; i < count; i++) {
-		cia402_get_status(&axes[i].dev, &status);
-		if (status.failed != 0u) {
-			return 1;
-		}
-	}
-	return 0;
+	return axis_submit(a, &req);
 }
 
 static int32_t scale_mm(float mm)

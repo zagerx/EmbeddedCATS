@@ -48,7 +48,6 @@ void master_notify(struct master *m);
 
 /* 第 i 个登记节点绑定第 i 条对象字典 SDO 客户端通道 */
 int master_add_node(struct master *m, uint8_t node_id);
-uint8_t master_node_count(const struct master *m);
 uint8_t master_node_id(const struct master *m, uint8_t idx);
 CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id);
 

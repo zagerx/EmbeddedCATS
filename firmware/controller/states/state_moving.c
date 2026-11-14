@@ -57,7 +57,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 				break;
 			}
 		}
-		/* count 最多 CONTROLLER_MAX_AXES(2) 条，位图每一位对应一条指令 */
+		/* count 最多 CONTROLLER_AXIS_COUNT(2) 条，位图每一位对应一条指令 */
 		if (ctl->move_done == all) {
 			return SM_TRAN(&st_holding);
 		}
@@ -78,7 +78,7 @@ static int issue_move(struct controller *ctl)
 {
 	uint8_t i;
 
-	if (ctl->move.count == 0u || ctl->move.count > CONTROLLER_MAX_AXES) {
+	if (ctl->move.count == 0u || ctl->move.count > CONTROLLER_AXIS_COUNT) {
 		return -1;
 	}
 	for (i = 0u; i < ctl->move.count; i++) {

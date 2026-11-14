@@ -57,8 +57,8 @@ for dir in "$SRC/bus" "$SRC/canopen/driver"; do
 done
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
-section "R6  整机状态机不访问协议、传输与主站层"
-out=$(grep -rnE '<canopen/|<cia402/|<transport/|<master/|\bmaster_[a-z_]*\(|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
+section "R6  整机状态机不访问协议栈私有头与传输层"
+out=$(grep -rnE '<canopen/|<cia402/|<transport/|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
 	"$SRC/states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 

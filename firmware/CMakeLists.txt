@@ -72,8 +72,10 @@ target_include_directories(cats_hsm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controlle
 
 # 控制层：组合根 + 输入事件队列 + 状态图，统一持有一个控制器上下文。
 add_library(cats_control STATIC
+	controller/config/axis_map.c
 	controller/controller.c
 	controller/controller_actions.c
+	controller/controller_axes.c
 	controller/control_api.c
 	controller/evt_queue.c
 	controller/states/states.c

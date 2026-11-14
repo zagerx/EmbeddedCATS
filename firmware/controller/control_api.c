@@ -18,8 +18,8 @@ void controller_publish(void)
 {
 	struct controller *app = control_ctx();
 	int state;
-	struct controller_axis_sample samples[CONTROLLER_MAX_AXES];
-	uint32_t aborts[CONTROLLER_MAX_AXES];
+	struct controller_axis_sample samples[CONTROLLER_AXIS_COUNT];
+	uint32_t aborts[CONTROLLER_AXIS_COUNT];
 	uint8_t i;
 
 	if (app->master == NULL) {
@@ -32,7 +32,7 @@ void controller_publish(void)
 			break;
 		}
 	}
-	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
+	for (i = 0; i < CONTROLLER_AXIS_COUNT; i++) {
 		struct axis_sample s;
 
 		axis_sample(&app->axes[i], &s);
@@ -45,7 +45,7 @@ void controller_publish(void)
 	pthread_mutex_lock(&app->lock);
 	app->published_state = state;
 	app->published_fault = (int)app->fault_code;
-	for (i = 0; i < CONTROLLER_MAX_AXES; i++) {
+	for (i = 0; i < CONTROLLER_AXIS_COUNT; i++) {
 		app->published_axes[i] = samples[i];
 		app->published_abort[i] = aborts[i];
 	}
@@ -94,7 +94,7 @@ enum controller_result controller_enable(void)
 /**
  * controller_move - 同时提交一批绝对位置指令
  * @reqs: 指令数组，每条含轴号与目标位置/速度/加速度
- * @count: 条数（1..CONTROLLER_MAX_AXES）
+ * @count: 条数（1..CONTROLLER_AXIS_COUNT）
  *
  * 一批轴一起启动，全部到位才回 HOLDING。
  *
@@ -107,7 +107,7 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 	enum controller_result result;
 	uint8_t i;
 
-	if (ctl->master == NULL || reqs == NULL || count == 0u || count > CONTROLLER_MAX_AXES) {
+	if (ctl->master == NULL || reqs == NULL || count == 0u || count > CONTROLLER_AXIS_COUNT) {
 		return CONTROLLER_ERR_PARAM;
 	}
 	evt.u.move.count = count;
@@ -189,7 +189,7 @@ uint32_t controller_axis_abort(uint8_t axis)
 	struct controller *ctl = control_ctx();
 	uint32_t abort_code;
 
-	if (axis >= CONTROLLER_MAX_AXES) {
+	if (axis >= CONTROLLER_AXIS_COUNT) {
 		return 0U;
 	}
 	pthread_mutex_lock(&ctl->lock);
@@ -200,7 +200,7 @@ uint32_t controller_axis_abort(uint8_t axis)
 
 /**
  * controller_axis_sample - 拷贝一轴已发布的反馈样本
- * @axis: 轴索引，范围为 0 至 CONTROLLER_MAX_AXES-1
+ * @axis: 轴索引，范围为 0 至 CONTROLLER_AXIS_COUNT-1
  * @out: 输出样本；NULL 时拒绝
  *
  * Return: CONTROLLER_OK 成功；CONTROLLER_ERR_PARAM 输出为空或轴索引越界。
@@ -209,7 +209,7 @@ enum controller_result controller_axis_sample(uint8_t axis, struct controller_ax
 {
 	struct controller *ctl = control_ctx();
 
-	if (out == NULL || axis >= CONTROLLER_MAX_AXES) {
+	if (out == NULL || axis >= CONTROLLER_AXIS_COUNT) {
 		return CONTROLLER_ERR_PARAM;
 	}
 	pthread_mutex_lock(&ctl->lock);

@@ -16,7 +16,7 @@ controller/
 ├── include/control/ 公共状态、故障与控制接口
 ├── evt_queue.c/h      带锁的控制输入事件队列
 ├── controller.c       组合根、生命周期与事件循环
-├── controller_actions.c 状态图动作与装配
+├── controller_actions.c 时间基准与状态图装配
 ├── control_api.c      指令、查询与发布
 └── controller_internal.h 控制器完整上下文与内部契约
 ```

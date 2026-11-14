@@ -47,7 +47,7 @@ enum controller_state controller_state(void);
 enum controller_result controller_enable(void);
 
 /*
- * 同时下发 1..CONTROLLER_MAX_AXES 条绝对位置指令（mm、mm/s、mm/s²）：
+ * 同时下发 1..CONTROLLER_AXIS_COUNT 条绝对位置指令（mm、mm/s、mm/s²）：
  * 这批轴一起启动，全部到位才回 HOLDING。
  * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、条数或参数无效。
  * 只有 HOLDING 接受位置指令，MOVING/HALTING 中的新位置指令被丢弃。

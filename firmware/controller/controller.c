@@ -10,6 +10,7 @@
 
 #include "controller_internal.h"
 
+#include <axis_map.h>
 #include <master/master.h>
 
 #include <string.h>
@@ -64,17 +65,27 @@ enum controller_result controller_init(const char *can_ifname)
 	if (master_init(&master_instance, can_ifname) != 0) {
 		return CONTROLLER_ERR_STATE;
 	}
-	for (i = 0u; i < CONTROLLER_MAX_AXES; i++) {
-		if (!master_add_node(&master_instance, (uint8_t)(i + 1u))) {
+
+	/* 按映射表登记节点：表顺序即登记顺序，登记结果必须与表一致 */
+	ctl->axis_count = AXIS_MAP_COUNT;
+	for (i = 0u; i < ctl->axis_count; i++) {
+		const struct axis_map_entry *b = &AXIS_MAP[i];
+		CO_SDOclient_t *sdo;
+
+		if (b->axis != (enum controller_axis)i) {
+			master_deinit(&master_instance);
+			return CONTROLLER_ERR_STATE; /* 表顺序与轴号不一致 */
+		}
+		if (!master_add_node(&master_instance, b->node_id) ||
+		    master_node_id(&master_instance, i) != b->node_id) {
+			master_deinit(&master_instance);
+			return CONTROLLER_ERR_STATE; /* 登记失败或顺序被改 */
+		}
+		sdo = master_sdo(&master_instance, b->node_id);
+		if (sdo == NULL) {
 			master_deinit(&master_instance);
 			return CONTROLLER_ERR_STATE;
 		}
-	}
-	ctl->axis_count = master_node_count(&master_instance);
-	for (i = 0u; i < ctl->axis_count; i++) {
-		uint8_t node_id = master_node_id(&master_instance, i);
-		CO_SDOclient_t *sdo = master_sdo(&master_instance, node_id);
-
 		sdo_client_init(&ctl->axes[i].sdo, sdo);
 		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo));
 	}
@@ -203,8 +214,8 @@ static uint8_t heartbeat_fact(const struct controller *ctl)
 	uint8_t i;
 
 	for (i = 0u; i < ctl->axis_count; i++) {
-		/* 轴下标与主站登记下标一致：站号只在主站登记一次 */
-		if (master_node_alive(ctl->master, master_node_id(ctl->master, i)) != 0) {
+		/* 节点号取自映射表：轴与节点的对应关系固定，不靠登记下标推 */
+		if (master_node_alive(ctl->master, AXIS_MAP[i].node_id) != 0) {
 			ok = 0u;
 			break;
 		}

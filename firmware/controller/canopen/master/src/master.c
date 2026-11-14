@@ -151,17 +151,6 @@ int master_add_node(struct master *m, uint8_t node_id)
 }
 
 /**
- * master_node_count - 获取从站数量
- * @m: 主站对象；NULL 安全
- *
- * Return: 已登记数量；NULL 返回 0。
- */
-uint8_t master_node_count(const struct master *m)
-{
-	return (m == NULL) ? 0u : m->node_count;
-}
-
-/**
  * master_node_id - 按下标读取从站站号
  * @m: 主站对象
  * @idx: 登记下标
@@ -206,7 +195,8 @@ int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cm
 	if (m == NULL || m->co == NULL || m->co->NMT == NULL) {
 		return -1;
 	}
-	return (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) == CO_ERROR_NO) ? 0 : -1;
+	return (CO_NMT_sendCommand(m->co->NMT, (CO_NMT_command_t)cmd, node_id) == CO_ERROR_NO) ? 0
+											       : -1;
 }
 
 /**
@@ -257,9 +247,9 @@ static int master_communication_init(struct master *m)
 
 	err = CO_CANinit(m->co, &m->can, 0u);
 	if (err == CO_ERROR_NO) {
-		err = CO_CANopenInit(m->co, NULL, NULL, OD, NULL, MASTER_NMT_CONTROL, MASTER_FIRST_HB_MS,
-				     MASTER_SDO_SRV_TIMEOUT_MS, MASTER_SDO_CLI_TIMEOUT_MS, false,
-				     MASTER_NODE_ID, &err_info);
+		err = CO_CANopenInit(m->co, NULL, NULL, OD, NULL, MASTER_NMT_CONTROL,
+				     MASTER_FIRST_HB_MS, MASTER_SDO_SRV_TIMEOUT_MS,
+				     MASTER_SDO_CLI_TIMEOUT_MS, false, MASTER_NODE_ID, &err_info);
 	}
 	if (err == CO_ERROR_NO) {
 		CO_epoll_initCANopenMain(&m->ep, m->co);
