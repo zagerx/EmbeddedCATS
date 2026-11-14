@@ -85,6 +85,21 @@ section "R11  CiA402 不依赖线程、epoll 与协议栈"
 out=$(grep -rnE 'pthread_|epoll|CANopen\.h|301/' "$SRC/cia402" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
+section "R12  CiA402 实例定义只归对象所有者与模块内部"
+inc_list=$(grep -rlE '#include *[<"]cia402/device_instance\.h[>"]' \
+	"$SRC" apps $INC --include=*.cpp 2>/dev/null || true)
+viol=""
+while IFS= read -r f; do
+	[ -z "$f" ] && continue
+	case "$f" in
+	controller/cia402/*) continue ;;
+	controller/axis/include/axis/axis.h) continue ;;
+	apps/tools/cia402_selftest/*) continue ;;
+	esac
+	viol+="$f"$'\n'
+done <<<"$inc_list"
+if [ -z "$viol" ]; then ok; else bad "$viol"; fi
+
 if [ "$FAILS" -eq 0 ]; then
 	printf '\n分层检查：通过\n'
 	exit 0

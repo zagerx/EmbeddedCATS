@@ -17,6 +17,7 @@ controller/
 ├── evt_queue.c/h      带锁的控制输入事件队列
 ├── controller.c       组合根、生命周期与事件循环
 ├── controller_actions.c 时间基准与状态图装配
+├── controller_feedback.c 反馈读取调度与逐轴缓存
 ├── control_api.c      指令、查询与发布
 └── controller_internal.h 控制器完整上下文与内部契约
 ```
@@ -28,6 +29,8 @@ controller/
 - `controller_init(ifname)` 装配资源；`controller_event_poll()` 处理一轮事件；
   `controller_deinit()` 在线程退出后释放资源，支持安全重复调用。
 - 提供使能、位置、停止、急停、状态、故障和轴样本接口。
+- 使用 402 对象索引调度反馈 SDO；每轴仲裁器隔离控制与反馈结果，控制优先。
+- 反馈忙时跳过，成功才更新缓存；控制请求登记后自动取消反馈并等待通道释放。
 - 不创建线程，不直接操作 SocketCAN 或 CANopen PDO 字节。
 
 ## 状态机

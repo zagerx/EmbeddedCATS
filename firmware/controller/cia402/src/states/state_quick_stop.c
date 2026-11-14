@@ -66,7 +66,6 @@ sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
 		if (r->status == 0) {
 			enum cia402_pds_state pds = cia402_parse((uint16_t)r->value);
 
-			dev_cache_statusword(d, (uint16_t)r->value);
 			if (pds == CIA402_SWITCH_ON_DISABLED || pds == CIA402_NOT_READY) {
 				return SM_TRAN(&st_qstop_disable);
 			}

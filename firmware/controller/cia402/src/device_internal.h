@@ -14,15 +14,12 @@
 #ifndef CIA402_DEVICE_INTERNAL_H
 #define CIA402_DEVICE_INTERNAL_H
 
-#include <cia402/device.h>
+#include <cia402/device_instance.h>
 #include <cia402/od.h>
 #include <cia402/pds.h>
 
 /* 单笔对象事务的协议栈超时 */
 #define CIA402_DEVICE_SDO_TIMEOUT_MS 200u
-/* 反馈轮转：单个对象超时与两轮之间的间隔 */
-#define CIA402_DEVICE_MON_TIMEOUT_MS 100u
-#define CIA402_DEVICE_MON_INTERVAL_MS 50u
 /* 使能/断使能每步等状态字的期限 */
 #define CIA402_DEVICE_STEP_TIMEOUT_MS 300u
 /* 减速停与快速停的业务期限 */
@@ -35,9 +32,9 @@
 
 enum cia402_sig {
 	CIA402_SIG_REQUEST = SM_SIG_USER, /* 邮箱里有新请求，载荷 req */
-	CIA402_SIG_SDO_DONE,                /* 一笔事务完成，载荷 result */
+	CIA402_SIG_SDO_DONE,            /* 一笔事务完成，载荷 result */
 	CIA402_SIG_CANCEL,              /* 抢占/超时/取消，载荷 reason */
-	CIA402_SIG_TICK                 /* 每拍一次，空闲时用于反馈节奏 */
+	CIA402_SIG_TICK                 /* 每拍一次，空闲时消费 */
 };
 
 struct request_evt {
@@ -66,8 +63,6 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
 void dev_finish(struct cia402_device *d, enum cia402_operation_result result, enum cia402_operation_fail fail);
 /* 事务失败时的统一收尾 */
 void dev_fail(struct cia402_device *d, const struct sdo_result *result);
-/* 缓存最近一次状态字（读事务的通用动作）*/
-void dev_cache_statusword(struct cia402_device *d, uint16_t statusword);
 /* 取当前在执行的请求类别（判断是不是某条流程）*/
 /* 请求类别 → 对外报告的阶段 */
 enum cia402_phase dev_phase_of(enum cia402_kind kind);
@@ -77,7 +72,6 @@ enum cia402_phase dev_phase_of(enum cia402_kind kind);
 sm_ret_t device_initial(struct sm_hsm *const me, const struct sm_event *const e);
 
 sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_monitor(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_running(struct sm_hsm *const me, const struct sm_event *const e);
 
 sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *const e);

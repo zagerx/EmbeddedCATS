@@ -15,7 +15,6 @@
 
 #include <master/master.h>
 #include <axis/axis.h>
-#include <cia402/device.h>
 #include <transport/sdo_client.h>
 
 #include "evt_queue.h"
@@ -31,10 +30,22 @@ enum controller_sig {
 	CONTROLLER_SIG_ENABLE /* IDLE 收到它才进 ENABLING */
 };
 
+/* 控制器持有的逐轴反馈缓存；valid_mask 各位对应四个读取项 */
+struct controller_axis_feedback {
+	uint16_t statusword;
+	int32_t position;
+	int32_t velocity;
+	uint16_t error_code;
+	uint32_t updated_ms[4];
+	uint8_t valid_mask;
+	uint8_t next;
+};
+
 /* 控制器的对象实体、状态图上下文和跨线程发布值集中在这里 */
 struct controller {
 	struct master *master;
 	struct axis axes[CONTROLLER_AXIS_COUNT];
+	struct controller_axis_feedback feedback[CONTROLLER_AXIS_COUNT];
 	uint8_t axis_count;
 
 	uint8_t hb_ok;
@@ -60,6 +71,9 @@ sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 
 /* 总线侧单调毫秒计数；未接管主站时返回 0 */
 uint32_t controller_now_ms(struct controller *ctl);
+
+/* 空闲通道上推进各轴反馈读取；由工作线程调用 */
+void controller_feedback_poll(struct controller *ctl, uint32_t now_ms);
 
 /* 装配状态图并注入主站与时钟能力（仅初始化阶段调用） */
 void controller_stm_init(struct controller *app);

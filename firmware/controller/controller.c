@@ -87,7 +87,8 @@ enum controller_result controller_init(const char *can_ifname)
 			return CONTROLLER_ERR_STATE;
 		}
 		sdo_client_init(&ctl->axes[i].sdo, sdo);
-		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo));
+		sdo_arbiter_init(&ctl->axes[i].arb, &ctl->axes[i].sdo);
+		cia402_init(&ctl->axes[i].dev, sdo_arbiter_control(&ctl->axes[i].arb));
 	}
 	ctl->master = &master_instance;
 	controller_stm_init(ctl);
@@ -113,6 +114,7 @@ enum controller_result controller_deinit(void)
 	ctl->master = NULL;
 	ctl->axis_count = 0u;
 	memset(ctl->axes, 0, sizeof(ctl->axes));
+	memset(ctl->feedback, 0, sizeof(ctl->feedback));
 	controller_evtq_clear(&ctl->evtq);
 	pthread_mutex_lock(&ctl->lock);
 	ctl->published_state = CONTROLLER_STATE_PREPARING;
@@ -145,9 +147,12 @@ enum controller_result controller_event_poll(void)
 	CO_epoll_processRT(&m->ep, m->co, false);
 	for (i = 0u; i < ctl->axis_count; i++) {
 		sdo_client_step(&ctl->axes[i].sdo, m->ep.timeDifference_us, &m->ep.timerNext_us);
+		sdo_arbiter_step(&ctl->axes[i].arb);
 	}
 	CO_epoll_processMain(&m->ep, m->co, false, &reset);
 	if (reset == CO_RESET_NOT) {
+		/* 先收反馈结果，再让 402 发起下一笔，避免结果滞留被当成忙 */
+		controller_feedback_poll(ctl, controller_now_ms(ctl));
 		controller_axis_poll(ctl);
 		(void)controller_poll();
 	} else if (reset != CO_RESET_COMM || master_reset_communication(m) != 0) {

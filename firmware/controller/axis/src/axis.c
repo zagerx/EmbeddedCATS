@@ -101,32 +101,27 @@ uint32_t axis_abort_code(const struct axis *a)
 }
 
 /**
- * axis_sample - 读取最近一次反馈并换算为业务单位
- * @a: 轴对象；NULL 时输出全 0
+ * axis_sample - 将原始反馈换算为业务单位
+ * @a: 轴对象；保留接口一致性，本函数不使用
  * @out: 输出样本；NULL 时直接返回
+ * @position: 实际位置，pulse
+ * @velocity: 实际速度，pulse/s
+ * @statusword: 原始状态字
+ * @error_code: 原始驱动器错误码
  *
- * 不触发总线传输，只读设备层缓存的反馈。
+ * 原始值由控制器读取；本函数不触发总线传输。
  */
-void axis_sample(const struct axis *a, struct axis_sample *out)
+void axis_sample(const struct axis *a, struct axis_sample *out, int32_t position, int32_t velocity,
+		 uint16_t statusword, uint16_t error_code)
 {
-	struct cia402_feedback feedback;
-
+	(void)a;
 	if (out == NULL) {
 		return;
 	}
-	out->position_mm = 0.0f;
-	out->velocity_mm_s = 0.0f;
-	out->statusword = 0U;
-	out->error_code = 0U;
-	if (a == NULL) {
-		return;
-	}
-
-	cia402_get_feedback(&a->dev, &feedback);
-	out->position_mm = unscale_mm(feedback.position);
-	out->velocity_mm_s = unscale_mm(feedback.velocity);
-	out->statusword = feedback.statusword;
-	out->error_code = feedback.error_code;
+	out->position_mm = unscale_mm(position);
+	out->velocity_mm_s = unscale_mm(velocity);
+	out->statusword = statusword;
+	out->error_code = error_code;
 }
 
 /**

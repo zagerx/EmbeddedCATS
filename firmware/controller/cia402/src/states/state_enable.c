@@ -42,7 +42,6 @@ sm_ret_t st_enable_read_pds(struct sm_hsm *const me, const struct sm_event *cons
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		dev_cache_statusword(d, (uint16_t)r->value);
 		return SM_TRAN(route_from(d, cia402_parse((uint16_t)r->value)));
 	}
 
@@ -131,12 +130,12 @@ sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *co
 			return SM_TRAN(&st_idle);
 		}
 		pds = cia402_parse((uint16_t)r->value);
-		dev_cache_statusword(d, (uint16_t)r->value);
 		if (pds != CIA402_FAULT) {
 			return SM_TRAN(route_from(d, pds));
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_DRIVER); /* 一直是 FAULT：复位无效 */
+			dev_finish(d, CIA402_OP_FAILED,
+				   CIA402_OP_FAIL_DRIVER); /* 一直是 FAULT：复位无效 */
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_enable_read_reset);
@@ -353,12 +352,12 @@ static sm_state_t wait_step(struct cia402_device *d, uint16_t sw, enum cia402_pd
 {
 	enum cia402_pds_state pds = cia402_parse(sw);
 
-	dev_cache_statusword(d, sw);
 	if (pds == want) {
 		if (next != NULL) {
 			return next;
 		}
-		dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE); /* 最后一步：等到了就是使能完成 */
+		dev_finish(d, CIA402_OP_DONE,
+			   CIA402_OP_FAIL_NONE); /* 最后一步：等到了就是使能完成 */
 		return &st_idle;
 	}
 	if (pds == CIA402_FAULT) {

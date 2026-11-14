@@ -268,9 +268,9 @@ void AppBinder::tickPrefill()
 		if (axis_cards_[i] == nullptr) {
 			continue;
 		}
-		/* 状态字为 0 说明这一轴还没读到过反馈：等下一拍再填，别填个假值 */
+		/* 位置尚未成功读取时等下一拍再填，不能使用默认的 0 */
 		if (controller_axis_sample(i, &sample) != CONTROLLER_OK ||
-		    sample.statusword == 0U) {
+		    (sample.valid_mask & (1u << 1)) == 0U) {
 			all_ready = false;
 			continue;
 		}

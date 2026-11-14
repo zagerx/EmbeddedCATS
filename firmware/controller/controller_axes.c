@@ -94,7 +94,7 @@ int controller_all_configured(const struct controller *ctl)
 	}
 	for (i = 0; i < ctl->axis_count; i++) {
 		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.configured == 0u) {
+		if (status.mode_confirmed == 0u) {
 			return 0;
 		}
 	}
@@ -117,7 +117,7 @@ int controller_all_enabled(const struct controller *ctl)
 	}
 	for (i = 0; i < ctl->axis_count; i++) {
 		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.enabled == 0u) {
+		if (status.enable_confirmed == 0u) {
 			return 0;
 		}
 	}
@@ -140,7 +140,7 @@ int controller_any_failed(const struct controller *ctl)
 	}
 	for (i = 0; i < ctl->axis_count; i++) {
 		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.failed != 0u) {
+		if (status.operation_failed != 0u) {
 			return 1;
 		}
 	}

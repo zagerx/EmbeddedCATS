@@ -9,6 +9,8 @@
 
 #include "controller_internal.h"
 
+#include <string.h>
+
 /**
  * controller_publish - 发布整机状态、故障和各轴反馈快照
  *
@@ -34,12 +36,16 @@ void controller_publish(void)
 	}
 	for (i = 0; i < CONTROLLER_AXIS_COUNT; i++) {
 		struct axis_sample s;
+		const struct controller_axis_feedback *feedback = &app->feedback[i];
 
-		axis_sample(&app->axes[i], &s);
+		axis_sample(&app->axes[i], &s, feedback->position, feedback->velocity,
+			    feedback->statusword, feedback->error_code);
 		samples[i].position_mm = s.position_mm;
 		samples[i].velocity_mm_s = s.velocity_mm_s;
 		samples[i].statusword = s.statusword;
 		samples[i].error_code = s.error_code;
+		memcpy(samples[i].updated_ms, feedback->updated_ms, sizeof(samples[i].updated_ms));
+		samples[i].valid_mask = feedback->valid_mask;
 		aborts[i] = axis_abort_code(&app->axes[i]);
 	}
 	pthread_mutex_lock(&app->lock);

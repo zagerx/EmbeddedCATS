@@ -1,12 +1,11 @@
 /*
- * device.c — device.h 的实现：装配、投递、推进、取反馈
+ * device.c — device.h 的实现：装配、投递、推进、取结果
  *
  * 本文件与 device.h 一一对应，只实现对外接口：
  *   cia402_init()     装配
  *   cia402_request()  投递（只回答收不收）
  *   cia402_poll()     推进一拍并交出流程状态
- *   cia402_get_status() / cia402_take_result() 读取事实 / 消费结论
- *   cia402_get_feedback() 读取最新原始反馈
+ *   cia402_get_status() / cia402_take_result() 读取确认结果 / 消费回执
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
  * 状态与迁移条件在 states/ 下。本文件只负责把「邮箱、事务结果、取消」
@@ -189,30 +188,15 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d)
 	return result;
 }
 
-/**
- * cia402_get_feedback - 读取最新原始反馈
- * @d: 设备对象；NULL 安全
- * @out: 输出反馈；NULL 时直接返回
- *
- * 仅 CANopen 工作线程调用，不触发对象事务。
- */
-void cia402_get_feedback(const struct cia402_device *d, struct cia402_feedback *out)
-{
-	if (d == NULL || out == NULL) {
-		return;
-	}
-	*out = d->feedback;
-}
-
 static int admit(struct cia402_device *d, const struct cia402_request *req)
 {
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
 	int rc = CIA402_ACCEPTED;
 
 	/* 状态前提：未配置不能使能，未使能不能运动 */
-	if (req->kind == CIA402_REQ_ENABLE && d->outbox.configured == 0u) {
+	if (req->kind == CIA402_REQ_ENABLE && d->outbox.mode_confirmed == 0u) {
 		rc = CIA402_REFUSED;
-	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.enabled == 0u) {
+	} else if (req->kind == CIA402_REQ_MOVE && d->outbox.enable_confirmed == 0u) {
 		rc = CIA402_REFUSED;
 	} else if (!urgent && (d->outbox.phase != CIA402_PHASE_IDLE || d->mailbox.pending != 0u)) {
 		rc = CIA402_BUSY; /* 不排队：忙就拒，要不要重试由调用方定 */
@@ -226,7 +210,7 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 		d->outbox.last.fail = CIA402_OP_FAIL_NONE;
 		/* 失败标记按文档语义"直到下一次 MOVE/CONFIG 受理"清零 */
 		if (req->kind == CIA402_REQ_MOVE || req->kind == CIA402_REQ_CONFIG) {
-			d->outbox.failed = 0u;
+			d->outbox.operation_failed = 0u;
 		}
 		if (urgent) {
 			d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */

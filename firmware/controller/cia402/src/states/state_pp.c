@@ -208,7 +208,6 @@ sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const
 			return SM_TRAN(&st_idle);
 		}
 		sw = (uint16_t)r->value;
-		dev_cache_statusword(d, sw);
 		if (cia402_parse(sw) == CIA402_FAULT) {
 			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
@@ -257,7 +256,6 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		d->feedback.position = (int32_t)r->value;
 		if ((int32_t)r->value == d->operation.pp.issued) {
 			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
 			return SM_TRAN(&st_idle);

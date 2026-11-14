@@ -57,7 +57,6 @@ sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		dev_cache_statusword(d, (uint16_t)r->value);
 		if (cia402_parse((uint16_t)r->value) == CIA402_SWITCH_ON_DISABLED) {
 			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
 			return SM_TRAN(&st_idle);

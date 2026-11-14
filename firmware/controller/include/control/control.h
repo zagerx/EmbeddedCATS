@@ -73,6 +73,8 @@ struct controller_axis_sample {
 	float velocity_mm_s;
 	uint16_t statusword;
 	uint16_t error_code;
+	uint32_t updated_ms[4]; /* 状态字、位置、速度、错误码各自的读取时刻 */
+	uint8_t valid_mask;     /* bit0..3：对应字段是否至少成功读取一次 */
 };
 
 enum controller_result controller_axis_sample(uint8_t axis, struct controller_axis_sample *out);

@@ -59,7 +59,6 @@ sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
 			dev_fail(d, r);
 			return SM_TRAN(&st_idle);
 		}
-		dev_cache_statusword(d, (uint16_t)r->value);
 		if ((r->value & CIA402_SW_TARGET_REACHED) != 0u) {
 			return SM_TRAN(&st_halt_clear);
 		}

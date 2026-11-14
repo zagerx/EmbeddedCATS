@@ -29,8 +29,11 @@ target_compile_definitions(cats_master PRIVATE _DEFAULT_SOURCE)
 add_library(sdo_access INTERFACE)
 target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
 
-add_library(canopen_sdo STATIC controller/canopen/transport/src/sdo_client.c)
+add_library(canopen_sdo STATIC
+	controller/canopen/transport/src/sdo_client.c
+	controller/canopen/transport/src/sdo_arbiter.c)
 target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
+target_include_directories(canopen_sdo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src)
 target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 
@@ -60,6 +63,16 @@ add_executable(cia402_selftest
 	apps/tools/cia402_selftest/device_test.c)
 target_link_libraries(cia402_selftest PRIVATE cia402)
 
+# SDO 仲裁器自测：模拟底层通道，不需要 CANopenNode 或 CAN 硬件
+add_executable(sdo_arbiter_selftest
+	apps/tools/sdo_arbiter_selftest/main.c
+	controller/canopen/transport/src/sdo_arbiter.c)
+target_include_directories(sdo_arbiter_selftest BEFORE PRIVATE /tmp/cats_sdo_selftest_include)
+target_include_directories(sdo_arbiter_selftest PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src)
+target_link_libraries(sdo_arbiter_selftest PRIVATE sdo_access)
+
 # 轴层：单位换算与多轴请求转发；每节点使用独立对象访问通道
 add_library(cats_axis STATIC controller/axis/src/axis.c)
 target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
@@ -76,6 +89,7 @@ add_library(cats_control STATIC
 	controller/controller.c
 	controller/controller_actions.c
 	controller/controller_axes.c
+	controller/controller_feedback.c
 	controller/control_api.c
 	controller/evt_queue.c
 	controller/states/states.c

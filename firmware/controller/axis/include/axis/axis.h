@@ -6,7 +6,8 @@
 #ifndef AXIS_AXIS_H
 #define AXIS_AXIS_H
 
-#include <cia402/device.h>
+#include <cia402/device_instance.h>
+#include <transport/sdo_arbiter_instance.h>
 #include <transport/sdo_client.h>
 
 #include <stdint.h>
@@ -20,11 +21,12 @@ extern "C" {
 struct axis {
 	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
 	struct sdo_client sdo;    /* 本轴独享的异步对象访问通道 */
+	struct sdo_arbiter arb;   /* 控制与反馈共享通道的仲裁器 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
-/* 反馈由 cia402 设备层读取；未读到过的字段为 0。 */
+/* 原始反馈由控制器读取；轴层只负责换算业务单位。 */
 struct axis_sample {
 	float position_mm;
 	float velocity_mm_s;
@@ -57,8 +59,9 @@ enum axis_motion axis_take_motion(struct axis *a);
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
 uint32_t axis_abort_code(const struct axis *a);
 
-/* 读取最近一次反馈快照，不触发总线传输。 */
-void axis_sample(const struct axis *a, struct axis_sample *out);
+/* 将控制器读到的原始反馈换算为业务单位，不触发总线传输。 */
+void axis_sample(const struct axis *a, struct axis_sample *out, int32_t position, int32_t velocity,
+		 uint16_t statusword, uint16_t error_code);
 
 /* 写运动模式（PP）：已配过的轴会被设备层拒绝，不算错 */
 int axis_config_movemode(struct axis *a);

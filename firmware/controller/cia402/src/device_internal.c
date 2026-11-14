@@ -4,10 +4,9 @@
  * 这里实现的函数全部声明在 device_internal.h：模块外拿不到，
  * 所以它们不属于 device.c（device.c 只对应 device.h 的对外接口）。
  *
- * 三件事：
+ * 两件事：
  *   1. 发起一笔对象事务（dev_read / dev_write）；
- *   2. 收尾一个流程（dev_finish / dev_fail）；
- *   3. states/ 需要读的几个事实（状态字、流程类别、阶段）。
+ *   2. 收尾流程并写主站确认结果，或提供流程阶段。
  *
  * Author: zager
  */
@@ -70,35 +69,36 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
 }
 
 /**
- * dev_finish - 结束当前流程并写结论
+ * dev_finish - 结束当前流程并写主站确认结果
  * @d: 设备对象
  * @result: DONE 或 FAILED
  * @fail: 失败原因；成功时传 CIA402_OP_FAIL_NONE
  *
- * 调用方随后迁回 st_idle。被取消的流程不走这里（结论作废）。
+ * 模式与使能确认只由确认过的流程在这里更新，不随普通反馈读取改变。
+ * 调用方随后迁回 st_idle；被取消的流程不走这里，原结论作废。
  */
 void dev_finish(struct cia402_device *d, enum cia402_operation_result result,
 		enum cia402_operation_fail fail)
 {
 	if (result == CIA402_OP_FAILED) {
-		d->outbox.failed = 1u;
+		d->outbox.operation_failed = 1u;
 	}
 	switch (d->operation.kind) {
 	case CIA402_REQ_CONFIG:
-		d->outbox.configured = (uint8_t)(result == CIA402_OP_DONE);
+		d->outbox.mode_confirmed = (uint8_t)(result == CIA402_OP_DONE);
 		break;
 	case CIA402_REQ_ENABLE:
-		d->outbox.enabled = (uint8_t)(result == CIA402_OP_DONE);
+		d->outbox.enable_confirmed = (uint8_t)(result == CIA402_OP_DONE);
 		break;
 	case CIA402_REQ_DISABLE:
 		/* 只有确认断开才改；失败时保持原值，免得上层误以为已经断了 */
 		if (result == CIA402_OP_DONE) {
-			d->outbox.enabled = 0u;
+			d->outbox.enable_confirmed = 0u;
 		}
 		break;
 	case CIA402_REQ_QUICK_STOP:
 		if (result == CIA402_OP_DONE) {
-			d->outbox.enabled = 0u;
+			d->outbox.enable_confirmed = 0u;
 		}
 		break;
 	default:
@@ -128,16 +128,6 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 	}
 	d->outbox.last.abort_code = (result != NULL) ? result->abort_code : 0u;
 	dev_finish(d, CIA402_OP_FAILED, fail);
-}
-
-/**
- * dev_cache_statusword - 缓存最近一次状态字
- * @d: 设备对象
- * @statusword: 6041 的值
- */
-void dev_cache_statusword(struct cia402_device *d, uint16_t statusword)
-{
-	d->feedback.statusword = statusword;
 }
 
 /**
