@@ -30,7 +30,7 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		busy = (d->outbox.phase != CIA402_PHASE_IDLE);
 		d->outbox.phase = CIA402_PHASE_IDLE;
 		d->operation.cancel = CIA402_CANCEL_NONE;
-		d->sdo.cw_next_valid = 0u;
+		d->cw.pending_valid = 0u;
 
 		if (busy == 0) {
 			break; /* 本来就在空闲 */

@@ -20,14 +20,12 @@ static void arbiter_route_result(struct sdo_arbiter *a);
 
 static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
 				 uint32_t value, uint8_t size, uint32_t timeout_ms);
-static int arbiter_control_take(void *ctx, struct sdo_result *result);
+static enum sdo_poll arbiter_control_poll(void *ctx, struct sdo_result *result);
 static void arbiter_control_abort(void *ctx);
-static int arbiter_control_started(void *ctx);
 static int arbiter_feedback_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
 				  uint32_t value, uint8_t size, uint32_t timeout_ms);
-static int arbiter_feedback_take(void *ctx, struct sdo_result *result);
+static enum sdo_poll arbiter_feedback_poll(void *ctx, struct sdo_result *result);
 static void arbiter_feedback_abort(void *ctx);
-static int arbiter_feedback_started(void *ctx);
 
 /**
  * sdo_arbiter_init - 在一条底层通道上装配两个会话
@@ -39,14 +37,12 @@ void sdo_arbiter_init(struct sdo_arbiter *a, struct sdo_client *client)
 	memset(a, 0, sizeof(*a));
 	a->client = client;
 	a->control.start = arbiter_control_start;
-	a->control.take_result = arbiter_control_take;
+	a->control.poll = arbiter_control_poll;
 	a->control.abort = arbiter_control_abort;
-	a->control.started = arbiter_control_started;
 	a->control.ctx = a;
 	a->feedback.start = arbiter_feedback_start;
-	a->feedback.take_result = arbiter_feedback_take;
+	a->feedback.poll = arbiter_feedback_poll;
 	a->feedback.abort = arbiter_feedback_abort;
-	a->feedback.started = arbiter_feedback_started;
 	a->feedback.ctx = a;
 	a->owner = SDO_ARBITER_NONE;
 }
@@ -92,10 +88,10 @@ static void arbiter_route_result(struct sdo_arbiter *a)
 {
 	struct sdo_result result;
 
-	if (a->owner == SDO_ARBITER_NONE || a->client->state != SDO_CLIENT_DONE) {
+	if (a->owner == SDO_ARBITER_NONE) {
 		return;
 	}
-	if (a->client->access.take_result(a->client->access.ctx, &result) != 0) {
+	if (a->client->access.poll(a->client->access.ctx, &result) != SDO_POLL_DONE) {
 		return;
 	}
 	if (a->owner == SDO_ARBITER_CONTROL) {
@@ -119,7 +115,7 @@ static void arbiter_start_control(struct sdo_arbiter *a)
 	if (a->client->access.start(a->client->access.ctx, req->dir, req->index, req->sub,
 				    req->value, req->size, req->timeout_ms) != 0) {
 		a->control_pending = 0u;
-		a->control_result = (struct sdo_result){.status = -1};
+		a->control_result = (struct sdo_result){.status = SDO_STATUS_FAIL};
 		a->control_ready = 1u;
 		return;
 	}
@@ -136,8 +132,15 @@ static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t
 {
 	struct sdo_arbiter *a = ctx;
 
-	if (a == NULL || a->control_pending != 0u || a->owner == SDO_ARBITER_CONTROL ||
-	    a->control_ready != 0u) {
+	if (a == NULL) {
+		return -1;
+	}
+	if (a->control_pending != 0u || a->control_ready != 0u || a->owner == SDO_ARBITER_CONTROL) {
+		/* 会话已被占用：仍保证有结果可交付，调用方不会等不到事件 */
+		if (a->control_ready == 0u && a->control_pending == 0u) {
+			a->control_result = (struct sdo_result){.status = SDO_STATUS_FAIL};
+			a->control_ready = 1u;
+		}
 		return -1;
 	}
 	a->control_request = (struct sdo_request){dir, index, sub, value, size, timeout_ms};
@@ -146,19 +149,22 @@ static int arbiter_control_start(void *ctx, uint8_t dir, uint16_t index, uint8_t
 	return 0;
 }
 
-static int arbiter_control_take(void *ctx, struct sdo_result *result)
+static enum sdo_poll arbiter_control_poll(void *ctx, struct sdo_result *result)
 {
 	struct sdo_arbiter *a = ctx;
 
 	if (a == NULL || result == NULL) {
-		return -1;
+		return SDO_POLL_IDLE;
 	}
-	if (a->control_ready == 0u) {
-		return 1;
+	if (a->control_ready != 0u) {
+		*result = a->control_result;
+		a->control_ready = 0u;
+		return SDO_POLL_DONE;
 	}
-	*result = a->control_result;
-	a->control_ready = 0u;
-	return 0;
+	if (a->control_pending != 0u || a->owner == SDO_ARBITER_CONTROL) {
+		return SDO_POLL_WAITING;
+	}
+	return SDO_POLL_IDLE;
 }
 
 static void arbiter_control_abort(void *ctx)
@@ -175,16 +181,9 @@ static void arbiter_control_abort(void *ctx)
 	/* 还在排队：不能静默丢弃，否则上层永远等不到结果 */
 	if (a->control_pending != 0u) {
 		a->control_pending = 0u;
-		a->control_result = (struct sdo_result){.status = -1};
+		a->control_result = (struct sdo_result){.status = SDO_STATUS_FAIL};
 		a->control_ready = 1u;
 	}
-}
-
-static int arbiter_control_started(void *ctx)
-{
-	const struct sdo_arbiter *a = ctx;
-
-	return (a != NULL && a->owner == SDO_ARBITER_CONTROL) ? 1 : 0;
 }
 
 static int arbiter_feedback_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub,
@@ -205,19 +204,19 @@ static int arbiter_feedback_start(void *ctx, uint8_t dir, uint16_t index, uint8_
 	return 0;
 }
 
-static int arbiter_feedback_take(void *ctx, struct sdo_result *result)
+static enum sdo_poll arbiter_feedback_poll(void *ctx, struct sdo_result *result)
 {
 	struct sdo_arbiter *a = ctx;
 
 	if (a == NULL || result == NULL) {
-		return -1;
+		return SDO_POLL_IDLE;
 	}
-	if (a->feedback_ready == 0u) {
-		return 1;
+	if (a->feedback_ready != 0u) {
+		*result = a->feedback_result;
+		a->feedback_ready = 0u;
+		return SDO_POLL_DONE;
 	}
-	*result = a->feedback_result;
-	a->feedback_ready = 0u;
-	return 0;
+	return (a->owner == SDO_ARBITER_FEEDBACK) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
 }
 
 static void arbiter_feedback_abort(void *ctx)
@@ -227,11 +226,4 @@ static void arbiter_feedback_abort(void *ctx)
 	if (a != NULL && a->owner == SDO_ARBITER_FEEDBACK) {
 		a->client->access.abort(a->client->access.ctx);
 	}
-}
-
-static int arbiter_feedback_started(void *ctx)
-{
-	const struct sdo_arbiter *a = ctx;
-
-	return (a != NULL && a->owner == SDO_ARBITER_FEEDBACK) ? 1 : 0;
 }

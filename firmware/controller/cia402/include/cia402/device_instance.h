@@ -26,17 +26,11 @@ enum cia402_cancel_reason {
 	CIA402_CANCEL_TIMEOUT  /* 单笔事务超时：报失败 */
 };
 
-/* 当前这笔对象事务的账，仅 CANopen 工作线程使用 */
-struct cia402_sdo {
-	uint8_t pending;          /* 有在途事务 */
-	uint8_t rejected;         /* 上一笔发起被拒：下一拍补一个失败事件 */
-	uint8_t armed;            /* 事务已上总线，deadline 已起算 */
-	struct sdo_result result; /* 最近一笔结果 */
-	uint32_t timeout_ms;      /* 本笔事务的业务期限长度 */
-	uint32_t deadline;        /* 事务上总线后才起算的期限 */
-	uint16_t cw_ok;           /* 已确认的控制字 */
-	uint16_t cw_next;         /* 在途的控制字 */
-	uint8_t cw_next_valid;
+/* 6040 控制字镜像；生命周期是一次操作，跨多笔事务，仅工作线程使用 */
+struct cia402_controlword {
+	uint16_t confirmed;     /* 最近一次写成功的控制字 */
+	uint16_t pending;       /* 在途的控制字 */
+	uint8_t pending_valid;  /* pending 有待确认的写入 */
 };
 
 /* 当前流程：仅 CANopen 工作线程使用 */
@@ -67,10 +61,11 @@ struct cia402_device {
 
 	struct cia402_status outbox; /* 主站确认结果 */
 
-	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务 */
+	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，
+	 * 事务本身的状态由通道持有（sdo_access），本结构不再记账。 */
 	struct sm_hsm hsm;
 	uint32_t now_ms;
-	struct cia402_sdo sdo;
+	struct cia402_controlword cw;
 	struct cia402_operation operation;
 };
 

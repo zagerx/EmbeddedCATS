@@ -29,7 +29,7 @@ static int failures;
 
 static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		      uint8_t size, uint32_t timeout_ms);
-static int fake_take(void *ctx, struct sdo_result *result);
+static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result);
 static void fake_abort(void *ctx);
 static void fake_complete(struct sdo_arbiter *a, int status, uint32_t value);
 static void test_control_preempts_feedback(void);
@@ -67,16 +67,16 @@ static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint3
 	return 0;
 }
 
-static int fake_take(void *ctx, struct sdo_result *result)
+static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result)
 {
 	struct sdo_client *client = ctx;
 
-	if (client->state != SDO_CLIENT_DONE) {
-		return 1;
+	if (client->state == SDO_CLIENT_DONE) {
+		*result = client->result;
+		client->state = SDO_CLIENT_IDLE;
+		return SDO_POLL_DONE;
 	}
-	*result = client->result;
-	client->state = SDO_CLIENT_IDLE;
-	return 0;
+	return (client->state == SDO_CLIENT_RUNNING) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
 }
 
 static void fake_abort(void *ctx)
@@ -103,7 +103,7 @@ static void test_control_preempts_feedback(void)
 
 	memset(&fake, 0, sizeof(fake));
 	fake.client.access.start = fake_start;
-	fake.client.access.take_result = fake_take;
+	fake.client.access.poll = fake_poll;
 	fake.client.access.abort = fake_abort;
 	fake.client.access.ctx = &fake.client;
 	sdo_arbiter_init(&arbiter, &fake.client);
@@ -114,20 +114,19 @@ static void test_control_preempts_feedback(void)
 	CHECK(control->start(control->ctx, SDO_DIR_WRITE, 0x6060u, 0u, 1u, 1u, 200u) == 0);
 	/* 不打断在途反馈：总线上不会有 abort 帧与迟到应答 */
 	CHECK(fake.aborts == 0u);
-	CHECK(control->started(control->ctx) == 0);
+	CHECK(arbiter.owner == SDO_ARBITER_FEEDBACK);
 	sdo_arbiter_step(&arbiter);
 	CHECK(fake.aborts == 0u);
-	CHECK(control->started(control->ctx) == 0);
+	CHECK(arbiter.owner == SDO_ARBITER_FEEDBACK);
 
 	/* 反馈自然完成：结果交回反馈会话，控制随后上线 */
 	fake_complete(&arbiter, 0, 0x0440u);
-	CHECK(feedback->take_result(feedback->ctx, &result) == 0);
+	CHECK(feedback->poll(feedback->ctx, &result) == SDO_POLL_DONE);
 	CHECK(result.value == 0x0440u);
 	CHECK(arbiter.owner == SDO_ARBITER_CONTROL);
-	CHECK(control->started(control->ctx) == 1);
 
 	fake_complete(&arbiter, 0, 0u);
-	CHECK(control->take_result(control->ctx, &result) == 0);
+	CHECK(control->poll(control->ctx, &result) == SDO_POLL_DONE);
 	CHECK(result.status == 0);
 }
 
@@ -142,7 +141,7 @@ static void test_queued_control_abort(void)
 
 	memset(&fake, 0, sizeof(fake));
 	fake.client.access.start = fake_start;
-	fake.client.access.take_result = fake_take;
+	fake.client.access.poll = fake_poll;
 	fake.client.access.abort = fake_abort;
 	fake.client.access.ctx = &fake.client;
 	sdo_arbiter_init(&arbiter, &fake.client);
@@ -152,8 +151,8 @@ static void test_queued_control_abort(void)
 	CHECK(feedback->start(feedback->ctx, SDO_DIR_READ, 0x6041u, 0u, 0u, 0u, 100u) == 0);
 	CHECK(control->start(control->ctx, SDO_DIR_WRITE, 0x6060u, 0u, 1u, 1u, 200u) == 0);
 	control->abort(control->ctx);
-	CHECK(control->take_result(control->ctx, &result) == 0);
-	CHECK(result.status == -1);
+	CHECK(control->poll(control->ctx, &result) == SDO_POLL_DONE);
+	CHECK(result.status == SDO_STATUS_FAIL);
 	CHECK(fake.aborts == 0u); /* 尚未上总线，不应产生 abort 帧 */
 }
 
@@ -167,7 +166,7 @@ static void test_control_result_isolated(void)
 
 	memset(&fake, 0, sizeof(fake));
 	fake.client.access.start = fake_start;
-	fake.client.access.take_result = fake_take;
+	fake.client.access.poll = fake_poll;
 	fake.client.access.abort = fake_abort;
 	fake.client.access.ctx = &fake.client;
 	sdo_arbiter_init(&arbiter, &fake.client);
@@ -176,8 +175,8 @@ static void test_control_result_isolated(void)
 
 	CHECK(control->start(control->ctx, SDO_DIR_WRITE, 0x6060u, 0u, 1u, 1u, 200u) == 0);
 	fake_complete(&arbiter, 0, 0u);
-	CHECK(feedback->take_result(feedback->ctx, &result) == 1);
-	CHECK(control->take_result(control->ctx, &result) == 0);
+	CHECK(feedback->poll(feedback->ctx, &result) == SDO_POLL_IDLE);
+	CHECK(control->poll(control->ctx, &result) == SDO_POLL_DONE);
 	CHECK(result.status == 0);
 	CHECK(feedback->start(feedback->ctx, SDO_DIR_READ, 0x6041u, 0u, 0u, 0u, 100u) == 0);
 }

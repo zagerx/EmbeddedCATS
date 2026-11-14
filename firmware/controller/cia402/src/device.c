@@ -26,13 +26,10 @@ static int admit(struct cia402_device *d, const struct cia402_request *req);
 static int pop_request(struct cia402_device *d, struct cia402_request *out);
 static void dispatch_request(struct cia402_device *d, const struct cia402_request *req);
 static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *result);
-static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
+static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
 			    const struct sdo_result *result);
 static void dispatch_tick(struct cia402_device *d);
-static void set_cancel(struct cia402_device *d, uint8_t reason);
 static void snapshot(struct cia402_device *d, struct cia402_status *out);
-/* 事务是否已在总线上；通道未提供查询时按已在传输处理 */
-static int sdo_transferring(const struct cia402_device *d);
 
 /**
  * cia402_init - 装配一台设备
@@ -84,6 +81,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 {
 	struct sdo_result result;
 	struct cia402_request req;
+	enum sdo_poll state;
 	uint8_t cancel;
 
 	if (d == NULL || d->access == NULL) {
@@ -97,52 +95,28 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_status 
 	/* 读取本轮取消原因，后续事件分发统一使用这个副本 */
 	cancel = d->mailbox.cancel;
 
-	/* 抢占：先打断在途事务，让 take_result 尽快给出结论 */
-	if (cancel != CIA402_CANCEL_NONE && d->sdo.pending != 0u) {
+	/* 抢占：先打断在途事务，结论由取消事件统一给出 */
+	if (cancel != CIA402_CANCEL_NONE) {
 		d->access->abort(d->access->ctx);
 	}
 
-	/* 上一拍发起的动作被拒：补一个事件，让状态机照常往前走 */
-	if (d->sdo.rejected != 0u) {
-		d->sdo.rejected = 0u;
-		if (cancel != CIA402_CANCEL_NONE) {
-			/* 已被抢占：旧流程的结论作废，不能再发完成事件，
-			 * 否则上层会把这次旧失败当成新一轮停车的失败。 */
-			set_cancel(d, cancel);
-			dispatch_cancel(d, cancel, NULL);
-		} else {
-			result = d->sdo.result;
-			dispatch_sdo_done(d, &result);
-		}
-		goto done;
-	}
-
-	if (d->sdo.pending != 0u) {
-		if (d->access->take_result(d->access->ctx, &result) != 0) {
-			/* 结果还没到：事务真正上总线后才起算期限，排队等待不计超时 */
-			if (cancel == CIA402_CANCEL_NONE && sdo_transferring(d) != 0) {
-				if (d->sdo.armed == 0u) {
-					d->sdo.armed = 1u;
-					d->sdo.deadline = now_ms + d->sdo.timeout_ms;
-				}
-				if ((int32_t)(now_ms - d->sdo.deadline) >= 0) {
-					set_cancel(d, CIA402_CANCEL_TIMEOUT);
-					d->access->abort(d->access->ctx);
-				}
-			}
-			dispatch_tick(d);
-			goto done;
-		}
-		d->sdo.pending = 0u;
-		d->sdo.armed = 0u;
+	state = d->access->poll(d->access->ctx, &result);
+	if (state == SDO_POLL_DONE) {
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result); /* 结论作废，abort 码留着 */
+		} else if (result.status == SDO_STATUS_TIMEOUT) {
+			dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, &result);
 		} else {
 			dispatch_sdo_done(d, &result);
 		}
 		goto done;
 	}
+	if (state == SDO_POLL_WAITING) {
+		/* 有在途事务（含抢占后等 abort 结果）：流程不再推进 */
+		goto done;
+	}
 
+	/* 通道空闲：先把取消结清，再受理新请求，最后才走一拍空转 */
 	if (cancel != CIA402_CANCEL_NONE) {
 		dispatch_cancel(d, cancel, NULL);
 		goto done;
@@ -253,31 +227,31 @@ static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *
 	struct sdo_done_evt evt;
 
 	/* 控制字镜像只在事务成功后落地：所有写 6040 的状态共用这一处 */
-	if (d->sdo.cw_next_valid != 0u) {
+	if (d->cw.pending_valid != 0u) {
 		if (result->status == 0) {
-			d->sdo.cw_ok = d->sdo.cw_next;
+			d->cw.confirmed = d->cw.pending;
 		}
-		d->sdo.cw_next_valid = 0u;
+		d->cw.pending_valid = 0u;
 	}
 	evt.super.sig = CIA402_SIG_SDO_DONE;
 	evt.result = *result;
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
 
-static void dispatch_cancel(struct cia402_device *d, uint8_t cancel,
+static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
 			    const struct sdo_result *result)
 {
 	struct cancel_evt evt;
 
-	if (result != NULL) {
-		d->sdo.result = *result; /* 留 abort 码给 st_idle */
-	} else {
-		memset(&d->sdo.result, 0, sizeof(d->sdo.result));
-	}
 	d->mailbox.cancel = CIA402_CANCEL_NONE;
-	d->operation.cancel = cancel;
+	d->operation.cancel = reason;
+	if (result != NULL) {
+		evt.result = *result;
+	} else {
+		memset(&evt.result, 0, sizeof(evt.result));
+	}
 	evt.super.sig = CIA402_SIG_CANCEL;
-	evt.reason = cancel;
+	evt.reason = reason;
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
 
@@ -288,20 +262,7 @@ static void dispatch_tick(struct cia402_device *d)
 	sm_hsm_dispatch(&d->hsm, &evt_tick);
 }
 
-static void set_cancel(struct cia402_device *d, uint8_t reason)
-{
-	d->mailbox.cancel = reason;
-}
-
 static void snapshot(struct cia402_device *d, struct cia402_status *out)
 {
 	*out = d->outbox; /* 内部就是同一类型，整块抄走 */
-}
-
-static int sdo_transferring(const struct cia402_device *d)
-{
-	if (d->access->started == NULL) {
-		return 1;
-	}
-	return d->access->started(d->access->ctx);
 }

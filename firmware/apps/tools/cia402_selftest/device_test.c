@@ -17,8 +17,7 @@
 struct fake_access {
 	struct sdo_access access;
 	uint8_t started;
-	uint8_t on_bus; /* 模拟“已上总线”：仲裁器排队时为 0 */
-	uint8_t hold;   /* start 受理但不立即上总线 */
+	uint8_t refuse; /* start 直接拒绝 */
 	uint8_t dir;
 	uint8_t size;
 	uint16_t index;
@@ -37,9 +36,8 @@ struct fx {
 
 static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
 		      uint8_t size, uint32_t timeout_ms);
-static int fake_take_result(void *ctx, struct sdo_result *result);
+static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result);
 static void fake_abort(void *ctx);
-static int fake_started(void *ctx);
 
 static void fx_init(struct fx *f);
 static void fx_request(struct fx *f, enum cia402_kind kind);
@@ -56,7 +54,7 @@ static void test_quick_stop_timeout_chain(void);
 static void test_start_rejected(void);
 static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
-static void test_queued_not_timed_out(void);
+static void test_waiting_not_timed_out(void);
 
 static int failures;
 
@@ -84,7 +82,7 @@ int cia402_device_tests(void)
 	test_start_rejected();
 	test_cancel_beats_pending_failure();
 	test_timeout();
-	test_queued_not_timed_out();
+	test_waiting_not_timed_out();
 	return failures;
 }
 
@@ -95,11 +93,14 @@ static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint3
 
 	(void)sub;
 	(void)timeout_ms;
-	if (fake->started != 0u) {
+	if (fake->refuse != 0u || fake->started != 0u) {
+		/* 会话被占用：按契约仍交一笔失败结果，调用方不会等不到事件 */
+		memset(&fake->result, 0, sizeof(fake->result));
+		fake->result.status = SDO_STATUS_FAIL;
+		fake->result_ready = 1u;
 		return -1;
 	}
 	fake->started = 1u;
-	fake->on_bus = (fake->hold != 0u) ? 0u : 1u;
 	fake->dir = dir;
 	fake->index = index;
 	fake->value = value;
@@ -108,18 +109,17 @@ static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint3
 	return 0;
 }
 
-static int fake_take_result(void *ctx, struct sdo_result *result)
+static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result)
 {
 	struct fake_access *fake = ctx;
 
-	if (fake->result_ready == 0u) {
-		return 1;
+	if (fake->result_ready != 0u) {
+		*result = fake->result;
+		fake->result_ready = 0u;
+		fake->started = 0u;
+		return SDO_POLL_DONE;
 	}
-	*result = fake->result;
-	fake->result_ready = 0u;
-	fake->started = 0u;
-	fake->on_bus = 0u;
-	return 0;
+	return (fake->started != 0u) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
 }
 
 static void fake_abort(void *ctx)
@@ -129,22 +129,13 @@ static void fake_abort(void *ctx)
 	fake->aborts++;
 }
 
-static int fake_started(void *ctx)
-{
-	const struct fake_access *fake = ctx;
-
-	return fake->on_bus != 0u ? 1 : 0;
-}
-
 static void fx_init(struct fx *f)
 {
 	memset(f, 0, sizeof(*f));
 	f->fake.access.start = fake_start;
-	f->fake.access.take_result = fake_take_result;
+	f->fake.access.poll = fake_poll;
 	f->fake.access.abort = fake_abort;
-	f->fake.access.started = fake_started;
 	f->fake.access.ctx = &f->fake;
-	f->fake.on_bus = 1u;
 	cia402_init(&f->dev, &f->fake.access);
 }
 
@@ -279,7 +270,7 @@ static void test_pp(void)
 
 	fx_init(&f);
 	f.dev.outbox.enable_confirmed = 1u;
-	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
+	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	fx_poll(&f);
@@ -309,7 +300,7 @@ static void test_pp(void)
 	fx_poll(&f);
 
 	CHECK(f.st.last.result == CIA402_OP_DONE);
-	CHECK(f.dev.sdo.cw_ok == CIA402_CW_ENABLE_OP);
+	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
 	{
 		struct cia402_status status;
@@ -383,13 +374,13 @@ static void test_quick_stop_timeout_chain(void)
 
 	/* qstop 写超时：仍必须去读状态字 */
 	fx_poll_at(&f, f.t + 300u);
-	fx_complete(&f, -1, 0u);
+	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
 	/* 读状态超时：仍必须写断使能 */
 	fx_poll_at(&f, f.t + 300u);
-	fx_complete(&f, -1, 0u);
+	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
 
@@ -409,7 +400,7 @@ static void test_start_rejected(void)
 	f.dev.outbox.enable_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 
-	f.fake.started = 1u; /* 让 fake_start 直接拒绝 */
+	f.fake.refuse = 1u; /* 让 fake_start 直接拒绝 */
 	fx_poll(&f);
 	fx_poll(&f);
 
@@ -425,12 +416,12 @@ static void test_cancel_beats_pending_failure(void)
 
 	fx_init(&f);
 	f.dev.outbox.enable_confirmed = 1u;
-	f.dev.sdo.cw_ok = CIA402_CW_ENABLE_OP;
+	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
-	f.fake.started = 1u; /* 第一笔写被拒：rejected 置位 */
+	f.fake.refuse = 1u; /* 第一笔写被拒：通道交一笔失败结果 */
 	fx_poll(&f);
-	f.fake.started = 0u;
+	f.fake.refuse = 0u;
 
 	{
 		const struct cia402_request req = {.kind = CIA402_REQ_HALT};
@@ -445,7 +436,7 @@ static void test_cancel_beats_pending_failure(void)
 		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
 }
 
-/* 单笔事务超时：报失败并带上原因 */
+/* 通道交付超时：报失败并带上原因 */
 static void test_timeout(void)
 {
 	struct fx f;
@@ -455,9 +446,11 @@ static void test_timeout(void)
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
-	fx_poll_at(&f, 300u); /* 超过单笔事务期限 */
-	CHECK(f.fake.aborts == 1u);
-	fx_complete(&f, -1, 0u);
+	fx_poll_at(&f, 300u); /* 402 不自己计时：由通道判定 */
+	CHECK(f.fake.aborts == 0u);
+	CHECK(f.st.last.result == CIA402_OP_NONE);
+
+	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 
 	CHECK(f.st.last.result == CIA402_OP_FAILED);
@@ -465,26 +458,23 @@ static void test_timeout(void)
 	CHECK(f.st.phase == CIA402_PHASE_IDLE);
 }
 
-/* 排队等待通道时不计超时：期限从真正上总线开始 */
-static void test_queued_not_timed_out(void)
+/* 通道还在等结果时，402 不得自作主张判超时 */
+static void test_waiting_not_timed_out(void)
 {
 	struct fx f;
 
 	fx_init(&f);
-	f.fake.hold = 1u; /* start 受理，但事务还在排队 */
 	f.dev.outbox.mode_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
-	fx_poll_at(&f, 1000u); /* 排队远超期限：不得判超时 */
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	fx_poll_at(&f, 1000u);
+	fx_poll_at(&f, 5000u);
 	CHECK(f.fake.aborts == 0u);
 	CHECK(f.st.last.result == CIA402_OP_NONE);
 
-	f.fake.on_bus = 1u; /* 仲裁器真正开始传输 */
-	fx_poll_at(&f, 1000u);
-	fx_poll_at(&f, 1100u); /* 起算后 100ms：仍在期限内 */
-	CHECK(f.fake.aborts == 0u);
-
-	fx_poll_at(&f, 1300u); /* 起算后 300ms：超时 */
-	CHECK(f.fake.aborts == 1u);
+	fx_complete(&f, 0, 0x0040u); /* 仲裁器终于开始并完成传输 */
+	fx_poll_at(&f, 5000u);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN);
 }

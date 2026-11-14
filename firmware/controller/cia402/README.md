@@ -66,8 +66,12 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 |---|---|---|
 | `CIA402_SIG_REQUEST` | 邮箱里取出新请求（载荷是 `struct cia402_request`）| `st_idle`：按 kind 迁到该流程的第一个状态 |
 | `CIA402_SIG_SDO_DONE` | 一笔事务有了结果 | 当前状态：判结果、决定下一步或收尾 |
-| `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或单笔事务超时 | `st_operation_active`：统一退出回 `st_idle` |
+| `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或通道交付超时 | `st_operation_active`：统一退出回 `st_idle` |
 | `CIA402_SIG_TICK` | 每拍一次 | 空闲时消费；本模块不主动读取反馈 |
+
+单笔事务的在途状态和期限由 `sdo_access` 通道持有，本模块不记账：
+`dev_read()` / `dev_write()` 只发起，`cia402_poll()` 用 `poll()` 的三态
+（`DONE` / `WAITING` / `IDLE`）判断有没有在途事务，不会自己判超时。
 
 一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。

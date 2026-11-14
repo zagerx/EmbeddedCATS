@@ -23,4 +23,7 @@
 /* CIA402_SIG_SDO_DONE 事件里的传输结果 */
 #define DEV_SDO_RESULT(e_) (&SM_EVT_CAST(struct sdo_done_evt, (e_))->result)
 
+/* CIA402_SIG_CANCEL 事件里的传输结果（无在途事务时各项为 0） */
+#define DEV_CANCEL_RESULT(e_) (&SM_EVT_CAST(struct cancel_evt, (e_))->result)
+
 #endif /* CIA402_STATES_H */

@@ -45,8 +45,8 @@ void controller_feedback_poll(struct controller *ctl, uint32_t now_ms)
 			continue;
 		}
 		item = feedback->next;
-		if (access->take_result(access->ctx, &result) == 0) {
-			if (result.status == 0) {
+		if (access->poll(access->ctx, &result) == SDO_POLL_DONE) {
+			if (result.status == SDO_STATUS_OK) {
 				feedback_store(feedback, item, &result);
 				feedback->updated_ms[item] = now_ms;
 			}

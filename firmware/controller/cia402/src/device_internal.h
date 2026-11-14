@@ -49,12 +49,13 @@ struct sdo_done_evt {
 
 struct cancel_evt {
 	struct sm_event super;
-	uint8_t reason; /* enum cia402_cancel_reason */
+	struct sdo_result result; /* 被取消的那笔事务的原始结果，全部为 0 表示无在途事务 */
+	uint8_t reason;           /* enum cia402_cancel_reason */
 };
 
 /* ---- 状态函数共用原语（device.c） ---- */
 
-/* 发起一笔读；被拒时登记一个失败事件，由下一拍分发 */
+/* 发起一笔读；事务状态与期限归通道所有，结果由 cia402_poll 派发 */
 void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
 /* 发起一笔写；写 6040 时暂存期望值，事务成功后才落到控制字镜像 */
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,

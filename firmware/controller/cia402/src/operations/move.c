@@ -138,7 +138,7 @@ sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, d->sdo.cw_ok | CIA402_CW_NEW_SETPOINT, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_NEW_SETPOINT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -166,7 +166,7 @@ sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		dev_write(d, CIA402_OD_CONTROLWORD,
-			  d->sdo.cw_ok & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
+			  d->cw.confirmed & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 

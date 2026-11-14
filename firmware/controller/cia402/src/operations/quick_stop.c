@@ -111,7 +111,7 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 
 	case CIA402_SIG_CANCEL:
 		/* 最后一环也失败：这里是唯一该报失败的地方 */
-		dev_fail(d, &d->sdo.result);
+		dev_fail(d, DEV_CANCEL_RESULT(e));
 		return SM_TRAN(&st_idle);
 
 	default:

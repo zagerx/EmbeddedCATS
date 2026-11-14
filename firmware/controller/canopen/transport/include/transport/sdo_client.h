@@ -3,6 +3,7 @@
  *
  * 请求、推进与结果收取均属于同一个 CANopen 工作线程，不使用互斥锁。
  * 每条通道同时最多一笔事务，取消也生成一笔可取走的结果。
+ * 事务期限由本层掌握：start 受理即开始计时，到期自行 abort 并交付超时结果。
  *
  * Author: zager
  */
@@ -31,7 +32,10 @@ struct sdo_client {
 	struct sdo_access access;
 	uint8_t dir;
 	uint8_t state;
-	uint8_t cancel;
+	uint8_t cancel;    /* 上层请求取消 */
+	uint8_t timed_out; /* 本次结束是期限到，结果报 TIMEOUT */
+	uint32_t timeout_us; /* 本笔事务的期限长度 */
+	uint32_t elapsed_us; /* 本笔事务已用时间 */
 	struct sdo_result result;
 };
 

@@ -5,7 +5,7 @@
  * 所以它们不属于 device.c（device.c 只对应 device.h 的对外接口）。
  *
  * 两件事：
- *   1. 发起一笔对象事务（dev_read / dev_write）；
+ *   1. 发起一笔对象事务（dev_read / dev_write），在途状态归通道所有；
  *   2. 收尾流程并写主站确认结果，或提供流程阶段。
  *
  * Author: zager
@@ -13,35 +13,18 @@
 
 #include "device_internal.h"
 
-#include <string.h>
-
-/* 发起被拒：登记一个失败事件，由下一拍 poll 分发 */
-static void pend_failure(struct cia402_device *d);
-
 /**
  * dev_read - 发起一笔读事务
  * @d: 设备对象
  * @index: 对象索引
- * @timeout_ms: 本笔事务的期限
+ * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * 被拒时不在这里改状态机：登记一个失败事件，由下一拍 poll 分发。
- * 这样状态函数永远只在 ENTRY / DONE 里做一次动作，不会在 ENTRY 里递归迁移。
+ * 事务的在途状态与期限都归通道所有：这里只发起，结果统一由 cia402_poll 派发。
+ * 发起即使被拒，通道也保证交付一笔结果，状态机不会等不到事件。
  */
 void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	d->sdo.timeout_ms = timeout_ms;
-	d->sdo.armed = 0u;
-	d->sdo.cw_next_valid = 0u;
-	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
-		pend_failure(d);
-		return;
-	}
-	d->sdo.pending = 1u;
-	if (d->access->started == NULL || d->access->started(d->access->ctx) != 0) {
-		/* 已经上总线：期限从现在起算；排队实现由 poll 在真正开始时起算 */
-		d->sdo.armed = 1u;
-		d->sdo.deadline = d->now_ms + timeout_ms;
-	}
+	(void)d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms);
 }
 
 /**
@@ -50,7 +33,7 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
  * @index: 对象索引
  * @value: 待写值
  * @size: 字节数
- * @timeout_ms: 本笔事务的期限
+ * @timeout_ms: 本笔事务的期限，由通道掌握
  *
  * 写 6040 时先暂存期望值，事务成功后才落到镜像，
  * 免得上一次失败的控制字被后续流程当成"当前值"用。
@@ -58,26 +41,11 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms)
 {
-	d->sdo.timeout_ms = timeout_ms;
-	d->sdo.armed = 0u;
 	if (index == CIA402_OD_CONTROLWORD) {
-		d->sdo.cw_next = (uint16_t)value;
-		d->sdo.cw_next_valid = 1u;
-	} else {
-		d->sdo.cw_next_valid = 0u;
+		d->cw.pending = (uint16_t)value;
+		d->cw.pending_valid = 1u;
 	}
-	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms) !=
-	    0) {
-		d->sdo.cw_next_valid = 0u;
-		pend_failure(d);
-		return;
-	}
-	d->sdo.pending = 1u;
-	if (d->access->started == NULL || d->access->started(d->access->ctx) != 0) {
-		/* 已经上总线：期限从现在起算；排队实现由 poll 在真正开始时起算 */
-		d->sdo.armed = 1u;
-		d->sdo.deadline = d->now_ms + timeout_ms;
-	}
+	(void)d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms);
 }
 
 /**
@@ -121,7 +89,7 @@ void dev_finish(struct cia402_device *d, enum cia402_operation_result result,
 	/* 流程自己收尾：把 phase 归位，st_idle 的 ENTRY 据此知道不必再补结论。
 	 * 被打断退出（SIG_DEV_CANCEL）不走这里，phase 仍是流程的。 */
 	d->outbox.phase = CIA402_PHASE_IDLE;
-	d->sdo.cw_next_valid = 0u;
+	d->cw.pending_valid = 0u;
 }
 
 /**
@@ -135,8 +103,9 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 
 	if (result == NULL) {
 		fail = CIA402_OP_FAIL_NONE;
-	} else if (result->abort_code == 0u) {
-		fail = CIA402_OP_FAIL_TIMEOUT; /* 没有 abort 码的失败多半是超时 */
+	} else if (result->status == SDO_STATUS_TIMEOUT || result->abort_code == 0u) {
+		/* 通道判定期限到，或没有 abort 码的失败：驱动器没按期应答 */
+		fail = CIA402_OP_FAIL_TIMEOUT;
 	}
 	d->outbox.last.abort_code = (result != NULL) ? result->abort_code : 0u;
 	dev_finish(d, CIA402_OP_FAILED, fail);
@@ -167,12 +136,4 @@ enum cia402_phase dev_phase_of(enum cia402_kind kind)
 	/* 故意不写 default：漏了某个 kind 时由 -Wswitch 报出来。
 	 * 走到这里说明 kind 越界（cia402_request 已校验过），返回 IDLE 不冒充"忙"。 */
 	return CIA402_PHASE_IDLE;
-}
-
-static void pend_failure(struct cia402_device *d)
-{
-	memset(&d->sdo.result, 0, sizeof(d->sdo.result));
-	d->sdo.result.status = -1;
-	d->sdo.rejected = 1u;
-	d->sdo.cw_next_valid = 0u;
 }
