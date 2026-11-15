@@ -2,7 +2,7 @@
  * config.c — PP 配置操作：写 6060 并回读 6061 确认模式
  *
  * 模式设不进去就等于后面所有 PP 都跑错，所以这一步必须回读比对；
- * 回读值不等于请求值即判失败，不做重试（重试由上层决定）。
+ * 回读值不等于请求值即判失败，重试由上层决定。
  *
  * Author: zager
  */
@@ -64,9 +64,9 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 		if (r->status != 0) {
 			dev_fail(d, r);
 		} else if ((r->value & 0xFFu) == CIA402_MODE_PP) {
-			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 		} else {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_CHECK); /* 模式没设进去 */
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_CHECK); /* 模式没设进去 */
 		}
 		return SM_TRAN(&st_idle);
 	}

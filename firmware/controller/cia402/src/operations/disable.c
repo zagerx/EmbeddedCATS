@@ -58,11 +58,11 @@ sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e
 			return SM_TRAN(&st_idle);
 		}
 		if (cia402_parse((uint16_t)r->value) == CIA402_SWITCH_ON_DISABLED) {
-			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_TIMEOUT);
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_disable_read);

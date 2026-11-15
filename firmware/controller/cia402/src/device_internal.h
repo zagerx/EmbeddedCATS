@@ -60,13 +60,10 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
 /* 发起一笔写；写 6040 时暂存期望值，事务成功后才落到控制字镜像 */
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms);
-/* 结束当前流程：写结论与失败原因，调用方随后迁回 st_idle */
-void dev_finish(struct cia402_device *d, enum cia402_operation_result result, enum cia402_operation_fail fail);
+/* 结束当前流程：写回执与失败原因，调用方随后迁回 st_idle */
+void dev_finish(struct cia402_device *d, enum cia402_outcome result, enum cia402_fail fail);
 /* 事务失败时的统一收尾 */
 void dev_fail(struct cia402_device *d, const struct sdo_result *result);
-/* 取当前在执行的请求类别（判断是不是某条流程）*/
-/* 请求类别 → 对外报告的阶段 */
-enum cia402_phase dev_phase_of(enum cia402_kind kind);
 
 /* ---- 状态函数 ---- */
 

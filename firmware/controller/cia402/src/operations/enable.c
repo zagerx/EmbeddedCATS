@@ -4,7 +4,7 @@
  * 每一步都是「写一条控制字，然后反复读 6041 等它到位」。读到意外状态就按
  * PDS 现状重新选路（例如中途报故障就转复位链），只有超时才判失败。
  *
- * 状态字是**从站**状态的投影：本层不维护自己的迁移表，只按 6041 决定下一步。
+ * 状态字是从站状态的投影，本层只按 6041 决定下一步。
  *
  * Author: zager
  */
@@ -134,8 +134,8 @@ sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *co
 			return SM_TRAN(route_from(d, pds));
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OP_FAILED,
-				   CIA402_OP_FAIL_DRIVER); /* 一直是 FAULT：复位无效 */
+			dev_finish(d, CIA402_OUTCOME_FAILED,
+				   CIA402_FAIL_DRIVER); /* 一直是 FAULT：复位无效 */
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_enable_read_reset);
@@ -339,10 +339,10 @@ static sm_state_t route_from(struct cia402_device *d, enum cia402_pds_state pds)
 	case CIA402_SWITCHED_ON:
 		return &st_enable_write_enable_op;
 	case CIA402_OP_ENABLED:
-		dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE); /* 已经在使能态：不用再发帧 */
+		dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE); /* 已经在使能态：不用再发帧 */
 		return &st_idle;
 	default:
-		dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_DRIVER);
+		dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_DRIVER);
 		return &st_idle;
 	}
 }
@@ -356,15 +356,15 @@ static sm_state_t wait_step(struct cia402_device *d, uint16_t sw, enum cia402_pd
 		if (next != NULL) {
 			return next;
 		}
-		dev_finish(d, CIA402_OP_DONE,
-			   CIA402_OP_FAIL_NONE); /* 最后一步：等到了就是使能完成 */
+		dev_finish(d, CIA402_OUTCOME_DONE,
+			   CIA402_FAIL_NONE); /* 最后一步：等到了就是使能完成 */
 		return &st_idle;
 	}
 	if (pds == CIA402_FAULT) {
 		return &st_enable_reset_low; /* 中途报故障：转复位链，不判失败 */
 	}
 	if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-		dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_TIMEOUT);
+		dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
 		return &st_idle;
 	}
 	return NULL; /* 还没到：调用方重入本状态再读一次 */

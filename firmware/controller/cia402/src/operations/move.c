@@ -3,9 +3,8 @@
  *
  * 写四个参数 → 6040 bit4 上升沿（再落沿）触发 → 读 6041 等到位。
  *
- * 到位判定要求"先见到 bit10 = 0，再见到 bit10 = 1"：否则刚触发那一拍
- * 读到的可能是上一条运动的旧值。若 bit10 一开始就是 1，则读 6064 与目标
- * 比对，分辨"目标等于当前位置"和"旧值未清"。
+ * 到位判定先要求见到 bit10 = 0：刚触发那一拍读到的可能是上一条运动的旧值。
+ * 若 bit10 一开始就是 1，则读 6064 与目标比对，分辨“目标等于当前位置”和“旧值未清”。
  *
  * 每笔事务分轮推进：工作线程可以在等待期间处理其它设备。
  *
@@ -209,20 +208,20 @@ sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const
 		}
 		sw = (uint16_t)r->value;
 		if (cia402_parse(sw) == CIA402_FAULT) {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_DRIVER);
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
 		}
 		if ((sw & CIA402_SW_TARGET_REACHED) == 0u) {
 			d->operation.pp.seen_low = 1u; /* 目标确实还没到 */
 		} else if (d->operation.pp.seen_low != 0u) {
-			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		} else {
 			/* bit10 一开始就是 1：读 6064 分辨"目标等于当前位置"和旧值 */
 			return SM_TRAN(&st_pp_read_position);
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_TIMEOUT);
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_pp_read_status);
@@ -257,11 +256,11 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 			return SM_TRAN(&st_idle);
 		}
 		if ((int32_t)r->value == d->operation.pp.issued) {
-			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OP_FAILED, CIA402_OP_FAIL_TIMEOUT);
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_pp_read_status);

@@ -1,9 +1,9 @@
 /*
- * controller_axes.c — 整机级轴集合动作与汇总判定
+ * controller_axes.c — 整机级轴集合动作
  *
- * 集合的所有者是组合根，所以批量动作与"全部/任一"判定放在这一层；
- * axis 层只暴露单轴接口，本文件用 ctl->axis_count 作为循环上界，
- * 未装配（0 轴）时全部动作是空操作，判定一律回答 0。
+ * 集合的所有者是组合根，所以批量动作放在这一层；axis 层只暴露单轴接口，
+ * 本文件用 ctl->axis_count 作为循环上界，未装配（0 轴）时全部动作是空操作。
+ * 每轴回执不在这里汇总：由发起动作的状态自己消费（axis_take_motion）。
  *
  * Author: zager
  */
@@ -79,70 +79,18 @@ void controller_quick_stop_all(struct controller *ctl)
 }
 
 /**
- * controller_all_configured - 检查是否所有轴均已配置
+ * controller_axis_mask - 位图里覆盖全部已装配轴的掩码
  * @ctl: 控制上下文；NULL 安全
  *
- * Return: 1 全部配置；0 存在未配置轴或未装配。
+ * Return: 掩码；未装配时返回 0，调用方据此区分“零轴”与“全部完成”。
  */
-int controller_all_configured(const struct controller *ctl)
+uint8_t controller_axis_mask(const struct controller *ctl)
 {
-	struct cia402_status status;
-	uint8_t i;
-
 	if (ctl == NULL || ctl->axis_count == 0u) {
-		return 0;
+		return 0u;
 	}
-	for (i = 0; i < ctl->axis_count; i++) {
-		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.mode_confirmed == 0u) {
-			return 0;
-		}
+	if (ctl->axis_count >= 8u) {
+		return 0xFFu;
 	}
-	return 1;
-}
-
-/**
- * controller_all_enabled - 检查是否所有轴均已使能
- * @ctl: 控制上下文；NULL 安全
- *
- * Return: 1 全部使能；0 存在未使能轴或未装配。
- */
-int controller_all_enabled(const struct controller *ctl)
-{
-	struct cia402_status status;
-	uint8_t i;
-
-	if (ctl == NULL || ctl->axis_count == 0u) {
-		return 0;
-	}
-	for (i = 0; i < ctl->axis_count; i++) {
-		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.enable_confirmed == 0u) {
-			return 0;
-		}
-	}
-	return 1;
-}
-
-/**
- * controller_any_failed - 检查是否存在失败轴
- * @ctl: 控制上下文；NULL 安全
- *
- * Return: 1 至少一轴失败；0 无失败轴或未装配。
- */
-int controller_any_failed(const struct controller *ctl)
-{
-	struct cia402_status status;
-	uint8_t i;
-
-	if (ctl == NULL) {
-		return 0;
-	}
-	for (i = 0; i < ctl->axis_count; i++) {
-		cia402_get_status(&ctl->axes[i].dev, &status);
-		if (status.operation_failed != 0u) {
-			return 1;
-		}
-	}
-	return 0;
+	return (uint8_t)((1u << ctl->axis_count) - 1u);
 }

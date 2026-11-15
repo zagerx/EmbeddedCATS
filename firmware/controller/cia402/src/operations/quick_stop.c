@@ -2,10 +2,7 @@
  * quick_stop.c — 快速停操作：6040 = 02，等驱动器自己停下，再断使能
  *
  * 这条链即使中途失败也要走完：写失败仍去读状态，读失败仍去断使能。
- * 安全动作不允许因为一笔事务没成而停在「还在使能」的状态。
- *
- * 因此三个状态都自己处理 CIA402_SIG_CANCEL（单笔超时/被抢断），而不是让
- * st_operation_active 的统一退出把整条链一起收掉；只有最后一步失败才报失败。
+ * 三个状态各自处理 CIA402_SIG_CANCEL，只有最后一步失败才报失败。
  *
  * Author: zager
  */
@@ -35,7 +32,7 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_qstop_read);
 
 	case CIA402_SIG_CANCEL:
-		/* 单笔事务超时或被抢断：同样往下走，不允许停在「还在使能」 */
+		/* 事务失败或被抢断：同样往下走 */
 		d->operation.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
 		return SM_TRAN(&st_qstop_read);
 
@@ -105,7 +102,7 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 		if (DEV_SDO_RESULT(e)->status != 0) {
 			dev_fail(d, DEV_SDO_RESULT(e));
 		} else {
-			dev_finish(d, CIA402_OP_DONE, CIA402_OP_FAIL_NONE);
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 		}
 		return SM_TRAN(&st_idle);
 

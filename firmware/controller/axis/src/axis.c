@@ -91,13 +91,13 @@ int axis_halt(struct axis *a)
  */
 uint32_t axis_abort_code(const struct axis *a)
 {
-	struct cia402_status status;
+	struct cia402_operation_result status;
 
 	if (a == NULL) {
 		return 0U;
 	}
-	cia402_get_status(&a->dev, &status);
-	return status.last.abort_code;
+	cia402_get_result(&a->dev, &status);
+	return status.abort_code;
 }
 
 /**
@@ -125,30 +125,27 @@ void axis_sample(const struct axis *a, struct axis_sample *out, int32_t position
 }
 
 /**
- * axis_take_motion - 取走轴运动结论并查询在途状态
+ * axis_take_motion - 取走轴最近一次动作的结论
  * @a: 轴对象；NULL 安全
  *
- * Return: DONE、FAILED、BUSY 或 NONE；@a 为 NULL 时返回 NONE。
+ * Return: DONE、FAILED 或 NONE；@a 为 NULL 时返回 NONE。
  */
 enum axis_motion axis_take_motion(struct axis *a)
 {
-	enum cia402_operation_result result;
-	struct cia402_status status;
+	enum cia402_outcome result;
 
 	if (a == NULL) {
 		return AXIS_MOTION_NONE;
 	}
 
 	result = cia402_take_result(&a->dev);
-	if (result == CIA402_OP_DONE) {
+	if (result == CIA402_OUTCOME_DONE) {
 		return AXIS_MOTION_DONE;
 	}
-	if (result == CIA402_OP_FAILED) {
+	if (result == CIA402_OUTCOME_FAILED) {
 		return AXIS_MOTION_FAILED;
 	}
-
-	cia402_get_status(&a->dev, &status);
-	return (status.phase != CIA402_PHASE_IDLE) ? AXIS_MOTION_BUSY : AXIS_MOTION_NONE;
+	return AXIS_MOTION_NONE;
 }
 
 /**

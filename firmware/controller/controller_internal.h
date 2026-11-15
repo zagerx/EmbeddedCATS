@@ -51,6 +51,7 @@ struct controller {
 	uint8_t hb_ok;
 	struct controller_move_cmd move;
 	uint8_t move_done;
+	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */
 	struct sm_hsm hsm;
 	uint32_t state_since_ms;
 	enum controller_fault fault_code;
@@ -88,9 +89,8 @@ void controller_publish(void);
 #define AXIS_ALL UINT8_MAX
 
 /*
- * 整机级轴集合动作（controller_axes.c）：只负责下发，不看每轴结果，
- * 拒绝与失败由设备层记录，状态图用 controller_any_failed() /
- * controller_all_configured() 判断。
+ * 整机级轴集合动作（controller_axes.c）：只负责下发，不看每轴结果。
+ * 每轴回执由发起动作的状态自己消费（axis_take_motion），本层不缓存结论。
  * 返回：0 已下发；-1 轴号越界、未装配或参数为空。
  */
 int controller_config_movemode(struct controller *ctl, uint8_t axis_no);
@@ -101,9 +101,7 @@ int controller_enable_all(struct controller *ctl);
 /* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
 void controller_quick_stop_all(struct controller *ctl);
 
-/* 汇总判定：1 = 满足条件；0 = 不满足或未装配 */
-int controller_all_configured(const struct controller *ctl);
-int controller_all_enabled(const struct controller *ctl);
-int controller_any_failed(const struct controller *ctl);
+/* 位图里覆盖全部已装配轴的掩码；未装配时返回 0 */
+uint8_t controller_axis_mask(const struct controller *ctl);
 
 #endif /* CONTROL_INTERNAL_H */

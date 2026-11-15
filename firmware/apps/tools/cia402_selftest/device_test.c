@@ -30,7 +30,7 @@ struct fake_access {
 struct fx {
 	struct fake_access fake;
 	struct cia402_device dev;
-	struct cia402_status st;
+	struct cia402_operation_result st;
 	uint32_t t;
 };
 
@@ -199,22 +199,12 @@ static void test_request_rules(void)
 	req.pp.velocity = 0; /* 速度 0 等于不动 */
 	CHECK(cia402_request(&f.dev, &req) == CIA402_INVALID);
 
-	/* 未配置不能使能 */
+	/* 前置条件由调用方负责：未配置也能受理使能，本模块只判忙 */
 	memset(&req, 0, sizeof(req));
 	req.kind = CIA402_REQ_ENABLE;
-	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
-
-	/* 未使能不能运动 */
-	f.dev.outbox.mode_confirmed = 1u;
-	req.kind = CIA402_REQ_MOVE;
-	req.pp.velocity = 10;
-	req.pp.accel = 20;
-	req.pp.decel = 20;
-	CHECK(cia402_request(&f.dev, &req) == CIA402_REFUSED);
-
-	/* 忙：上一条没结束 */
-	req.kind = CIA402_REQ_ENABLE;
 	CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+
+	/* 忙：上一条还没被工作线程取走 */
 	CHECK(cia402_request(&f.dev, &req) == CIA402_BUSY);
 
 	/* 抢占不受忙限制 */
@@ -228,11 +218,9 @@ static void test_enable(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.mode_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll(&f);
-	CHECK(f.st.phase == CIA402_PHASE_ENABLE);
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
 	fx_complete(&f, 0, 0x0040u);
@@ -258,9 +246,7 @@ static void test_enable(void)
 	fx_complete(&f, 0, 0x0027u);
 	fx_poll(&f);
 
-	CHECK(f.st.enable_confirmed != 0);
-	CHECK(f.st.last.result == CIA402_OP_DONE);
-	CHECK(f.st.phase == CIA402_PHASE_IDLE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
 }
 
 /* PP：写四个参数 → bit4 边沿 → 等到位 */
@@ -269,7 +255,6 @@ static void test_pp(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.enable_confirmed = 1u;
 	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
@@ -299,17 +284,16 @@ static void test_pp(void)
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 
-	CHECK(f.st.last.result == CIA402_OP_DONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
 	{
-		struct cia402_status status;
+		struct cia402_operation_result status;
 
-		cia402_get_status(&f.dev, &status);
-		CHECK(status.phase == CIA402_PHASE_IDLE);
-		CHECK(status.last.result == CIA402_OP_DONE);
-		CHECK(cia402_take_result(&f.dev) == CIA402_OP_DONE);
-		CHECK(cia402_take_result(&f.dev) == CIA402_OP_NONE);
+		cia402_get_result(&f.dev, &status);
+		CHECK(status.outcome == CIA402_OUTCOME_DONE);
+		CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_DONE);
+		CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
 	}
 }
 
@@ -319,7 +303,6 @@ static void test_quick_stop_preempts(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.enable_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -334,7 +317,7 @@ static void test_quick_stop_preempts(void)
 	fx_complete(&f, -1, 0u); /* 被 abort 的旧事务 */
 	fx_poll(&f);
 	/* 旧流程作废：不能留下失败结论 */
-	CHECK(f.st.last.result == CIA402_OP_NONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
@@ -346,8 +329,7 @@ static void test_quick_stop_preempts(void)
 
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st.enable_confirmed == 0u);
-	CHECK(f.st.last.result == CIA402_OP_DONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
 }
 
 /* 安全链：qstop 写超时仍读状态，读超时仍断使能 */
@@ -356,7 +338,6 @@ static void test_quick_stop_timeout_chain(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.enable_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
@@ -387,8 +368,7 @@ static void test_quick_stop_timeout_chain(void)
 	/* 最后一步成功才收尾 */
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st.enable_confirmed == 0u);
-	CHECK(f.st.last.result == CIA402_OP_DONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
 }
 
 /* 发起被立即拒绝：下一拍给出失败结论 */
@@ -397,16 +377,13 @@ static void test_start_rejected(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.enable_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	f.fake.refuse = 1u; /* 让 fake_start 直接拒绝 */
 	fx_poll(&f);
 	fx_poll(&f);
 
-	CHECK(f.st.last.result == CIA402_OP_FAILED);
-	CHECK(f.st.phase == CIA402_PHASE_IDLE);
-	CHECK(f.st.operation_failed != 0u);
+	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
 }
 
 /* 已被抢占的流程，其未分发的失败不能泄漏成结论 */
@@ -415,7 +392,6 @@ static void test_cancel_beats_pending_failure(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.enable_confirmed = 1u;
 	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
@@ -429,7 +405,7 @@ static void test_cancel_beats_pending_failure(void)
 		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
 	}
 	fx_poll(&f);
-	CHECK(f.st.last.result == CIA402_OP_NONE); /* 旧失败作废 */
+	CHECK(f.st.outcome == CIA402_OUTCOME_NONE); /* 旧失败作废 */
 
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
@@ -442,20 +418,18 @@ static void test_timeout(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.mode_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
 	fx_poll_at(&f, 300u); /* 402 不自己计时：由通道判定 */
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st.last.result == CIA402_OP_NONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
 
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 
-	CHECK(f.st.last.result == CIA402_OP_FAILED);
-	CHECK(f.st.last.fail == CIA402_OP_FAIL_TIMEOUT);
-	CHECK(f.st.phase == CIA402_PHASE_IDLE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
+	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
 }
 
 /* 通道还在等结果时，402 不得自作主张判超时 */
@@ -464,7 +438,6 @@ static void test_waiting_not_timed_out(void)
 	struct fx f;
 
 	fx_init(&f);
-	f.dev.outbox.mode_confirmed = 1u;
 	fx_request(&f, CIA402_REQ_ENABLE);
 
 	fx_poll_at(&f, 0u);
@@ -472,7 +445,7 @@ static void test_waiting_not_timed_out(void)
 	fx_poll_at(&f, 1000u);
 	fx_poll_at(&f, 5000u);
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st.last.result == CIA402_OP_NONE);
+	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
 
 	fx_complete(&f, 0, 0x0040u); /* 仲裁器终于开始并完成传输 */
 	fx_poll_at(&f, 5000u);

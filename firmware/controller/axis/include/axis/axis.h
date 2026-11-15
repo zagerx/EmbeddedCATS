@@ -34,12 +34,11 @@ struct axis_sample {
 	uint16_t error_code; /* 603F：驱动器自己报的错误码（不是主站的判断） */
 };
 
-/* 运动结论汇总（已从 402 取走，不会重复上报） */
+/* 运动结论汇总（已从 402 取走，不会重复上报）；NONE = 还没结论，还在跑或未发起 */
 enum axis_motion {
-	AXIS_MOTION_NONE = 0, /* 没有运动在途 */
-	AXIS_MOTION_BUSY,     /* 还在走 */
-	AXIS_MOTION_DONE,     /* 到了 / 停稳了 */
-	AXIS_MOTION_FAILED    /* 超时 / abort / 驱动器故障 */
+	AXIS_MOTION_NONE = 0,
+	AXIS_MOTION_DONE,  /* 到了 / 停稳了 */
+	AXIS_MOTION_FAILED /* 超时 / abort / 驱动器故障 */
 };
 
 /* 推进一次设备状态机；仅 CANopen 工作线程调用 */

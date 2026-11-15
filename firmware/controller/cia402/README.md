@@ -2,9 +2,13 @@
 
 一个 `struct cia402_device` 对应一个从站的非阻塞控制上下文。每个实例独立保存请求、状态机、传输进度和超时，不使用跨设备共享的可写状态。一个实例同时最多一个操作流程、一笔对象事务；一个操作流程可以依次包含多笔事务。
 
-`struct cia402_status` 是主站依据通信流程作出的确认与操作回执，不是驱动器实时状态的完整镜像。外部反馈读取与缓存由控制器负责，402 只提供对象索引；详见 `边界.md`。
+`struct cia402_operation_result` 只放**一次操作的回执**（`outcome` / `fail` / `abort_code`），
+不是驱动器实时状态，也不缓存任何驱动器事实。当前模式、PDS 状态、位置速度都由控制器自己
+读（控制器已按轴缓存 6041/6064/606C/603F），402 只提供对象索引；详见 `边界.md`。
 
-`mode_confirmed` 表示已写 `6060` 并回读 `6061` 确认 PP；`enable_confirmed` 表示使能流程曾确认成功且此后没有确认断使能。它们不会因为一次普通反馈读取而无条件改变。`operation_failed` 与 `last` 描述主站操作，不等同于驱动器的 Fault 状态。
+没有 `mode_confirmed` / `enable_confirmed` 这类标志位：它们只是「上一次 CONFIG/ENABLE
+成功了」的派生值，驱动器掉使能、换模式或掉电后都会与实际不符，判断依据必须来自对象读取。
+同样地，`admit()` 不校验流程前提（先配置、先使能），只回答忙不忙，顺序责任在调用方。
 
 普通调用方只包含 `device.h`，其中实例是不透明类型。轴层作为对象所有者包含 `device_instance.h`，仅用于提供静态存储；`operation`、`sdo`、`mailbox` 等字段由模块内部推进流程，所有者也不得直接读写。
 
@@ -16,7 +20,7 @@ cia402/
 │   ├── types.h    PDS 状态、控制字/状态字位、模式号
 │   ├── od.h       DS402 对象号
 │   ├── pds.h      状态字解析
-│   ├── device.h   对外接口 + 请求/状态结构 + 不透明实例声明
+│   ├── device.h   对外接口 + 请求/回执结构 + 不透明实例声明
 │   └── device_instance.h  实例存储定义，仅供对象所有者与模块内部包含
 └── src/
     ├── pds.c              纯标准知识
@@ -45,17 +49,17 @@ cia402/
 void         cia402_init(struct cia402_device *d, const struct sdo_access *access);
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 void         cia402_poll(struct cia402_device *d, uint32_t now_ms,
-                         struct cia402_status *out);
-void         cia402_get_status(const struct cia402_device *d,
-                               struct cia402_status *out);
-enum cia402_operation_result cia402_take_result(struct cia402_device *d);
+                         struct cia402_operation_result *out);
+void         cia402_get_result(const struct cia402_device *d,
+                               struct cia402_operation_result *out);
+enum cia402_outcome cia402_take_result(struct cia402_device *d);
 ```
 
-- **request 只说"收不收"**：`ACCEPTED` / `BUSY` / `INVALID` / `REFUSED`，不阻塞、不承诺成功；
-- **poll 每拍推进一次并输出主站确认结果**：`phase` 是当前执行的操作，`mode_confirmed` / `enable_confirmed`
-  是已确认的流程事实，`operation_failed` 是操作失败记录；`last.*` 是最近一次操作回执；
+- **request 只说“收不收”**：`ACCEPTED` / `BUSY` / `INVALID`，不阻塞、不承诺成功，也不校验流程前提；
+- **poll 每拍推进一次，并可交出回执**：`out` 非空时拷贝回执三项（最近一次操作的结果），
+  其余内部状态不对外发布；
 - **反馈不属于本模块的公共输出**：控制器通过对象索引自行发起 SDO，并管理读取结果；
-- **等待不是本层的职责**：想同步的调用方自己轮询 `last.result`。
+- **等待不是本层的职责**：想同步的调用方自己轮询 `outcome`。
 
 "成功/失败"必须从 poll 出——request 返回的那一刻流程还没跑，它不可能知道结果。
 
@@ -76,9 +80,9 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。
 
-`last.result` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
-`last.fail` 与 `last.abort_code` 保留用于诊断。轴层不再保存 `status` 副本，而是通过
-`cia402_get_status()` 读取主站确认结果、通过 `cia402_take_result()` 消费操作回执。
+`outcome` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
+`fail` 与 `abort_code` 保留用于诊断。轴层不再保存回执副本，而是通过
+`cia402_get_result()` 读取回执、通过 `cia402_take_result()` 消费回执。
 
 被打断时结论作废还是报失败，由 `st_idle` 的 ENTRY 按取消原因决定
 （`st_operation_active` 只负责退出，不碰结论文档）。正常收尾流程不进这条路径。

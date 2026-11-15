@@ -36,6 +36,7 @@ struct cia402_controlword {
 /* 当前流程：仅 CANopen 工作线程使用 */
 struct cia402_operation {
 	enum cia402_kind kind;
+	uint8_t running;   /* 流程在跑；自己收尾时清零，被打断退出时仍为 1 */
 	uint8_t cancel;    /* enum cia402_cancel_reason，交给 st_idle 决定要不要报失败 */
 	uint32_t deadline; /* 流程期限 */
 	struct {
@@ -59,10 +60,9 @@ struct cia402_device {
 		uint8_t cancel; /* enum cia402_cancel_reason */
 	} mailbox;
 
-	struct cia402_status outbox; /* 主站确认结果 */
+	struct cia402_operation_result outbox; /* 最近一次操作的回执 */
 
-	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，
-	 * 事务本身的状态由通道持有（sdo_access），本结构不再记账。 */
+	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，事务状态由通道持有 */
 	struct sm_hsm hsm;
 	uint32_t now_ms;
 	struct cia402_controlword cw;
