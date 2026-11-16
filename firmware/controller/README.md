@@ -1,5 +1,21 @@
 # controller/ — 整机控制主体
 
+## 构建入口
+
+本目录是**自包含的 CMake 子工程**：`controller/CMakeLists.txt` 定义全部库目标
+（`canopen_node`、`cats_hsm`、`cats_master`、`sdo_access`、`canopen_sdo`、`cia402`、
+`cats_axis`、`cats_control`），并可被任何工程直接引入，不依赖父工程的 C 标准、警告选项
+或平台配置。
+
+```cmake
+add_subdirectory(<path>/firmware/controller)
+target_link_libraries(自己的目标 PRIVATE cats_control)
+```
+
+- 对外只暴露 `include/`（`control/control.h`、`control/state_types.h`）；其余各层的
+  include 目录不会传给宿主，宿主也不应该 include 它们。
+- `find_package(Threads)` 由本目录自己声明；Qt 等宿主侧依赖不在这里。
+
 ## 结构
 
 ```text

@@ -10,111 +10,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON) # Q_OBJECT 需要 moc
 set(CMAKE_AUTORCC ON) # qt.qrc 需要 rcc
-add_compile_options(-Wall -Wextra)
 
-# pthread 同步原语、宿主线程与 Qt 界面
+# 宿主侧需要的运行时：Qt 界面与线程原语（控制栈自己也会 find_package(Threads)）
 find_package(Threads REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-# 第三方入口集中管理 Linux 驱动、epoll 与裁剪后的 CANopenNode 服务。
-add_subdirectory(controller/third_party)
-
-# 主站持有接口、epoll 和协议栈资源，不创建线程。
-add_library(cats_master STATIC controller/canopen/master/src/master.c)
-target_include_directories(cats_master PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/master/include)
-target_link_libraries(cats_master PUBLIC canopen_node)
-target_compile_definitions(cats_master PRIVATE _DEFAULT_SOURCE)
-
-# 对象访问契约与 CANopen SDO 后端。契约不认识具体协议，后端不实现 DS402 语义。
-add_library(sdo_access INTERFACE)
-target_include_directories(sdo_access INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
-
-add_library(canopen_sdo STATIC
-	controller/canopen/transport/src/sdo_client.c
-	controller/canopen/transport/src/sdo_arbiter.c)
-target_include_directories(canopen_sdo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include)
-target_include_directories(canopen_sdo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src)
-target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node)
-target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
-
-# CiA 402：pds.c 为纯标准知识；device.c 为装配与推进；states/ 一状态一文件。
-# 本模块只依赖 sdo_access 契约与 hsm 机制，不依赖 CANopenNode。
-add_library(cia402 STATIC
-        controller/cia402/src/pds.c
-        controller/cia402/src/device.c
-        controller/cia402/src/device_internal.c
-        controller/cia402/src/states/states.c
-        controller/cia402/src/states/idle.c
-        controller/cia402/src/states/operation_active.c
-        controller/cia402/src/operations/config.c
-        controller/cia402/src/operations/enable.c
-        controller/cia402/src/operations/disable.c
-        controller/cia402/src/operations/move.c
-        controller/cia402/src/operations/halt.c
-        controller/cia402/src/operations/quick_stop.c)
-target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/include)
-target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/cia402/src)
-target_link_libraries(cia402 PUBLIC sdo_access)
-target_link_libraries(cia402 PUBLIC cats_hsm)
-
-# 纯逻辑单测：状态字解析 + 起点快进（不需要 CAN）
-add_executable(cia402_selftest
-	apps/tools/cia402_selftest/main.c
-	apps/tools/cia402_selftest/device_test.c)
-target_link_libraries(cia402_selftest PRIVATE cia402)
-
-# SDO 仲裁器自测：模拟底层通道，不链接 CANopenNode，也不依赖 CAN 硬件。
-# 它只用到 struct sdo_client 的布局，因此需要 CANopenNode 的头文件路径。
-add_executable(sdo_arbiter_selftest
-	apps/tools/sdo_arbiter_selftest/main.c
-	controller/canopen/transport/src/sdo_arbiter.c)
-target_include_directories(sdo_arbiter_selftest PRIVATE
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux/CANopenNode)
-target_link_libraries(sdo_arbiter_selftest PRIVATE sdo_access)
-
-# 轴模块：单轴单位换算与请求，整机轴集合动作与结果汇总。
-add_library(cats_axis STATIC
-	controller/controller_axis/axis/axis.c
-	controller/controller_axis/controller_axis.c)
-target_include_directories(cats_axis PUBLIC
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/controller_axis/include)
-target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
-target_link_libraries(cats_axis PUBLIC cia402 canopen_sdo)
-
-# 通用层次状态机内核：零业务依赖，谁都能链（可单独单测）
-add_library(cats_hsm STATIC controller/hsm/src/sm_hsm.c)
-target_include_directories(cats_hsm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/hsm/include)
-
-# 控制层：组合根 + 输入事件队列 + 状态图，统一持有一个控制器上下文。
-add_library(cats_control STATIC
-	controller/config/axis_map.c
-	controller/controller.c
-	controller/controller_actions.c
-	controller/controller_feedback.c
-	controller/control_api.c
-	controller/controller_evtqueue/evt_queue.c
-	controller/controller_states/states.c
-	controller/controller_states/state_root.c
-	controller/controller_states/state_preparing.c
-	controller/controller_states/state_configuring.c
-	controller/controller_states/state_idle.c
-	controller/controller_states/state_enabling.c
-	controller/controller_states/state_holding.c
-	controller/controller_states/state_moving.c
-	controller/controller_states/state_halting.c
-	controller/controller_states/state_fault.c
-	controller/controller_states/state_estop.c)
-target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
-target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/config
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/controller_evtqueue)
-# 本库持有控制对象并调用各层，不创建线程
-target_link_libraries(cats_control PUBLIC cats_hsm cats_axis cia402 canopen_sdo cats_master
-	Threads::Threads)
-target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
+# 控制栈是自包含的子工程：外壳只链接 cats_control，不需要知道下面分了哪几层。
+# 同一行写法可以直接搬到外部工程（例如 build_all）。
+add_subdirectory(controller)
 
 # 集成层：本机 Qt 壳（在 apps/ 下，与 controller/ 的库层分开：这一层产出可执行程序）
 
@@ -131,11 +34,33 @@ add_executable(cats_qt
 	apps/qt/theme/theme.cpp
 	apps/qt/res/qt.qrc)
 target_include_directories(cats_qt PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/apps/qt)
-# Qt 宿主链接完整控制栈与 SocketCAN 后端
+# Qt 宿主链接完整控制栈（内核、协议栈、轴与业务状态图都在 cats_control 里）
 target_link_libraries(cats_qt PRIVATE cats_control Qt6::Widgets Threads::Threads)
+target_compile_options(cats_qt PRIVATE -Wall -Wextra)
+
+# 单层验证件：只链被测的那一层，不牵动整条控制栈
+add_executable(cia402_selftest
+	apps/tools/cia402_selftest/main.c
+	apps/tools/cia402_selftest/device_test.c)
+target_link_libraries(cia402_selftest PRIVATE cia402)
+target_compile_options(cia402_selftest PRIVATE -Wall -Wextra)
+
+# SDO 仲裁器自测：模拟底层通道，不链接 CANopenNode，也不依赖 CAN 硬件。
+# 它只用到 struct sdo_client 的布局，因此需要 CANopenNode 的头文件路径。
+add_executable(sdo_arbiter_selftest
+	apps/tools/sdo_arbiter_selftest/main.c
+	controller/canopen/transport/src/sdo_arbiter.c)
+target_include_directories(sdo_arbiter_selftest PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux/CANopenNode)
+target_link_libraries(sdo_arbiter_selftest PRIVATE sdo_access)
+target_compile_options(sdo_arbiter_selftest PRIVATE -Wall -Wextra)
 
 # 工具：主线程直接运行 CANopen epoll 循环，用于无界面端到端验证
 add_executable(master_probe apps/tools/master_probe/main.c)
 target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 target_link_libraries(master_probe PRIVATE cats_control)
 target_compile_definitions(master_probe PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_options(master_probe PRIVATE -Wall -Wextra)
