@@ -3,8 +3,8 @@
  * 402 流程由 cia402 实现，业务状态由 states 管理。
  */
 
-#ifndef AXIS_AXIS_H
-#define AXIS_AXIS_H
+#ifndef CONTROLLER_AXIS_AXIS_H
+#define CONTROLLER_AXIS_AXIS_H
 
 #include <cia402/device_instance.h>
 #include <transport/sdo_arbiter_instance.h>
@@ -75,4 +75,4 @@ int axis_quick_stop(struct axis *a);
 } /* extern "C" */
 #endif
 
-#endif /* AXIS_AXIS_H */
+#endif /* CONTROLLER_AXIS_AXIS_H */

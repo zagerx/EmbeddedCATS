@@ -25,7 +25,7 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_ENTRY:
 		/* 节点已在 CONFIGURING 里进入运行态，这里只下发使能请求 */
 		ctl->axis_done = 0u;
-		(void)controller_enable_all(ctl);
+		(void)controller_enable_all(ctl->axes, ctl->axis_count);
 		break;
 
 	case SM_SIG_EXIT:
@@ -33,28 +33,15 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_TICK: {
 		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
-		uint8_t all = controller_axis_mask(ctl);
-		uint8_t i;
+		enum controller_axes_result result =
+			controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done);
 
-		for (i = 0u; i < ctl->axis_count; i++) {
-			if ((ctl->axis_done & (uint8_t)(1u << i)) != 0u) {
-				continue; /* 这一轴已确认使能 */
-			}
-			switch (axis_take_motion(&ctl->axes[i])) {
-			case AXIS_MOTION_FAILED:
-				ctl->fault_code = CONTROLLER_FAULT_ENABLE_FAILED;
-				return SM_SUPER(&st_online); /* 交 ROOT 迁 FAULT */
-			case AXIS_MOTION_DONE:
-				ctl->axis_done |= (uint8_t)(1u << i);
-				break;
-			default:
-				break;
-			}
-		}
-		if (all != 0u && ctl->axis_done == all) {
+		if (result == CONTROLLER_AXES_DONE) {
 			return SM_TRAN(&st_holding);
 		}
-		if (elapsed > ENABLE_TIMEOUT_MS) {
+		if (result == CONTROLLER_AXES_FAILED) {
+			ctl->fault_code = CONTROLLER_FAULT_ENABLE_FAILED;
+		} else if (elapsed > ENABLE_TIMEOUT_MS) {
 			ctl->fault_code = CONTROLLER_FAULT_ENABLE_TIMEOUT;
 		}
 		return SM_SUPER(&st_online);

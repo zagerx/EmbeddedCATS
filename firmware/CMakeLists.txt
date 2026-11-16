@@ -63,19 +63,24 @@ add_executable(cia402_selftest
 	apps/tools/cia402_selftest/device_test.c)
 target_link_libraries(cia402_selftest PRIVATE cia402)
 
-# SDO 仲裁器自测：模拟底层通道，不需要 CANopenNode 或 CAN 硬件
+# SDO 仲裁器自测：模拟底层通道，不链接 CANopenNode，也不依赖 CAN 硬件。
+# 它只用到 struct sdo_client 的布局，因此需要 CANopenNode 的头文件路径。
 add_executable(sdo_arbiter_selftest
 	apps/tools/sdo_arbiter_selftest/main.c
 	controller/canopen/transport/src/sdo_arbiter.c)
-target_include_directories(sdo_arbiter_selftest BEFORE PRIVATE /tmp/cats_sdo_selftest_include)
 target_include_directories(sdo_arbiter_selftest PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src)
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux/CANopenNode)
 target_link_libraries(sdo_arbiter_selftest PRIVATE sdo_access)
 
-# 轴层：单位换算与多轴请求转发；每节点使用独立对象访问通道
-add_library(cats_axis STATIC controller/axis/src/axis.c)
-target_include_directories(cats_axis PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/axis/include)
+# 轴模块：单轴单位换算与请求，整机轴集合动作与结果汇总。
+add_library(cats_axis STATIC
+	controller/controller_axis/axis/axis.c
+	controller/controller_axis/controller_axis.c)
+target_include_directories(cats_axis PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/controller_axis/include)
 target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
 target_link_libraries(cats_axis PUBLIC cia402 canopen_sdo)
 
@@ -88,25 +93,25 @@ add_library(cats_control STATIC
 	controller/config/axis_map.c
 	controller/controller.c
 	controller/controller_actions.c
-	controller/controller_axes.c
 	controller/controller_feedback.c
 	controller/control_api.c
-	controller/evt_queue.c
-	controller/states/states.c
-	controller/states/state_root.c
-	controller/states/state_online.c
-	controller/states/state_preparing.c
-	controller/states/state_configuring.c
-	controller/states/state_idle.c
-	controller/states/state_enabling.c
-	controller/states/state_holding.c
-	controller/states/state_moving.c
-	controller/states/state_halting.c
-	controller/states/state_fault.c
-	controller/states/state_estop.c)
+	controller/controller_evtqueue/evt_queue.c
+	controller/controller_states/states.c
+	controller/controller_states/state_root.c
+	controller/controller_states/state_online.c
+	controller/controller_states/state_preparing.c
+	controller/controller_states/state_configuring.c
+	controller/controller_states/state_idle.c
+	controller/controller_states/state_enabling.c
+	controller/controller_states/state_holding.c
+	controller/controller_states/state_moving.c
+	controller/controller_states/state_halting.c
+	controller/controller_states/state_fault.c
+	controller/controller_states/state_estop.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/controller/include)
 target_include_directories(cats_control PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/config)
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/config
+	${CMAKE_CURRENT_SOURCE_DIR}/controller/controller_evtqueue)
 # 本库持有控制对象并调用各层，不创建线程
 target_link_libraries(cats_control PUBLIC cats_hsm cats_axis cia402 canopen_sdo cats_master
 	Threads::Threads)

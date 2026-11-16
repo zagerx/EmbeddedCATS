@@ -3,12 +3,12 @@
  *
  * 一个轴对应一个 CiA 402 设备实例，业务状态由状态机管理。
  * 机械换算参数来自 cats_mech.h，编译期固定。
- * 集合级动作与汇总判定在 controller 层，本层只管一个轴。
+ * 集合级动作与汇总判定在同模块的 controller_axis.c，本文件只管一个轴。
  *
  * Author: zager
  */
 
-#include <axis/axis.h>
+#include <controller_axis/axis.h>
 
 #include <cats_mech.h>
 

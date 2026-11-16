@@ -9,12 +9,12 @@ controller/
 │   └── transport/  对象访问契约与同线程 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
 ├── third_party/    CANopenLinux 与 CANopenNode，只读
-├── axis/           单位换算与多轴请求
-├── states/         整机业务状态图与状态注册表
+├── controller_axis/ 单轴请求、单位换算与整机轴集合
+├── controller_states/ 整机业务状态图与状态注册表
+├── controller_evtqueue/ 带锁的控制输入事件队列
 ├── hsm/            通用层次状态机内核
 ├── config/         机械参数与 CANopen 对象字典
 ├── include/control/ 公共状态、故障与控制接口
-├── evt_queue.c/h      带锁的控制输入事件队列
 ├── controller.c       组合根、生命周期与事件循环
 ├── controller_actions.c 时间基准与状态图装配
 ├── controller_feedback.c 反馈读取调度与逐轴缓存

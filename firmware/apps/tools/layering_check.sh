@@ -47,7 +47,7 @@ if [ -z "$viol" ]; then ok; else bad "$viol"; fi
 
 section "R4  命令与业务状态机无阻塞调用"
 out=$(grep -rnE 'cia402_device_service|sdo_client_write|sdo_client_read|nanosleep|usleep|pthread_cond_wait|epoll_wait' \
-	"$SRC/control_api.c" "$SRC/states" $INC 2>/dev/null || true)
+	"$SRC/control_api.c" "$SRC/controller_states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R5  SocketCAN 只由上游 CANopenLinux 承接"
@@ -59,7 +59,7 @@ if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R6  整机状态机不访问协议栈私有头与传输层"
 out=$(grep -rnE '<canopen/|<cia402/|<transport/|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
-	"$SRC/states" $INC 2>/dev/null || true)
+	"$SRC/controller_states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R7  HSM 不认识业务类型"
@@ -93,7 +93,7 @@ while IFS= read -r f; do
 	[ -z "$f" ] && continue
 	case "$f" in
 	controller/cia402/*) continue ;;
-	controller/axis/include/axis/axis.h) continue ;;
+	controller/controller_axis/include/controller_axis/axis.h) continue ;;
 	apps/tools/cia402_selftest/*) continue ;;
 	esac
 	viol+="$f"$'\n'

@@ -29,7 +29,7 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		 * 判不出来也会落 CONFIG_TIMEOUT。 */
 		ctl->axis_done = 0u;
 		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
-		(void)controller_config_movemode(ctl, AXIS_ALL);
+		(void)controller_config_movemode(ctl->axes, ctl->axis_count, UINT8_MAX);
 		break;
 
 	case SM_SIG_EXIT:
@@ -37,28 +37,15 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_TICK: {
 		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
-		uint8_t all = controller_axis_mask(ctl);
-		uint8_t i;
+		enum controller_axes_result result =
+			controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done);
 
-		for (i = 0u; i < ctl->axis_count; i++) {
-			if ((ctl->axis_done & (uint8_t)(1u << i)) != 0u) {
-				continue; /* 这一轴已确认配好 */
-			}
-			switch (axis_take_motion(&ctl->axes[i])) {
-			case AXIS_MOTION_FAILED:
-				ctl->fault_code = CONTROLLER_FAULT_CONFIG_FAILED;
-				return SM_SUPER(&st_online); /* 由 ROOT 统一迁 FAULT */
-			case AXIS_MOTION_DONE:
-				ctl->axis_done |= (uint8_t)(1u << i);
-				break;
-			default:
-				break;
-			}
-		}
-		if (all != 0u && ctl->axis_done == all) {
+		if (result == CONTROLLER_AXES_DONE) {
 			return SM_TRAN(&st_idle_ctrl); /* 配置完成：停在未使能态等指令 */
 		}
-		if (elapsed > CONFIG_TIMEOUT_MS) {
+		if (result == CONTROLLER_AXES_FAILED) {
+			ctl->fault_code = CONTROLLER_FAULT_CONFIG_FAILED;
+		} else if (elapsed > CONFIG_TIMEOUT_MS) {
 			ctl->fault_code = CONTROLLER_FAULT_CONFIG_TIMEOUT;
 		}
 		return SM_SUPER(&st_online);

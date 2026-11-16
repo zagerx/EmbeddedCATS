@@ -2,7 +2,7 @@
  * controller_internal.h — 控制层私有上下文与状态图契约
  *
  * controller.c 持有对象并提供推进入口，controller_actions.c 提供状态图动作，
- * controller_axes.c 提供整机级轴集合动作与汇总判定，
+ * controller_axis.c 提供整机级轴集合动作与汇总判定，
  * control_api.c 翻译对外 API 并发布事实，states/ 实现状态图。
  *
  * Author: zager
@@ -14,7 +14,7 @@
 #include <control/control.h>
 
 #include <master/master.h>
-#include <axis/axis.h>
+#include <controller_axis/controller_axis.h>
 #include <transport/sdo_client.h>
 
 #include "evt_queue.h"
@@ -84,24 +84,5 @@ struct controller *control_ctx(void);
 
 /* 把其他线程可以看的值发布出去（只在控制线程里调） */
 void controller_publish(void);
-
-/* axis_no 取此值表示"全部轴"；它不是轴身份，故不进枚举 */
-#define AXIS_ALL UINT8_MAX
-
-/*
- * 整机级轴集合动作（controller_axes.c）：只负责下发，不看每轴结果。
- * 每轴回执由发起动作的状态自己消费（axis_take_motion），本层不缓存结论。
- * 返回：0 已下发；-1 轴号越界、未装配或参数为空。
- */
-int controller_config_movemode(struct controller *ctl, uint8_t axis_no);
-
-/* 请求所有轴使能：0 = 已下发；-1 = 未装配或参数为空 */
-int controller_enable_all(struct controller *ctl);
-
-/* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
-void controller_quick_stop_all(struct controller *ctl);
-
-/* 位图里覆盖全部已装配轴的掩码；未装配时返回 0 */
-uint8_t controller_axis_mask(const struct controller *ctl);
 
 #endif /* CONTROL_INTERNAL_H */
