@@ -40,7 +40,7 @@ class AppBinder : public QObject
 	void onMove();       /* 按轴选择下发位置指令 */
 	void onHalt();       /* 减速停在当前位置 */
 	void onEStop();      /* 所有轴 quick stop（只写一次控制字） */
-	void onClearEStop(); /* 驱动器回可操作，控制器回空闲 */
+	void onClearEStop(); /* 驱动器断使能，控制器回空闲（故障保留） */
 
       private:
 	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */

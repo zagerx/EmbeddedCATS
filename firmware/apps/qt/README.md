@@ -64,8 +64,8 @@ MOVING / HALTING / FAULT / ESTOP）。
 | `ENABLING` | `Enabling` | 蓝 | 正在让驱动器进入 PP 并使能 |
 | `HOLDING`、`MOVING` | `Running` | 绿 | 保持位置，可接受位置指令 |
 | `HALTING` | `Halting` | 蓝 | 正在减速停在当前位置 |
-| `FAULT` | `Fault` | 红 | 已停住，需重启程序 |
-| `ESTOP` | `EStop` | 红 | 已断使能，需重启程序 |
+| `FAULT` | `Fault` | 红 | 已锁存，需重启程序 |
+| `ESTOP` | `EStop` | 红 | 已快速停，可解除（解除后驱动器断使能） |
 
 尚未接入控制层时状态码显示占位符 `—`。
 

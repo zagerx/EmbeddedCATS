@@ -244,7 +244,7 @@ void AppBinder::onEStop()
 void AppBinder::onClearEStop()
 {
 	controller_clear_estop();
-	pushLog(QStringLiteral("已请求解除急停：驱动器回可操作，控制器回空闲"));
+	pushLog(QStringLiteral("已请求解除急停：驱动器断使能，控制器回空闲"));
 }
 
 void AppBinder::startTimers()

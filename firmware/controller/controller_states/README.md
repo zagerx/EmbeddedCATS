@@ -26,7 +26,13 @@ FAULT 为终态；ESTOP 只能解除回 IDLE。
 `CONTROLLER_FAULT_ESTOP_FAILED` 供 UI 显示。
 
 `ESTOP` 只接受一条命令：`CONTROLLER_SIG_ESTOP_CLEAR`（解除急停）。它让各轴写一次
-`6040 = 0x0F`，驱动器回可操作，同时清掉故障码与旧运动批次，控制器回 `IDLE` 等新的使能。
+`6040 = 0x00` 断使能、清掉旧运动批次，**仍留在 ESTOP 等回执**，收齐后才迁 `IDLE`。
+回执必须在本状态收完：那条回执不带流程身份，交给 `IDLE` 收会被随后的 `ENABLING`
+误当成"使能成功"。
+
+**急停是覆盖层，故障独立锁存**：解除时不碰 `fault_code`，所以若急停前已有故障（或急停/解除
+那笔没送到而置了 `ESTOP_FAILED`），等迁到 `IDLE` 后由 `ROOT` 的"有故障码 → FAULT"规则
+把整机送进 `FAULT`。想恢复必须重启程序，不能用"解除急停"把故障顶掉。
 
 ## 线程与边界
 

@@ -38,6 +38,8 @@ void controller_stm_init(struct controller *ctl)
 {
 	ctl->move = (struct controller_move_cmd){0};
 	ctl->move_done = 0u;
+	ctl->axis_done = 0u;
+	ctl->estop_clearing = 0u;
 	ctl->fault_code = CONTROLLER_FAULT_NONE;
 	controller_evtq_init(&ctl->evtq);
 

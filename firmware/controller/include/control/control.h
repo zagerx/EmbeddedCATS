@@ -63,7 +63,8 @@ const char *controller_state_name(enum controller_state s);
 void controller_estop(void);
 
 /*
- * 解除急停：驱动器回到可操作（6040 = 0x0F），控制器回 IDLE 等新的使能指令。
+ * 解除急停：驱动器断使能（6040 = 0x00），控制器回 IDLE；故障码不动，
+ * 若本来就有故障，下一个节拍由 ROOT 迁到 FAULT。
  * 只有 ESTOP 状态接受，其余状态丢弃。
  */
 void controller_clear_estop(void);

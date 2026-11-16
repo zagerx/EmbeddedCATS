@@ -387,12 +387,12 @@ static void test_quick_stop_clear(void)
 	fx_poll(&f);
 	CHECK(f.fake.started == 0u);
 
-	/* 解除急停：只写 0x0F */
+	/* 解除急停：只写 0x00（断使能，不重新上力矩） */
 	f.fake.aborts = 0u;
 	fx_request(&f, CIA402_REQ_ESTOP_CLEAR);
 	fx_poll(&f); /* 抢占：先结清取消事件 */
 	fx_poll(&f); /* 受理请求 → 写控制字 */
-	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
 	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);

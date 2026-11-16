@@ -5,8 +5,9 @@
  * （Quick stop 代码）决定，本层不读状态字、不等减速过程、不再断使能。
  * 写失败只留 abort 码并报失败，不重试。
  *
- * 急停终态只有一条出口：收到解除急停请求后写 6040 = 0F（转移 16），
- * 让驱动器回到可操作状态，然后恢复受理普通请求。
+ * 急停终态只有一条出口：收到解除急停请求后写 6040 = 00（断使能），
+ * 让驱动器回到 Switch on disabled，再由操作员刻意使能一次。
+ * "复位不得导致重启"：解除只把驱动器置为未使能，不替它重新上力矩。
  *
  * Author: zager
  */
@@ -82,13 +83,12 @@ sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 }
 
 /**
- * st_qstop_clear - 解除急停：写 6040 = 0x0F 让驱动器回可操作
+ * st_qstop_clear - 解除急停：写 6040 = 0x00 断使能
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * 0x0F 是 CiA 402 从 quick stop 状态回到 Operation enabled 的转移 16。
- * 驱动器若本来就不在 quick stop 状态，这一帧不起作用也不报错，
- * 后续使能链会按实际状态字选路。
+ * 0x00 在任何非故障状态下都把驱动器带到 Switch on disabled：quick stop 状态、
+ * 已使能、未使能都一样，所以不需要先读状态字再选路。
  *
  * Return: 写成功报 DONE、失败报 FAILED；两者都回 st_idle 恢复受理。
  */
@@ -98,7 +98,7 @@ sm_ret_t st_qstop_clear(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 

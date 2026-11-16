@@ -3,7 +3,10 @@
  *
  * 入口只向每个轴写一次 quick stop 控制字；驱动器自己按 605A 减速停机，
  * 本层不等减速过程、不断使能。写失败只上报故障码，不重试。
- * 终态只接受一条命令：解除急停（驱动器回可操作，控制器回 IDLE）。
+ *
+ * 解除急停也由本状态自己完成：发一次 0x00 断使能，等回执齐了再迁 IDLE。
+ * 回执不交给 IDLE 收——那条回执没有流程身份，空闲态拿到会把“解除”误当成
+ * “使能成功”。
  *
  * Author: zager
  */
@@ -24,6 +27,7 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		ctl->axis_done = 0u;
+		ctl->estop_clearing = 0u;
 		(void)controller_quick_stop_all(ctl->axes, ctl->axis_count);
 		/* 进终态：丢掉还没处理的命令 */
 		controller_evtq_clear(&ctl->evtq);
@@ -38,30 +42,33 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_ESTOP_CLEAR:
 		/*
-		 * 解除急停：驱动器被写 0x0F 回到可操作，控制器回 IDLE 等新的使能。
-		 * 故障码与旧运动批次必须清掉，否则 IDLE 的节拍会立刻把它拉回 FAULT。
+		 * 解除急停：驱动器断使能回 Switch on disabled。故障码不碰：
+		 * 急停只解除覆盖层，底下压着的故障仍然锁存。
+		 * 本状态自己等回执，收齐后才迁 IDLE（有故障时 ROOT 随后把它带进 FAULT）。
 		 */
-		ctl->fault_code = CONTROLLER_FAULT_NONE;
 		ctl->move = (struct controller_move_cmd){0};
 		ctl->move_done = 0u;
-		ctl->axis_done = 0u;
+		ctl->axis_done = 0u; /* 重新开始收：“解除那一笔”的回执 */
+		ctl->estop_clearing = 1u;
 		(void)controller_clear_estop_all(ctl->axes, ctl->axis_count);
-		return SM_TRAN(&st_idle_ctrl);
+		return SM_HANDLED();
 
 	case CONTROLLER_SIG_TICK:
 		/*
 		 * 终态吃掉节拍：不能让 ROOT 的“故障码 → FAULT”规则把 ESTOP 又拉回 FAULT
 		 * （进入急停前可能已经置过故障码）。
-		 * 回执只收一次用途：把“那一笔 quick stop 没送到”报成故障码。
+		 * 回执在这里收：急停那一笔只用于上报，解除那一笔收齐后才迁 IDLE。
 		 */
-		if (ctl->axis_done != controller_axis_mask(ctl->axis_count)) {
-			enum controller_axes_result r = controller_axes_collect(
-				ctl->axes, ctl->axis_count, &ctl->axis_done);
-
-			if (r == CONTROLLER_AXES_FAILED) {
-				ctl->fault_code = CONTROLLER_FAULT_ESTOP_FAILED;
-				ctl->axis_done = controller_axis_mask(ctl->axis_count);
-			}
+		if (ctl->axis_done != controller_axis_mask(ctl->axis_count) &&
+		    controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done) ==
+			    CONTROLLER_AXES_FAILED) {
+			ctl->fault_code = CONTROLLER_FAULT_ESTOP_FAILED;
+			ctl->axis_done = controller_axis_mask(ctl->axis_count);
+		}
+		if (ctl->estop_clearing != 0u &&
+		    ctl->axis_done == controller_axis_mask(ctl->axis_count)) {
+			ctl->estop_clearing = 0u;
+			return SM_TRAN(&st_idle_ctrl);
 		}
 		return SM_HANDLED();
 

@@ -92,8 +92,9 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 驱动器停在哪个状态由它自己的 `605A` 决定（本项目驱动器出厂 6 = quick stop 状态，
 仍保持使能），本层不推断也不跟踪。
 
-终态只接受一种请求：`CIA402_REQ_ESTOP_CLEAR`。`st_qstop_clear` 写一帧 `6040 = 0x000F`
-（转移 16，quick stop 状态 → 可操作），然后回 `st_idle` 恢复受理普通请求。
+终态只接受一种请求：`CIA402_REQ_ESTOP_CLEAR`。`st_qstop_clear` 写一帧 `6040 = 0x0000`
+（断使能，quick stop 状态/已使能/未使能都落到 `Switch on disabled`），然后回 `st_idle`
+恢复受理。复位只把驱动器置为未使能，不替它重新上力矩（复位不得导致重启）。
 
 配置、使能、PP 和停止均不阻塞。状态机通过异步 `sdo_access` 发起对象读写，不使用循环等待或条件变量。
 

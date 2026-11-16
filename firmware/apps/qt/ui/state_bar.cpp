@@ -23,8 +23,8 @@ const StateInfo kStates[] = {
 	{"使能中", "正在让驱动器进入 PP 并使能", StatusLed::State::Busy, 12},
 	{"已使能", "保持位置，可接受位置指令", StatusLed::State::Ok, 12},
 	{"减速停", "正在减速停在当前位置", StatusLed::State::Busy, 12},
-	{"故障", "已停住，需重启程序", StatusLed::State::Fault, 12},
-	{"急停", "已断使能，需重启程序", StatusLed::State::Fault, 12},
+	{"故障", "已锁存，需重启程序", StatusLed::State::Fault, 12},
+	{"急停", "已快速停，可解除（解除后驱动器断使能）", StatusLed::State::Fault, 12},
 };
 } // namespace
 

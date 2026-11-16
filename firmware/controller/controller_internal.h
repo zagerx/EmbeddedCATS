@@ -52,6 +52,7 @@ struct controller {
 	struct controller_move_cmd move;
 	uint8_t move_done;
 	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */
+	uint8_t estop_clearing; /* 非 0：已发出解除急停请求，等回执齐了再迁 IDLE */
 	struct sm_hsm hsm;
 	uint32_t state_since_ms;
 	enum controller_fault fault_code;

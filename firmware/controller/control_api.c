@@ -79,7 +79,7 @@ void controller_estop(void)
  * controller_clear_estop - 请求解除急停
  *
  * 任意线程均可调用；事件插入队头并立即唤醒工作线程。
- * 只有 ESTOP 接受：状态机回 IDLE，驱动器被写 0x0F 回到可操作。
+ * 只有 ESTOP 接受：驱动器断使能，控制器回 IDLE，故障码保持锁存。
  */
 void controller_clear_estop(void)
 {
