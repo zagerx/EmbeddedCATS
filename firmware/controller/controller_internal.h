@@ -65,7 +65,7 @@ struct controller {
 	uint32_t published_abort[CONTROLLER_AXIS_COUNT];
 };
 
-/* 状态图注册表，由 states/states.c 定义；名称映射是对外接口（见 control.h） */
+/* 状态图注册表，由 states/states.c 定义；本层只发布枚举值，不产出字符串 */
 extern const sm_state_t states[CONTROLLER_STATE_COUNT];
 sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 

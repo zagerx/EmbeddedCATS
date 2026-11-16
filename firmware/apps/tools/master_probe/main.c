@@ -57,6 +57,7 @@ int main(int argc, char **argv)
 	const char *ifname = (argc > 1) ? argv[1] : "can0";
 	long seconds = (argc > 2) ? strtol(argv[2], NULL, 10) : 0;
 	struct probe_cmd cmd = probe_cmd_parse(argc, argv);
+	struct controller_status status = {CONTROLLER_STATE_COUNT, CONTROLLER_FAULT_NONE};
 	enum controller_state last = CONTROLLER_STATE_COUNT;
 	uint32_t start_ms;
 	uint32_t now;
@@ -190,14 +191,13 @@ int main(int argc, char **argv)
 			}
 		}
 
-		if (controller_state() != last) {
-			last = controller_state();
-			printf("[%6u] state = %s", (unsigned)(now - s_base_ms),
-			       controller_state_name(last));
+		if (controller_status_get(&status) == CONTROLLER_OK && status.state != last) {
+			last = status.state;
+			printf("[%6u] state = %d", (unsigned)(now - s_base_ms), (int)last);
 			if (last == CONTROLLER_STATE_FAULT) {
 				uint8_t i;
 
-				printf(" (%s", controller_fault_name(controller_fault_code()));
+				printf(" (fault = %d", (int)status.fault);
 				for (i = 0; i < 2; i++) {
 					uint32_t abort_code = controller_axis_abort(i);
 

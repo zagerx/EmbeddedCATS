@@ -1,7 +1,8 @@
 /*
- * states.c — 注册业务状态并提供状态与故障名称映射
+ * states.c — 注册业务状态函数
  *
  * 状态表下标与 enum controller_state 一一对应，是状态函数的唯一注册点。
+ * 本文件不产出任何字符串：状态与故障只以枚举值对外发布。
  *
  * Author: zager
  */
@@ -20,9 +21,6 @@ const sm_state_t states[CONTROLLER_STATE_COUNT] = {
 	[CONTROLLER_STATE_ESTOP] = st_estop,
 };
 
-static const char *const NAMES[CONTROLLER_STATE_COUNT];
-static const char *const FAULT_NAMES[CONTROLLER_FAULT_ESTOP_FAILED + 1];
-
 /**
  * initial - 定义状态机的顶层初始转移
  * @me: 状态机内核对象
@@ -35,51 +33,3 @@ sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e)
 	(void)e;
 	return SM_TRAN(&st_preparing);
 }
-
-/**
- * controller_state_name - 获取业务状态名称
- * @s: 业务状态枚举
- *
- * Return: 静态名称字符串；未知状态返回 "?"。
- */
-const char *controller_state_name(enum controller_state s)
-{
-	if ((int)s < 0 || s >= CONTROLLER_STATE_COUNT) {
-		return "?";
-	}
-	return NAMES[s];
-}
-
-/**
- * controller_fault_name - 获取业务故障名称
- * @f: 业务故障枚举
- *
- * Return: 静态名称字符串；未知故障返回 "?"。
- */
-const char *controller_fault_name(enum controller_fault f)
-{
-	if ((int)f < 0 ||
-	    f >= (enum controller_fault)(sizeof(FAULT_NAMES) / sizeof(FAULT_NAMES[0]))) {
-		return "?";
-	}
-	return FAULT_NAMES[f];
-}
-
-static const char *const NAMES[CONTROLLER_STATE_COUNT] = {
-	[CONTROLLER_STATE_PREPARING] = "PREPARING", [CONTROLLER_STATE_CONFIGURING] = "CONFIGURING",
-	[CONTROLLER_STATE_IDLE] = "IDLE",           [CONTROLLER_STATE_ENABLING] = "ENABLING",
-	[CONTROLLER_STATE_HOLDING] = "HOLDING",     [CONTROLLER_STATE_MOVING] = "MOVING",
-	[CONTROLLER_STATE_HALTING] = "HALTING",     [CONTROLLER_STATE_FAULT] = "FAULT",
-	[CONTROLLER_STATE_ESTOP] = "ESTOP",
-};
-
-static const char *const FAULT_NAMES[] = {
-	[CONTROLLER_FAULT_NONE] = "NONE",
-	[CONTROLLER_FAULT_CONFIG_TIMEOUT] = "CONFIG_TIMEOUT",
-	[CONTROLLER_FAULT_CONFIG_FAILED] = "CONFIG_FAILED",
-	[CONTROLLER_FAULT_ENABLE_TIMEOUT] = "ENABLE_TIMEOUT",
-	[CONTROLLER_FAULT_ENABLE_FAILED] = "ENABLE_FAILED",
-	[CONTROLLER_FAULT_MOTION_FAILED] = "MOTION_FAILED",
-	[CONTROLLER_FAULT_HALT_FAILED] = "HALT_FAILED",
-	[CONTROLLER_FAULT_ESTOP_FAILED] = "ESTOP_FAILED",
-};

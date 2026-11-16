@@ -55,6 +55,18 @@ AxisCard {
 	font-size: 12px;
 }
 
+/* 1.1.2 故障码：标签灰、数值等宽 */
+#faultLabel {
+	color: @fgDim;
+	font-size: 12px;
+}
+
+#faultValue {
+	color: @fg;
+	font-size: 14px;
+	font-family: "DejaVu Sans Mono", monospace;
+}
+
 /* ---- 按钮 ---- */
 
 QPushButton {

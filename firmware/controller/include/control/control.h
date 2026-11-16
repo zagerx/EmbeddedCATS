@@ -26,6 +26,12 @@ struct controller_move_req {
 	float mm_s2;
 };
 
+/* 整机只读快照：两个字段同一次加锁读出，保证属于同一时刻 */
+struct controller_status {
+	enum controller_state state;
+	enum controller_fault fault;
+};
+
 /* 在接口名指定的 SocketCAN 通道上登记节点 1、2 并装配状态机 */
 enum controller_result controller_init(const char *can_ifname);
 
@@ -38,7 +44,8 @@ enum controller_result controller_event_poll(void);
 /* 唤醒等待中的事件循环；用于外部命令和宿主退出 */
 void controller_wakeup(void);
 
-enum controller_state controller_state(void);
+/* 读取整机状态与故障码；未初始化时返回 STATE，两个字段均为 0 */
+enum controller_result controller_status_get(struct controller_status *out);
 
 /*
  * 请求各轴使能。只有 IDLE（已配置、未使能）接受，其余状态直接丢弃。
@@ -57,8 +64,6 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 /* 暂停在当前位置并保持使能；事件插到队头。 */
 void controller_halt(void);
 
-const char *controller_state_name(enum controller_state s);
-
 /* 请求所有轴 quick stop 并断使能；事件插到队头，ESTOP 只能重启退出。 */
 void controller_estop(void);
 
@@ -68,9 +73,6 @@ void controller_estop(void);
  * 只有 ESTOP 状态接受，其余状态丢弃。
  */
 void controller_clear_estop(void);
-
-enum controller_fault controller_fault_code(void);
-const char *controller_fault_name(enum controller_fault f);
 
 /* 最近一次失败的 SDO abort；0 表示没有记录到 abort。 */
 uint32_t controller_axis_abort(uint8_t axis);

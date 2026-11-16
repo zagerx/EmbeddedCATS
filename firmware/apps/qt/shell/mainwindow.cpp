@@ -51,7 +51,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	top_layout->setSpacing(0);
 
 	state_bar_ = new StateBar(top_area);
-	top_layout->addWidget(state_bar_, 1, Qt::AlignTop);
+	/* 不加 AlignTop：1.1 要撑满整个上区，1.1.1 才能吃掉 1.1.2 之上的全部高度 */
+	top_layout->addWidget(state_bar_, 1);
 
 	top_layout->addWidget(make_divider(top_area, Qt::Vertical)); /* 1.1 / 1.2 */
 

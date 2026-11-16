@@ -50,22 +50,21 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 状态显示
 
-状态条的**状态码不在界面里写死**：由 `bindings` 传 `controller_state_name()` 的结果，
-保证界面与日志同一套名字（PREPARING / CONFIGURING / IDLE / ENABLING / HOLDING /
-MOVING / HALTING / FAULT / ESTOP）。
+界面上**没有任何状态名表**：只显示 `bindings` 读到的数据（`controller_status_get()`
+的状态值与故障码数值），大号字是状态值、副行是故障码。控制层的名称映射已删除，
+界面不再产出任何状态/故障名称。
 
-界面只按**粗粒度档位**决定圆点颜色与说明文字：
+颜色与圆点只由**粗粒度档位**决定（`to_bar_state()`，纯 UI 表现）：
 
-| 控制层状态 | 界面档位 | 圆点 | 说明 |
-|---|---|---|---|
-| `PREPARING` | `Preparing` | 蓝 | 正在复位节点 |
-| `CONFIGURING` | `Preparing` | 蓝 | 正在写参数 |
-| `IDLE` | `Idle` | 黄 | 已配置，等待使能指令 |
-| `ENABLING` | `Enabling` | 蓝 | 正在让驱动器进入 PP 并使能 |
-| `HOLDING`、`MOVING` | `Running` | 绿 | 保持位置，可接受位置指令 |
-| `HALTING` | `Halting` | 蓝 | 正在减速停在当前位置 |
-| `FAULT` | `Fault` | 红 | 已锁存，需重启程序 |
-| `ESTOP` | `EStop` | 红 | 已快速停，可解除（解除后驱动器断使能） |
+| 控制层状态 | 界面档位 | 圆点 |
+|---|---|---|
+| `PREPARING` / `CONFIGURING` | `Preparing` | 蓝 |
+| `IDLE` | `Idle` | 黄 |
+| `ENABLING` | `Enabling` | 蓝 |
+| `HOLDING` / `MOVING` | `Running` | 绿 |
+| `HALTING` | `Halting` | 蓝 |
+| `FAULT` | `Fault` | 红 |
+| `ESTOP` | `EStop` | 红 |
 
 尚未接入控制层时状态码显示占位符 `—`。
 

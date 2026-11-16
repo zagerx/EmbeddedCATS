@@ -171,35 +171,30 @@ void controller_halt(void)
 }
 
 /**
- * controller_fault_code - 读取已发布的整机故障码
+ * controller_status_get - 读取已发布的整机状态与故障码
+ * @out: 输出快照；NULL 时返回 PARAM
  *
- * Return: 最近一次发布的故障码。
+ * 两个字段在同一次加锁里读出，避免拿到“旧状态 + 新故障”这种不同刻组合。
+ *
+ * Return: OK 已填充；PARAM 参数为空；STATE 控制层未初始化。
  */
-enum controller_fault controller_fault_code(void)
+enum controller_result controller_status_get(struct controller_status *out)
 {
 	struct controller *ctl = control_ctx();
-	enum controller_fault f;
 
+	if (out == NULL) {
+		return CONTROLLER_ERR_PARAM;
+	}
+	if (ctl->master == NULL) {
+		out->state = CONTROLLER_STATE_PREPARING;
+		out->fault = CONTROLLER_FAULT_NONE;
+		return CONTROLLER_ERR_STATE;
+	}
 	pthread_mutex_lock(&ctl->lock);
-	f = (enum controller_fault)ctl->published_fault;
+	out->state = (enum controller_state)ctl->published_state;
+	out->fault = (enum controller_fault)ctl->published_fault;
 	pthread_mutex_unlock(&ctl->lock);
-	return f;
-}
-
-/**
- * controller_state - 读取已发布的整机业务状态
- *
- * Return: 最近一次发布的业务状态。
- */
-enum controller_state controller_state(void)
-{
-	struct controller *ctl = control_ctx();
-	enum controller_state s;
-
-	pthread_mutex_lock(&ctl->lock);
-	s = (enum controller_state)ctl->published_state;
-	pthread_mutex_unlock(&ctl->lock);
-	return s;
+	return CONTROLLER_OK;
 }
 
 /**

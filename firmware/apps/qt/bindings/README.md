@@ -14,8 +14,8 @@
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
 | CANopen 事件循环 | `controller_event_poll()` |
-| 顶部状态条 | `controller_state()` / `controller_state_name()` |
-| 故障原因 | `controller_fault_code()` / `controller_fault_name()` |
+| 顶部状态条 | `controller_status_get()`（状态值与故障码，一次加锁同刻） |
+| 故障码 | 同上，`struct controller_status.fault` |
 | 轴反馈与 SDO abort | `controller_axis_sample()` / `controller_axis_abort()` |
 | 运动、暂停、急停、解除急停按钮 | `controller_move()` / `controller_halt()` / `controller_estop()` / `controller_clear_estop()` |
 

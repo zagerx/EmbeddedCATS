@@ -1,4 +1,6 @@
-/* 状态显示区；精确状态名由绑定层传入，本类只管理粗粒度展示。 */
+/* 状态显示区；只负责把控制层上报的状态值与故障码画出来，不做任何名称映射。
+ *
+ * 内部纵向分两块：1.1.1 主站状态（灯 + 状态值）、1.1.2 主站故障码。 */
 
 #ifndef STATE_BAR_H
 #define STATE_BAR_H
@@ -26,19 +28,16 @@ class StateBar : public QWidget
 
 	explicit StateBar(QWidget *parent = nullptr);
 
-	/* 纯显示接口：state 决定颜色与说明，code 是展示用的精确状态名 */
-	void setState(State state, const QString &code);
+	/* 纯显示接口：state 决定颜色与圆点，code 是控制层上报的状态数值 */
+	void setState(State state, int code);
 
-	/* 补充一行说明（整机故障名等）；传空串则清掉 */
-	void setDetail(const QString &detail);
+	/* 副行：控制层上报的故障码数值 */
+	void setDetail(int fault);
 
       private:
-	void refreshHint(void);
-
-	StatusLed *led_ = nullptr;
-	QLabel *hint_ = nullptr;
-	QString hint_base_; /* “档位 · 说明”，由 setState 算好 */
-	QString detail_;    /* 附在后面的补充信息 */
+	StatusLed *led_ = nullptr;      /* 1.1.1：圆点 + 状态值 */
+	QLabel *fault_label_ = nullptr; /* 1.1.2 标签「故障码」 */
+	QLabel *fault_value_ = nullptr; /* 1.1.2 数值（0 = 无故障） */
 };
 
 #endif /* STATE_BAR_H */

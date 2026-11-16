@@ -26,7 +26,7 @@ QString hex16(uint16_t v)
 	       QString::number(v, 16).rightJustified(4, QLatin1Char('0')).toUpper();
 }
 
-/* app 的运行状态 → 状态条档位（只决定颜色与说明，精确状态名另外传入） */ StateBar::State
+/* app 的运行状态 → 状态条档位（只决定颜色与圆点，文字显示控制层上报的数值） */ StateBar::State
 to_bar_state(enum controller_state s)
 {
 	switch (s) {
@@ -78,6 +78,14 @@ AppBinder::AppBinder(QObject *parent) : QObject(parent)
 AppBinder::~AppBinder()
 {
 	worker_.stop();
+}
+
+struct controller_status AppBinder::currentStatus()
+{
+	struct controller_status status = {CONTROLLER_STATE_PREPARING, CONTROLLER_FAULT_NONE};
+
+	(void)controller_status_get(&status);
+	return status;
 }
 
 void AppBinder::attach(QWidget *root, const QString &ifname)
@@ -136,7 +144,7 @@ void AppBinder::bindCommands()
 	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
 	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
 	connect(btn_clear_estop_, &QPushButton::clicked, this, &AppBinder::onClearEStop);
-	updateCommands(controller_state());
+	updateCommands(currentStatus().state);
 }
 
 void AppBinder::updateCommands(enum controller_state s)
@@ -157,7 +165,7 @@ void AppBinder::updateCommands(enum controller_state s)
 		btn_estop_->setEnabled(s != CONTROLLER_STATE_ESTOP);
 	}
 	if (btn_clear_estop_ != nullptr) {
-		/* 解除急停只在急停态有意义；解除后驱动器回到使能，控制器回空闲 */
+		/* 解除急停只在急停态有意义：驱动器断使能，控制器回空闲 */
 		btn_clear_estop_->setEnabled(s == CONTROLLER_STATE_ESTOP);
 	}
 }
@@ -274,7 +282,7 @@ void AppBinder::tickPrefill()
 	 * 之后不覆盖：人要重复执行同一条指令时，目标值得留着。 */
 	bool all_ready = true;
 
-	if (prefilled_ || controller_state() != CONTROLLER_STATE_HOLDING) {
+	if (prefilled_ || currentStatus().state != CONTROLLER_STATE_HOLDING) {
 		return;
 	}
 	for (uint8_t i = 0; i < 2; i++) {
@@ -351,24 +359,22 @@ void AppBinder::pushLog(const QString &line)
 
 void AppBinder::publish()
 {
-	const enum controller_state state = controller_state();
-	const enum controller_fault fault = controller_fault_code();
+	const struct controller_status status = currentStatus();
 
-	if (state == last_state_ && fault == last_fault_) {
+	if (status.state == last_state_ && status.fault == last_fault_) {
 		return; /* 状态和故障都没变就不碰控件 */
 	}
-	last_state_ = state;
-	last_fault_ = fault;
+	last_state_ = status.state;
+	last_fault_ = status.fault;
 
-	updateCommands(state);
+	updateCommands(status.state);
 
 	if (state_bar_ != nullptr) {
-		state_bar_->setState(to_bar_state(state),
-				     QString::fromUtf8(controller_state_name(state)));
-		/* 整机故障原因跟在状态后面；不在 FAULT 时清掉 */
-		state_bar_->setDetail(fault != CONTROLLER_FAULT_NONE
-					      ? QString::fromUtf8(controller_fault_name(fault))
-					      : QString());
+		/* 界面只显示上报上来的数据本身：状态值做大号字，故障码做副行 */
+		state_bar_->setState(to_bar_state(status.state), static_cast<int>(status.state));
+		state_bar_->setDetail(static_cast<int>(status.fault));
 	}
-	pushLog(QStringLiteral("状态 → %1").arg(QString::fromUtf8(controller_state_name(state))));
+	pushLog(QStringLiteral("状态 %1 / 故障 %2")
+			.arg(static_cast<int>(status.state))
+			.arg(static_cast<int>(status.fault)));
 }

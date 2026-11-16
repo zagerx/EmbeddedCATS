@@ -43,9 +43,10 @@ class AppBinder : public QObject
 	void onClearEStop(); /* 驱动器断使能，控制器回空闲（故障保留） */
 
       private:
-	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */
-	void startTimers();              /* 刷新与统计两个界面定时器 */
-	void bindCommands();             /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
+	void findWidgets(QWidget *root);          /* 按 objectName 取状态条与日志面板 */
+	struct controller_status currentStatus(); /* 一次加锁读整机状态与故障码 */
+	void startTimers();                       /* 刷新与统计两个界面定时器 */
+	void bindCommands(); /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
 	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
 	void updateCommands(enum controller_state s); /* 按钮可用性跟随状态 */
 	void tickPrefill();                /* 首次进 HOLDING：目标位置 = 实际位置 */
