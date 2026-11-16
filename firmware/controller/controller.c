@@ -24,11 +24,8 @@ static struct master master_instance = {
 	.ep = {.epoll_fd = -1, .event_fd = -1, .timer_fd = -1},
 };
 
-/* 推进各轴非阻塞设备状态机 */
-static void controller_axis_poll(struct controller *ctl);
-
 /* 推进一次业务状态机并发布快照 */
-static enum controller_result controller_poll(void);
+static enum controller_result controller_poll(uint32_t now_ms);
 
 /**
  * control_ctx - 获取控制层单例上下文
@@ -135,6 +132,7 @@ enum controller_result controller_event_poll(void)
 	struct controller *ctl = &controller_singleton;
 	struct master *m = ctl->master;
 	CO_NMT_reset_cmd_t reset;
+	uint32_t now;
 	uint8_t i;
 
 	if (m == NULL) {
@@ -148,10 +146,12 @@ enum controller_result controller_event_poll(void)
 	}
 	CO_epoll_processMain(&m->ep, m->co, false, &reset);
 	if (reset == CO_RESET_NOT) {
+		/* 本轮只取一次时钟：反馈、设备状态机与业务状态机用同一时刻 */
+		now = controller_now_ms(ctl);
 		/* 先收反馈结果，再让 402 发起下一笔，避免结果滞留被当成忙 */
-		controller_feedback_poll(ctl, controller_now_ms(ctl));
-		controller_axis_poll(ctl);
-		(void)controller_poll();
+		controller_feedback_poll(ctl, now);
+		controller_axes_poll(ctl->axes, ctl->axis_count, now);
+		(void)controller_poll(now);
 	} else if (reset != CO_RESET_COMM || master_reset_communication(m) != 0) {
 		CO_epoll_processLast(&m->ep);
 		return CONTROLLER_ERR_STATE;
@@ -170,19 +170,17 @@ void controller_wakeup(void)
 	master_notify(controller_singleton.master);
 }
 
-static enum controller_result controller_poll(void)
+static enum controller_result controller_poll(uint32_t now_ms)
 {
 	static const struct sm_event evt_tick = {CONTROLLER_SIG_TICK};
 	struct controller *ctl = control_ctx();
 	struct controller_evt evt;
 	sm_state_t before;
-	uint32_t now;
 	unsigned n;
 
 	if (ctl->master == NULL) {
 		return CONTROLLER_ERR_STATE;
 	}
-	now = controller_now_ms(ctl);
 	for (n = 0u; n < CONTROLLER_EVTQ_DRAIN_MAX; n++) {
 		if (!controller_evtq_pop(&ctl->evtq, &evt)) {
 			break;
@@ -190,24 +188,14 @@ static enum controller_result controller_poll(void)
 		before = sm_hsm_state(&ctl->hsm);
 		sm_hsm_dispatch(&ctl->hsm, &evt.super);
 		if (sm_hsm_state(&ctl->hsm) != before) {
-			ctl->state_since_ms = now;
+			ctl->state_since_ms = now_ms;
 		}
 	}
 	before = sm_hsm_state(&ctl->hsm);
 	sm_hsm_dispatch(&ctl->hsm, &evt_tick);
 	if (sm_hsm_state(&ctl->hsm) != before) {
-		ctl->state_since_ms = now;
+		ctl->state_since_ms = now_ms;
 	}
 	controller_publish();
 	return CONTROLLER_OK;
-}
-
-static void controller_axis_poll(struct controller *ctl)
-{
-	uint32_t now = controller_now_ms(ctl);
-	uint8_t i;
-
-	for (i = 0u; i < ctl->axis_count; i++) {
-		axis_poll(&ctl->axes[i], now);
-	}
 }

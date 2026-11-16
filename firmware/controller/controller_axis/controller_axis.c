@@ -66,6 +66,26 @@ int controller_enable_all(struct axis *axes, uint8_t count)
 }
 
 /**
+ * controller_axes_poll - 推进每个轴的设备状态机
+ * @axes: 轴数组
+ * @count: 已装配轴数
+ * @now_ms: 本轮统一时刻，由调用方取得
+ *
+ * 只做遍历；时钟归组合根持有，本模块不自行读表。
+ */
+void controller_axes_poll(struct axis *axes, uint8_t count, uint32_t now_ms)
+{
+	uint8_t i;
+
+	if (axes == NULL) {
+		return;
+	}
+	for (i = 0u; i < count; i++) {
+		axis_poll(&axes[i], now_ms);
+	}
+}
+
+/**
  * controller_axes_collect - 汇总全部轴当前集合动作的回执
  * @axes: 轴数组
  * @count: 已装配轴数

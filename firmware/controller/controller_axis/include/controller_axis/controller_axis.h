@@ -31,6 +31,9 @@ int controller_config_movemode(struct axis *axes, uint8_t count, uint8_t axis_no
 /* 请求所有轴使能：0 = 已下发；-1 = 未装配或参数为空 */
 int controller_enable_all(struct axis *axes, uint8_t count);
 
+/* 用同一时刻推进每个轴的设备状态机；时钟由调用方提供 */
+void controller_axes_poll(struct axis *axes, uint8_t count, uint32_t now_ms);
+
 /* 消费全部轴的新回执，并将 DONE 保留在 done_mask */
 enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t count,
 						    uint8_t *done_mask);
