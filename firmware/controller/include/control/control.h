@@ -54,8 +54,8 @@ enum controller_result controller_enable(void);
  */
 enum controller_result controller_move(const struct controller_move_req *reqs, uint8_t count);
 
-/* 减速停在当前位置并保持使能；事件插到队头。 */
-void controller_stop(void);
+/* 暂停在当前位置并保持使能；事件插到队头。 */
+void controller_halt(void);
 
 const char *controller_state_name(enum controller_state s);
 

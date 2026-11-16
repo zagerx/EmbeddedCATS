@@ -44,11 +44,11 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 		} else if (elapsed > ENABLE_TIMEOUT_MS) {
 			ctl->fault_code = CONTROLLER_FAULT_ENABLE_TIMEOUT;
 		}
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	default:
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	return SM_HANDLED();

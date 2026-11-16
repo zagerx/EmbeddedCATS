@@ -17,7 +17,7 @@
 | 顶部状态条 | `controller_state()` / `controller_state_name()` |
 | 故障原因 | `controller_fault_code()` / `controller_fault_name()` |
 | 轴反馈与 SDO abort | `controller_axis_sample()` / `controller_axis_abort()` |
-| 运动、停止、急停按钮 | `controller_move()` / `controller_stop()` / `controller_estop()` |
+| 运动、暂停、急停按钮 | `controller_move()` / `controller_halt()` / `controller_estop()` |
 
 命令入队后立即通过 eventfd 唤醒工作线程，不必等待下一次基础定时器。UI 只读发布
 快照，不访问 CANopenNode、SDO 或 CiA402 内部对象。

@@ -49,14 +49,12 @@ enum controller_state {
 /* 故障码：进 FAULT 时确定，之后不再变 */
 enum controller_fault {
 	CONTROLLER_FAULT_NONE = 0,
-	CONTROLLER_FAULT_BOOTUP_TIMEOUT, /* PREPARING 里静默期过后仍等不到心跳 */
-	CONTROLLER_FAULT_HEARTBEAT_LOST, /* 运行期节点心跳超时 */
 	CONTROLLER_FAULT_CONFIG_TIMEOUT, /* CONFIGURING 里超时仍未配完 */
 	CONTROLLER_FAULT_CONFIG_FAILED,  /* CONFIGURING 里写参数被 abort 或读回值不符 */
 	CONTROLLER_FAULT_ENABLE_TIMEOUT, /* ENABLING 里超时还没使能上 */
 	CONTROLLER_FAULT_ENABLE_FAILED,  /* ENABLING 里驱动器回了 abort 或 402 进故障 */
 	CONTROLLER_FAULT_MOTION_FAILED,  /* MOVING 里 abort / 超时 / 402 进故障 */
-	CONTROLLER_FAULT_STOP_FAILED     /* HALTING 里停不下来（超时或 abort） */
+	CONTROLLER_FAULT_HALT_FAILED     /* HALTING 里停不下来（超时或 abort） */
 };
 
 #ifdef __cplusplus

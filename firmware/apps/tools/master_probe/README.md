@@ -13,8 +13,8 @@
 ### 注入指令（可选）
 
 ```bash
-# 单轴 5 mm，1 秒时发，1.2 秒时减速停，1.8 秒时急停
-./build/master_probe can0 6 --move 5 --move-at 1000 --stop-at 1200 --estop-at 1800
+# 单轴 5 mm，1 秒时发，1.2 秒时暂停，1.8 秒时急停
+./build/master_probe can0 6 --move 5 --move-at 1000 --halt-at 1200 --estop-at 1800
 
 # 两轴同时运动；move2-at 与 move-at 相同则走批量接口
 ./build/master_probe can0 10 --move 5 --move2 8 --move-at 1500 --move2-at 1500
@@ -28,7 +28,7 @@
 | `--move <mm>` / `--move-at <ms>` | 轴 1 位置与注入时刻 |
 | `--move2 <mm>` / `--move2-at <ms>` | 轴 2 位置与注入时刻 |
 | `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度 |
-| `--stop-at <ms>` / `--estop-at <ms>` | 停止 / 急停注入时刻 |
+| `--halt-at <ms>` / `--estop-at <ms>` | 暂停 / 急停注入时刻 |
 | `--spam <n>` / `--spam-at <ms>` | 连续提交 n 条命令，检查队列拒绝行为 |
 | `--no-enable` | 不自动请求使能，用于验证停在 `IDLE` |
 
@@ -45,6 +45,6 @@
 [   ...] state = HOLDING
 ```
 
-配合 `fake_drive` 可检查双轴配置、使能、运动、停止、急停，以及 eventfd 唤醒后的
+配合 `fake_drive` 可检查双轴配置、使能、运动、暂停、急停，以及 eventfd 唤醒后的
 命令响应。CAN 数据到来也会提前唤醒；基础定时器只负责周期推进和超时，不再是唯一
 的收帧途径。

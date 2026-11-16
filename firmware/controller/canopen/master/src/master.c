@@ -200,29 +200,6 @@ int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cm
 }
 
 /**
- * master_node_alive - 检查从站心跳
- * @m: 主站对象
- * @node_id: 从站站号
- *
- * Return: 0 ACTIVE；非 0 未登记、未配置、未知或超时。
- */
-int master_node_alive(const struct master *m, uint8_t node_id)
-{
-	int8_t hb_idx;
-	CO_HBconsumer_state_t state;
-
-	if (m == NULL || m->co == NULL || m->co->HBcons == NULL) {
-		return 1;
-	}
-	hb_idx = CO_HBconsumer_getIdxByNodeId(m->co->HBcons, node_id);
-	if (hb_idx < 0) {
-		return 1;
-	}
-	state = CO_HBconsumer_getState(m->co->HBcons, (uint8_t)hb_idx);
-	return (state == CO_HBconsumer_ACTIVE) ? 0 : 1;
-}
-
-/**
  * log_printf - 输出 CANopenLinux 的警告与错误
  * @priority: syslog 优先级
  * @format: printf 格式串

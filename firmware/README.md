@@ -39,7 +39,7 @@ python3 apps/tools/fake_drive/selftest.py
 
 ```bash
 python3 apps/tools/fake_drive/fake_drive.py -i can1 -n 1,2 &
-./build/master_probe can0 6 --move 5 --move-at 1000 --stop-at 1200 --estop-at 1800
+./build/master_probe can0 6 --move 5 --move-at 1000 --halt-at 1200 --estop-at 1800
 ```
 
 层次定义、依赖方向与线程模型见 `docs/01_设计文档/分层与线程模型.md`。

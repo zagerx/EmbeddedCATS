@@ -25,7 +25,7 @@
 enum controller_sig {
 	CONTROLLER_SIG_TICK = SM_SIG_USER,
 	CONTROLLER_SIG_MOVE,
-	CONTROLLER_SIG_STOP,
+	CONTROLLER_SIG_HALT,
 	CONTROLLER_SIG_ESTOP,
 	CONTROLLER_SIG_ENABLE /* IDLE 收到它才进 ENABLING */
 };
@@ -48,7 +48,6 @@ struct controller {
 	struct controller_axis_feedback feedback[CONTROLLER_AXIS_COUNT];
 	uint8_t axis_count;
 
-	uint8_t hb_ok;
 	struct controller_move_cmd move;
 	uint8_t move_done;
 	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */

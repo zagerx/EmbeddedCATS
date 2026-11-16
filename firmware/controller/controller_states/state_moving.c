@@ -2,7 +2,7 @@
  * state_moving.c — 下发一批 PP 运动（可多轴）并等待全部到位
  *
  * 同一批里的轴一起启动，任何一轴失败即整体失败；全部到位才回 HOLDING。
- * 运动期间的新位置指令被丢弃，STOP 迁移到 HALTING。
+ * 运动期间的新位置指令被丢弃，HALT 迁移到 HALTING。
  *
  * Author: zager
  */
@@ -13,11 +13,11 @@
 static int issue_move(struct controller *ctl);
 
 /**
- * st_moving - 处理运动发起、停止请求和运动结论
+ * st_moving - 处理运动发起、暂停请求和运动结论
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: 全部到位迁 HOLDING；停止迁 HALTING；失败交由 ROOT 处理。
+ * Return: 全部到位迁 HOLDING；暂停迁 HALTING；失败交由 ROOT 处理。
  */
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -35,7 +35,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 		/* 运动中的新目标：驱动层不接受改目标，本段跑完再说 ⇒ 丢弃 */
 		return SM_HANDLED();
 
-	case CONTROLLER_SIG_STOP:
+	case CONTROLLER_SIG_HALT:
 		return SM_TRAN(&st_halting); /* Halt 动作在 HALTING 的 ENTRY */
 
 	case CONTROLLER_SIG_TICK: {
@@ -49,7 +49,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			switch (axis_take_motion(&ctl->axes[ctl->move.axis[i].axis])) {
 			case AXIS_MOTION_FAILED:
 				ctl->fault_code = CONTROLLER_FAULT_MOTION_FAILED;
-				return SM_SUPER(&st_online);
+				return SM_SUPER(&st_root);
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);
 				break;
@@ -61,14 +61,14 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 		if (ctl->move_done == all) {
 			return SM_TRAN(&st_holding);
 		}
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	case SM_SIG_EXIT:
 		break;
 
 	default:
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	return SM_HANDLED();

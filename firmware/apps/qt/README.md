@@ -79,7 +79,7 @@ MOVING / HALTING / FAULT / ESTOP）。
   （当前临时值：1000 pulse/rev、5 mm/rev）；读到过才有值，没读到显示 `—`。
 - 状态字显示成 `0x001F` 形式。
 - 「错误码」**只显示驱动器自己报的 `603F`**（`0x0000` = 驱动器无错误）；
-  主站自己的故障原因（`HEARTBEAT_LOST`、`ENABLE_FAILED`…）属于整机状态，
+  主站自己的故障原因（`CONFIG_FAILED`、`ENABLE_FAILED`…）属于整机状态，
   显示在顶部状态区，不进轴卡片；SDO abort 只写日志。
 
 ## 运动与启动
@@ -87,7 +87,8 @@ MOVING / HALTING / FAULT / ESTOP）。
 - 「目标位置 / 目标速度 / 目标加速度」三项用 `mm`、`mm/s`、`mm/s²`，与
   `controller_move()` 的单位一致。数值是 `float`，取整到脉冲只发生在轴层，
   机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
-- 运动按钮按轴选择器提交单轴或双轴命令；暂停与急停分别调用停止和急停接口。
+- 运动按钮按轴选择器提交单轴或双轴命令；暂停与急停分别调用 `controller_halt()` 和
+  `controller_estop()`。
 - 启动不需要按钮：`controller_init()` 建完即 `PREPARING`；配置完成后停在 `IDLE`，
   点“使能”按钮才进 `ENABLING`。
 

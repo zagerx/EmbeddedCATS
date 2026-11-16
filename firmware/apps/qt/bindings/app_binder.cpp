@@ -222,7 +222,7 @@ bool AppBinder::fillMove(uint8_t axis, struct controller_move_req *out)
 
 void AppBinder::onHalt()
 {
-	controller_stop();
+	controller_halt();
 	pushLog(QStringLiteral("已请求暂停：减速停在当前位置"));
 }
 

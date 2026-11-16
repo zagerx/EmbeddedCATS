@@ -25,8 +25,7 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		/* 先让节点进入运行态（广播所有节点），再写参数。
-		 * NMT 没有应答：发不出去或从站没收到，由后面“配置成功 + 心跳”判定，
-		 * 判不出来也会落 CONFIG_TIMEOUT。 */
+		 * NMT 没有应答：对象访问失败或超时由配置流程给出结论。 */
 		ctl->axis_done = 0u;
 		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
 		(void)controller_config_movemode(ctl->axes, ctl->axis_count, UINT8_MAX);
@@ -48,11 +47,11 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		} else if (elapsed > CONFIG_TIMEOUT_MS) {
 			ctl->fault_code = CONTROLLER_FAULT_CONFIG_TIMEOUT;
 		}
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	default:
-		return SM_SUPER(&st_online);
+		return SM_SUPER(&st_root);
 	}
 
 	return SM_HANDLED();

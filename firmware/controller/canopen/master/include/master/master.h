@@ -54,9 +54,6 @@ CO_SDOclient_t *master_sdo(struct master *m, uint8_t node_id);
 /* 立即请求 NMT，只能由 CANopen 工作线程调用 */
 int master_request_nmt(struct master *m, uint8_t node_id, enum master_nmt_cmd cmd);
 
-/* 心跳为 ACTIVE 返回 0，其余情况返回非 0 */
-int master_node_alive(const struct master *m, uint8_t node_id);
-
 #ifdef __cplusplus
 }
 #endif

@@ -55,7 +55,7 @@ bool controller_evtq_push(struct controller_evtq *q, const struct controller_evt
 }
 
 /**
- * controller_evtq_push_front - 将停止或急停事件插入队头
+ * controller_evtq_push_front - 将暂停或急停事件插入队头
  * @q: 队列对象；NULL 时直接返回
  * @e: 待拷贝事件；NULL 时直接返回
  *

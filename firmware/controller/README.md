@@ -5,7 +5,7 @@
 ```text
 controller/
 ├── canopen/
-│   ├── master/     主站生命周期、节点表、NMT 与心跳查询
+│   ├── master/     主站生命周期、节点表、NMT 与通信复位
 │   └── transport/  对象访问契约与同线程 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
 ├── third_party/    CANopenLinux 与 CANopenNode，只读
@@ -28,7 +28,7 @@ controller/
 - 宿主只提供接口名并创建一个 CANopen 工作线程，不持有 fd、主站或设备对象。
 - `controller_init(ifname)` 装配资源；`controller_event_poll()` 处理一轮事件；
   `controller_deinit()` 在线程退出后释放资源，支持安全重复调用。
-- 提供使能、位置、停止、急停、状态、故障和轴样本接口。
+- 提供使能、位置、暂停、急停、状态、故障和轴样本接口。
 - 使用 402 对象索引调度反馈 SDO；每轴仲裁器隔离控制与反馈结果，控制优先。
 - 反馈忙时跳过，成功才更新缓存；控制请求登记后自动取消反馈并等待通道释放。
 - 不创建线程，不直接操作 SocketCAN 或 CANopen PDO 字节。
@@ -44,7 +44,7 @@ FAULT / ESTOP 为终态。
 
 `IDLE` 是“已配置、未使能”的空闲态：配置完成后停在这里，直到外部下发使能请求。
 
-`ROOT` 统一处理故障与急停，`ONLINE` 为运行期子状态统一检查心跳。
+`ROOT` 统一处理故障与急停。当前不根据心跳监控结果迁移状态。
 
 ## 宿主调用约束
 

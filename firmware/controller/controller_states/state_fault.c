@@ -2,7 +2,6 @@
  * state_fault.c — 保持业务故障终态并丢弃运行命令
  *
  * 故障原因由触发位置写入 fault_code；本状态没有退出事件，只能重启程序。
- * FAULT 直接挂在 ROOT 下，不继承 ONLINE 的运行期语义。
  *
  * Author: zager
  */
@@ -14,7 +13,7 @@
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: MOVE、STOP 和 TICK 被消费；其他事件上抛 ROOT。
+ * Return: MOVE、HALT 和 TICK 被消费；其他事件上抛 ROOT。
  */
 sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -31,7 +30,7 @@ sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e)
 		break;
 
 	case CONTROLLER_SIG_MOVE:
-	case CONTROLLER_SIG_STOP:
+	case CONTROLLER_SIG_HALT:
 		return SM_HANDLED(); /* 终态：命令直接丢弃 */
 
 	case CONTROLLER_SIG_TICK:

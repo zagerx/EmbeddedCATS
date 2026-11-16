@@ -1,14 +1,16 @@
 # master/ — CANopenLinux 主站生命周期与节点表
 
-NMT、心跳消费、PDO 和 SDO 客户端来自
-`controller/third_party/CANopenLinux/CANopenNode`。SocketCAN、epoll、timerfd 与
-eventfd 使用 CANopenLinux 的上游实现；不编译 `CO_main_basic.c`，也不运行 `canopend`。
+NMT、PDO 和 SDO 客户端来自 `controller/third_party/CANopenLinux/CANopenNode`。
+SocketCAN、epoll、timerfd 与 eventfd 使用 CANopenLinux 的上游实现；不编译
+`CO_main_basic.c`，也不运行 `canopend`。
 
 本目录负责：
 
 1. 按接口名创建并释放主站，检查所有初始化返回值并处理失败回滚；
 2. 登记节点，第 i 个节点绑定对象字典第 i 条 SDO 客户端通道；
-3. 提供 NMT、心跳查询、eventfd 唤醒和通信复位重建接口。
+3. 提供 NMT、eventfd 唤醒和通信复位重建接口。
+
+对象字典 `0x1016` 的消费项均为 0，当前不启用从站心跳监控。
 
 ## 资源与调用约束
 

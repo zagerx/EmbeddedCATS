@@ -14,7 +14,7 @@
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: MOVE、STOP 和 TICK 被消费；其他事件上抛 ROOT。
+ * Return: MOVE、HALT 和 TICK 被消费；其他事件上抛 ROOT。
  */
 sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -31,7 +31,7 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 		break;
 
 	case CONTROLLER_SIG_MOVE:
-	case CONTROLLER_SIG_STOP:
+	case CONTROLLER_SIG_HALT:
 		return SM_HANDLED(); /* 终态：命令直接丢弃 */
 
 	case CONTROLLER_SIG_TICK:

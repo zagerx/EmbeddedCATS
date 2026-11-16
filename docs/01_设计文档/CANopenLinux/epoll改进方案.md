@@ -106,7 +106,7 @@ socket 由 `CO_CANmodule_t` 管理，不再另存一个由宿主负责关闭的 
 
 ```text
 Qt UI 线程
-    ├── controller_move() / controller_stop() / controller_estop()
+    ├── controller_move() / controller_halt() / controller_estop()
     ├── 查询发布快照
     └── 通过 eventfd 唤醒工作线程
 
@@ -262,7 +262,7 @@ SDO 后端只在 CANopen 工作线程内执行：
 
 ## 8. 对外命令与状态发布
 
-`controller_move()`、`controller_stop()`、`controller_estop()` 可由 UI 线程调用：
+`controller_move()`、`controller_halt()`、`controller_estop()` 可由 UI 线程调用：
 
 ```text
 锁定命令队列
@@ -271,7 +271,7 @@ SDO 后端只在 CANopen 工作线程内执行：
     → 写 eventfd 唤醒工作线程
 ```
 
-急停和停止仍具有优先处理规则，eventfd 使其无需等待下一次基础定时器。
+急停和暂停仍具有优先处理规则，eventfd 使其无需等待下一次基础定时器。
 
 状态快照继续由 `controller` 统一发布，UI 只读取快照，不访问主站、SDO 客户端或 CiA 402 内部对象。
 

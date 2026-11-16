@@ -6,7 +6,7 @@
  *
  * 入队规则（**队列满时**）：
  *   · controller_evtq_push()       普通命令，满了丢弃**新的一条**，返回 false ⇒ 调用方回 BUSY；
- *   · controller_evtq_push_front() 停止/急停，插到队头；满了就替换队头那条最旧的，**永不失败**。
+ *   · controller_evtq_push_front() 暂停/急停，插到队头；满了就替换队头那条最旧的，**永不失败**。
  *
  * 事件按**值拷贝**：sm_hsm_dispatch() 是同步的（run-to-completion），
  * 内核从不保存事件指针，所以队列里不能存指针。
@@ -55,7 +55,7 @@ void controller_evtq_init(struct controller_evtq *q);
 /* 尾部入队（普通命令）。false = 队列满，本事件被丢弃 */
 bool controller_evtq_push(struct controller_evtq *q, const struct controller_evt *e);
 
-/* 头部入队（停止/急停）：插到队头；满时替换队头那条最旧的。永不失败 */
+/* 头部入队（暂停/急停）：插到队头；满时替换队头那条最旧的。永不失败 */
 void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e);
 
 /* 取一个事件。false = 空 */

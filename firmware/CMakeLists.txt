@@ -98,7 +98,6 @@ add_library(cats_control STATIC
 	controller/controller_evtqueue/evt_queue.c
 	controller/controller_states/states.c
 	controller/controller_states/state_root.c
-	controller/controller_states/state_online.c
 	controller/controller_states/state_preparing.c
 	controller/controller_states/state_configuring.c
 	controller/controller_states/state_idle.c

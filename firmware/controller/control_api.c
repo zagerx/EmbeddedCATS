@@ -136,14 +136,14 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 }
 
 /**
- * controller_stop - 请求减速停并保持使能
+ * controller_halt - 请求暂停并保持使能
  *
- * 任意线程均可调用；停止事件插入队头并立即唤醒工作线程。
+ * 任意线程均可调用；暂停事件插入队头并立即唤醒工作线程。
  */
-void controller_stop(void)
+void controller_halt(void)
 {
 	struct controller *ctl = control_ctx();
-	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_STOP}};
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_HALT}};
 
 	if (ctl->master == NULL) {
 		return;

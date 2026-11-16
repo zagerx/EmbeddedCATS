@@ -25,13 +25,13 @@ struct probe_cmd {
 	double acc_mm_s2;
 	long move_at_ms;
 	long move2_at_ms;
-	long stop_at_ms;
+	long halt_at_ms;
 	long estop_at_ms;
 	long spam;
 	long spam_at_ms;
 	int has_move;
 	int has_move2;
-	int has_stop;
+	int has_halt;
 	int has_estop;
 	int has_spam;
 	int armed;
@@ -41,7 +41,7 @@ struct probe_cmd {
 static volatile sig_atomic_t s_stop;
 static uint32_t s_base_ms;
 
-/* 解析可选的运动、停止与急停命令 */
+/* 解析可选的运动、暂停与急停命令 */
 static struct probe_cmd probe_cmd_parse(int argc, char **argv);
 
 /* 记录 SIGINT，让事件循环自行退出 */
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 	int moved2 = 0;
 	int batch = 0;
 	int spammed = 0;
-	int stopped = 0;
+	int halted = 0;
 	int estopped = 0;
 
 	signal(SIGINT, on_sigint);
@@ -167,10 +167,10 @@ int main(int argc, char **argv)
 				       ok, busy);
 				fflush(stdout);
 			}
-			if (cmd.has_stop && !stopped && t >= cmd.stop_at_ms) {
-				stopped = 1;
-				printf("[%6ld] 指令：stop\n", t);
-				controller_stop();
+			if (cmd.has_halt && !halted && t >= cmd.halt_at_ms) {
+				halted = 1;
+				printf("[%6ld] 指令：halt\n", t);
+				controller_halt();
 				fflush(stdout);
 			}
 			if (cmd.has_estop && !estopped && t >= cmd.estop_at_ms) {
@@ -226,7 +226,7 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.acc_mm_s2 = 50.0;
 	c.move_at_ms = -1;
 	c.move2_at_ms = -1;
-	c.stop_at_ms = -1;
+	c.halt_at_ms = -1;
 	c.estop_at_ms = -1;
 	c.spam = -1;
 	c.spam_at_ms = -1;
@@ -254,9 +254,9 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.has_move2 = 1;
 		} else if (strcmp(k, "--move2-at") == 0) {
 			c.move2_at_ms = (long)v;
-		} else if (strcmp(k, "--stop-at") == 0) {
-			c.stop_at_ms = (long)v;
-			c.has_stop = 1;
+		} else if (strcmp(k, "--halt-at") == 0) {
+			c.halt_at_ms = (long)v;
+			c.has_halt = 1;
 		} else if (strcmp(k, "--estop-at") == 0) {
 			c.estop_at_ms = (long)v;
 			c.has_estop = 1;
@@ -271,7 +271,7 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.acc_mm_s2 = v;
 		}
 	}
-	c.armed = c.has_move || c.has_move2 || c.has_stop || c.has_estop || c.has_spam;
+	c.armed = c.has_move || c.has_move2 || c.has_halt || c.has_estop || c.has_spam;
 	if (c.has_move && c.move_at_ms < 0) {
 		c.move_at_ms = 1500;
 	}

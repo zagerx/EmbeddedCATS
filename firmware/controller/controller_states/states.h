@@ -7,15 +7,13 @@
  * 层次（父状态在各自的 return SM_SUPER(&父) 里，或见下方注释）：
  *   sm_top               框架提供的顶层（返回 IGNORED，冒泡终点）
  *   └── st_root          公共规则：置了故障码 → FAULT；ESTOP 事件 → ESTOP
- *       ├── st_preparing 等心跳（此时心跳还没有是正常的，所以不挂 ONLINE）
- *       ├── st_online    运行期父状态：心跳丢失 → 置码，由 ROOT 迁 FAULT
- *       │   ├── st_configuring / st_idle_ctrl / st_enabling /
- *       │   │   st_holding / st_moving / st_halting
- *       ├── st_fault     （直接挂 root：安全态不继承运行期动作）
+ *       ├── st_preparing / st_configuring / st_idle_ctrl / st_enabling /
+ *       │   st_holding / st_moving / st_halting
+ *       ├── st_fault
  *       └── st_estop
  *
- * 约定：运行期子状态的 TICK 处理完自己的事后返回 SM_SUPER(&st_online)，
- *       由 st_online 补做公共判定（心跳），再由 st_root 判故障码并决定归属。
+ * 约定：子状态的 TICK 处理完自己的事后返回 SM_SUPER(&st_root)，
+ *       由 st_root 判断故障码并决定归属。
  *
  * 内核协议：任何状态收到 SM_SIG_EMPTY 都必须 return SM_SUPER(&父状态)，
  *           内核靠它反查父状态算 LCA。本工程统一把 default 分支写成
@@ -37,7 +35,6 @@ sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 
 /* 一个状态一个函数，外部链接（跨文件引用 / 内核反查父状态） */
 sm_ret_t st_root(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_online(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e);
 /* 已配置、未使能的空闲态；idle 与 cia402 层同名，故带 _ctrl 后缀 */

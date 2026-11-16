@@ -36,7 +36,6 @@ uint32_t controller_now_ms(struct controller *ctl)
  */
 void controller_stm_init(struct controller *ctl)
 {
-	ctl->hb_ok = 0u;
 	ctl->move = (struct controller_move_cmd){0};
 	ctl->move_done = 0u;
 	ctl->fault_code = CONTROLLER_FAULT_NONE;

@@ -24,9 +24,6 @@ static struct master master_instance = {
 	.ep = {.epoll_fd = -1, .event_fd = -1, .timer_fd = -1},
 };
 
-/* 汇总所有已装配轴的心跳事实 */
-static uint8_t heartbeat_fact(const struct controller *ctl);
-
 /* 推进各轴非阻塞设备状态机 */
 static void controller_axis_poll(struct controller *ctl);
 
@@ -164,12 +161,15 @@ enum controller_result controller_event_poll(void)
 }
 
 /**
- * controller_poll - 推进一次业务状态机并发布快照
+ * controller_wakeup - 唤醒 CANopen 工作线程
  *
- * 只能由 CANopen 工作线程调用；本函数不执行总线收发。
- *
- * Return: OK 推进成功；STATE 尚未初始化。
+ * 任意线程可调用；未初始化或已经释放时不执行任何操作。
  */
+void controller_wakeup(void)
+{
+	master_notify(controller_singleton.master);
+}
+
 static enum controller_result controller_poll(void)
 {
 	static const struct sm_event evt_tick = {CONTROLLER_SIG_TICK};
@@ -183,7 +183,6 @@ static enum controller_result controller_poll(void)
 		return CONTROLLER_ERR_STATE;
 	}
 	now = controller_now_ms(ctl);
-	ctl->hb_ok = heartbeat_fact(ctl);
 	for (n = 0u; n < CONTROLLER_EVTQ_DRAIN_MAX; n++) {
 		if (!controller_evtq_pop(&ctl->evtq, &evt)) {
 			break;
@@ -201,31 +200,6 @@ static enum controller_result controller_poll(void)
 	}
 	controller_publish();
 	return CONTROLLER_OK;
-}
-
-/**
- * controller_wakeup - 唤醒 CANopen 工作线程
- *
- * 任意线程可调用；未初始化或已经释放时不执行任何操作。
- */
-void controller_wakeup(void)
-{
-	master_notify(controller_singleton.master);
-}
-
-static uint8_t heartbeat_fact(const struct controller *ctl)
-{
-	uint8_t ok = ctl->axis_count > 0 ? 1u : 0u;
-	uint8_t i;
-
-	for (i = 0u; i < ctl->axis_count; i++) {
-		/* 节点号取自映射表：轴与节点的对应关系固定，不靠登记下标推 */
-		if (master_node_alive(ctl->master, AXIS_MAP[i].node_id) != 0) {
-			ok = 0u;
-			break;
-		}
-	}
-	return ok;
 }
 
 static void controller_axis_poll(struct controller *ctl)
