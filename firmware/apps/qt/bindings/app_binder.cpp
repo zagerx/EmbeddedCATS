@@ -370,9 +370,10 @@ void AppBinder::publish()
 	updateCommands(status.state);
 
 	if (state_bar_ != nullptr) {
-		/* 界面只显示上报上来的数据本身：状态值做大号字，故障码做副行 */
+		/* 界面只显示上报上来的数值：大号字是状态值，下面一行是故障四项 */
 		state_bar_->setState(to_bar_state(status.state), static_cast<int>(status.state));
-		state_bar_->setDetail(static_cast<int>(status.fault));
+		/* 阶段暂用现有的故障码；原因 / 轴位图 / abort 码等控制层上行后再接，先占 0 */
+		state_bar_->setFault(static_cast<int>(status.fault), 0, 0, 0U);
 	}
 	pushLog(QStringLiteral("状态 %1 / 故障 %2")
 			.arg(static_cast<int>(status.state))

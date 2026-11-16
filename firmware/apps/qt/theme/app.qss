@@ -55,7 +55,13 @@ AxisCard {
 	font-size: 12px;
 }
 
-/* 1.1.2 故障码：标签灰、数值等宽 */
+/* 1.1.2 故障四项：标题、字段标签灰、数值等宽 */
+#faultTitle {
+	color: @fgDim;
+	font-size: 12px;
+	font-weight: bold;
+}
+
 #faultLabel {
 	color: @fgDim;
 	font-size: 12px;

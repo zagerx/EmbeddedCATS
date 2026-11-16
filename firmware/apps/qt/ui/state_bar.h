@@ -31,13 +31,16 @@ class StateBar : public QWidget
 	/* 纯显示接口：state 决定颜色与圆点，code 是控制层上报的状态数值 */
 	void setState(State state, int code);
 
-	/* 副行：控制层上报的故障码数值 */
-	void setDetail(int fault);
+	/* 1.1.2 故障四项：阶段 / 原因 / 轴位图 / abort 码。
+	 * 数值原样显示，界面不做名称映射；无故障时四项全为 0。 */
+	void setFault(int stage, int cause, int axis_mask, uint32_t abort_code);
 
       private:
 	StatusLed *led_ = nullptr;      /* 1.1.1：圆点 + 状态值 */
-	QLabel *fault_label_ = nullptr; /* 1.1.2 标签「故障码」 */
-	QLabel *fault_value_ = nullptr; /* 1.1.2 数值（0 = 无故障） */
+	QLabel *stage_value_ = nullptr; /* 1.1.2：阶段 */
+	QLabel *cause_value_ = nullptr; /* 1.1.2：原因 */
+	QLabel *axis_value_ = nullptr;  /* 1.1.2：轴位图 */
+	QLabel *abort_value_ = nullptr; /* 1.1.2：abort 码 */
 };
 
 #endif /* STATE_BAR_H */
