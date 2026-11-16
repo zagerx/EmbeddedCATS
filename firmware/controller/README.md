@@ -33,8 +33,8 @@ controller/
 ├── include/control/ 公共状态、故障与控制接口
 ├── controller.c       组合根、生命周期与事件循环
 ├── controller_actions.c 时间基准与状态图装配
-├── controller_feedback.c 反馈读取调度与逐轴缓存
-├── control_api.c      指令、查询与发布
+├── controller_feedback.c 反馈读取调度、单位换算与样本保存
+├── control_api.c      指令、故障锁存与信息查询
 └── controller_internal.h 控制器完整上下文与内部契约
 ```
 
@@ -72,6 +72,8 @@ FAULT / ESTOP 为终态。
 | `controller_deinit()` | 工作线程 join 后的宿主 | 仅资源释放 |
 | 命令与查询 | UI 等其他线程 | 否；入队后 eventfd 唤醒 |
 
-跨线程只保留命令队列和发布快照的锁。CANopen、SDO、CiA402 与整机状态机均在同一
-工作线程内推进。参考实现：`apps/qt/bindings/can_thread.cpp`、
-`apps/tools/master_probe/main.c`。
+跨线程只保留命令队列和 `controller_info` 的锁。状态机锁存故障、反馈采集保存样本时都
+直接写入 `controller_info`；每轮末尾 `controller_info_update()` 统一更新状态与 abort。
+位置与速度在反馈保存时已转换为 mm / mm·s⁻¹，查询直接拷贝转换后的值。CANopen、SDO、
+CiA402 与整机状态机均在同一工作线程内推进。参考实现：
+`apps/qt/bindings/can_thread.cpp`、`apps/tools/master_probe/main.c`。

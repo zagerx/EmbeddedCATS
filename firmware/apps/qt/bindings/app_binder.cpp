@@ -80,14 +80,6 @@ AppBinder::~AppBinder()
 	worker_.stop();
 }
 
-struct controller_status AppBinder::currentStatus()
-{
-	struct controller_status status = {CONTROLLER_STATE_PREPARING, CONTROLLER_FAULT_NONE};
-
-	(void)controller_status_get(&status);
-	return status;
-}
-
 void AppBinder::attach(QWidget *root, const QString &ifname)
 {
 	findWidgets(root);
@@ -101,7 +93,7 @@ void AppBinder::attach(QWidget *root, const QString &ifname)
 
 	startTimers();
 	pushLog(QStringLiteral("CANopen 事件循环已启动"));
-	publish();
+	onRefresh();
 }
 
 void AppBinder::findWidgets(QWidget *root)
@@ -144,7 +136,7 @@ void AppBinder::bindCommands()
 	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
 	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
 	connect(btn_clear_estop_, &QPushButton::clicked, this, &AppBinder::onClearEStop);
-	updateCommands(currentStatus().state);
+	updateCommands(CONTROLLER_STATE_PREPARING);
 }
 
 void AppBinder::updateCommands(enum controller_state s)
@@ -270,64 +262,34 @@ void AppBinder::startTimers()
 
 void AppBinder::onRefresh()
 {
-	publish();
-	updateAxisCards();
-	tickPrefill();
-}
+	struct controller_info info;
 
-void AppBinder::tickPrefill()
-{
-	/* 首次进入 HOLDING：把目标位置填成当前实际位置。
-	 * 否则框里默认 0，一点“运动”就命令驱动器冲回原点。只做一次，
-	 * 之后不覆盖：人要重复执行同一条指令时，目标值得留着。 */
-	bool all_ready = true;
-
-	if (prefilled_ || currentStatus().state != CONTROLLER_STATE_HOLDING) {
+	if (controller_info_get(&info) != CONTROLLER_OK) {
 		return;
 	}
-	for (uint8_t i = 0; i < 2; i++) {
-		struct controller_axis_sample sample;
-
-		if (axis_cards_[i] == nullptr) {
-			continue;
-		}
-		/* 位置尚未成功读取时等下一拍再填，不能使用默认的 0 */
-		if (controller_axis_sample(i, &sample) != CONTROLLER_OK ||
-		    (sample.valid_mask & (1u << 1)) == 0U) {
-			all_ready = false;
-			continue;
-		}
-		axis_cards_[i]->setTargetPosition(static_cast<double>(sample.position_mm));
-	}
-	if (all_ready) {
-		prefilled_ = true;
-		pushLog(QStringLiteral("已就绪：目标位置已按当前实际位置填好"));
-	}
+	publish(info);
+	updateAxisCards(info);
 }
 
-void AppBinder::updateAxisCards()
+void AppBinder::updateAxisCards(const struct controller_info &info)
 {
 	for (uint8_t i = 0; i < 2; i++) {
 		AxisCard *card = axis_cards_[i];
-		struct controller_axis_sample sample;
+		const struct controller_feedback &feedback = info.feedback[i];
 
 		if (card == nullptr) {
 			continue;
 		}
-		if (controller_axis_sample(i, &sample) != CONTROLLER_OK) {
-			continue;
-		}
-
-		card->setPosition(QString::number(static_cast<double>(sample.position_mm), 'f', 3));
+		card->setPosition(QString::number(static_cast<double>(feedback.position), 'f', 3));
 		card->setVelocity(
-			QString::number(static_cast<double>(sample.velocity_mm_s), 'f', 3));
-		card->setStatusword(hex16(sample.statusword));
+			QString::number(static_cast<double>(feedback.velocity), 'f', 3));
+		card->setStatusword(hex16(feedback.statusword));
 
 		/* 错误码只有一来源：驱动器的 603F（主站的故障判断不往这里写） */
-		card->setError(hex16(sample.error_code));
+		card->setError(hex16(feedback.error_code));
 
 		/* SDO abort 是传输层失败原因，不属于驱动器错误码：只进日志 */
-		const uint32_t abort = controller_axis_abort(i);
+		const uint32_t abort = info.abort[i];
 
 		if (abort != last_abort_[i]) {
 			last_abort_[i] = abort;
@@ -357,25 +319,23 @@ void AppBinder::pushLog(const QString &line)
 	}
 }
 
-void AppBinder::publish()
+void AppBinder::publish(const struct controller_info &info)
 {
-	const struct controller_status status = currentStatus();
-
-	if (status.state == last_state_ && status.fault == last_fault_) {
+	if (info.state == last_state_ && info.fault_code == last_fault_) {
 		return; /* 状态和故障都没变就不碰控件 */
 	}
-	last_state_ = status.state;
-	last_fault_ = status.fault;
+	last_state_ = info.state;
+	last_fault_ = info.fault_code;
 
-	updateCommands(status.state);
+	updateCommands(info.state);
 
 	if (state_bar_ != nullptr) {
 		/* 界面只显示上报上来的数值：大号字是状态值，下面一行是故障四项 */
-		state_bar_->setState(to_bar_state(status.state), static_cast<int>(status.state));
+		state_bar_->setState(to_bar_state(info.state), static_cast<int>(info.state));
 		/* 阶段暂用现有的故障码；原因 / 轴位图 / abort 码等控制层上行后再接，先占 0 */
-		state_bar_->setFault(static_cast<int>(status.fault), 0, 0, 0U);
+		state_bar_->setFault(static_cast<int>(info.fault_code), 0, 0, 0U);
 	}
 	pushLog(QStringLiteral("状态 %1 / 故障 %2")
-			.arg(static_cast<int>(status.state))
-			.arg(static_cast<int>(status.fault)));
+			.arg(static_cast<int>(info.state))
+			.arg(static_cast<int>(info.fault_code)));
 }

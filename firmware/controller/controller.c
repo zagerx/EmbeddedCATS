@@ -16,15 +16,15 @@
 #include <string.h>
 
 static struct controller controller_singleton = {
-	.lock = PTHREAD_MUTEX_INITIALIZER,
 	.evtq.lock = PTHREAD_MUTEX_INITIALIZER,
+	.info_lock = PTHREAD_MUTEX_INITIALIZER,
 };
 
 static struct master master_instance = {
 	.ep = {.epoll_fd = -1, .event_fd = -1, .timer_fd = -1},
 };
 
-/* 推进一次业务状态机并发布快照 */
+/* 推进一次业务状态机 */
 static enum controller_result controller_poll(uint32_t now_ms);
 
 /**
@@ -85,15 +85,16 @@ enum controller_result controller_init(const char *can_ifname)
 		cia402_init(&ctl->axes[i].dev, sdo_arbiter_control(&ctl->axes[i].arb));
 	}
 	ctl->master = &master_instance;
+	controller_feedback_reset();
 	controller_stm_init(ctl);
-	controller_publish();
+	controller_info_update(ctl);
 	return CONTROLLER_OK;
 }
 
 /**
  * controller_deinit - 释放控制层运行资源
  *
- * 宿主 join 工作线程后调用。静态队列和快照锁保留，可再次初始化。
+ * 宿主 join 工作线程后调用。静态队列和信息锁保留，可再次初始化。
  *
  * Return: 始终返回 CONTROLLER_OK，未初始化时也不执行任何操作。
  */
@@ -108,14 +109,13 @@ enum controller_result controller_deinit(void)
 	ctl->master = NULL;
 	ctl->axis_count = 0u;
 	memset(ctl->axes, 0, sizeof(ctl->axes));
-	memset(ctl->feedback, 0, sizeof(ctl->feedback));
 	controller_evtq_clear(&ctl->evtq);
-	pthread_mutex_lock(&ctl->lock);
-	ctl->published_state = CONTROLLER_STATE_PREPARING;
-	ctl->published_fault = CONTROLLER_FAULT_NONE;
-	memset(ctl->published_axes, 0, sizeof(ctl->published_axes));
-	memset(ctl->published_abort, 0, sizeof(ctl->published_abort));
-	pthread_mutex_unlock(&ctl->lock);
+	pthread_mutex_lock(&ctl->info_lock);
+	ctl->info.state = CONTROLLER_STATE_PREPARING;
+	ctl->info.fault_code = CONTROLLER_FAULT_NONE;
+	memset(ctl->info.feedback, 0, sizeof(ctl->info.feedback));
+	memset(ctl->info.abort, 0, sizeof(ctl->info.abort));
+	pthread_mutex_unlock(&ctl->info_lock);
 	return CONTROLLER_OK;
 }
 
@@ -149,9 +149,10 @@ enum controller_result controller_event_poll(void)
 		/* 本轮只取一次时钟：反馈、设备状态机与业务状态机用同一时刻 */
 		now = controller_now_ms(ctl);
 		/* 先收反馈结果，再让 402 发起下一笔，避免结果滞留被当成忙 */
-		controller_feedback_poll(ctl, now);
+		controller_feedback_poll(ctl);
 		controller_axes_poll(ctl->axes, ctl->axis_count, now);
 		(void)controller_poll(now);
+		controller_info_update(ctl);
 	} else if (reset != CO_RESET_COMM || master_reset_communication(m) != 0) {
 		CO_epoll_processLast(&m->ep);
 		return CONTROLLER_ERR_STATE;
@@ -196,6 +197,5 @@ static enum controller_result controller_poll(uint32_t now_ms)
 	if (sm_hsm_state(&ctl->hsm) != before) {
 		ctl->state_since_ms = now_ms;
 	}
-	controller_publish();
 	return CONTROLLER_OK;
 }

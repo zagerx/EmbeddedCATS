@@ -43,9 +43,9 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_idle_ctrl); /* 配置完成：停在未使能态等指令 */
 		}
 		if (result == CONTROLLER_AXES_FAILED) {
-			ctl->fault_code = CONTROLLER_FAULT_CONFIG_FAILED;
+			controller_set_fault(ctl, CONTROLLER_FAULT_CONFIG_FAILED);
 		} else if (elapsed > CONFIG_TIMEOUT_MS) {
-			ctl->fault_code = CONTROLLER_FAULT_CONFIG_TIMEOUT;
+			controller_set_fault(ctl, CONTROLLER_FAULT_CONFIG_TIMEOUT);
 		}
 		return SM_SUPER(&st_root);
 	}

@@ -1,5 +1,5 @@
 /*
- * 轴层：一个轴对应一个节点，负责 mm ↔ pulse 换算和动作请求。
+ * 轴层：一个轴对应一个节点，负责下行命令的 mm → pulse 换算和动作请求。
  * 402 流程由 cia402 实现，业务状态由 states 管理。
  */
 
@@ -26,14 +26,6 @@ struct axis {
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */
 
-/* 原始反馈由控制器读取；轴层只负责换算业务单位。 */
-struct axis_sample {
-	float position_mm;
-	float velocity_mm_s;
-	uint16_t statusword;
-	uint16_t error_code; /* 603F：驱动器自己报的错误码（不是主站的判断） */
-};
-
 /* 运动结论汇总（已从 402 取走，不会重复上报）；NONE = 还没结论，还在跑或未发起 */
 enum axis_motion {
 	AXIS_MOTION_NONE = 0,
@@ -57,10 +49,6 @@ enum axis_motion axis_take_motion(struct axis *a);
 
 /* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
 uint32_t axis_abort_code(const struct axis *a);
-
-/* 将控制器读到的原始反馈换算为业务单位，不触发总线传输。 */
-void axis_sample(const struct axis *a, struct axis_sample *out, int32_t position, int32_t velocity,
-		 uint16_t statusword, uint16_t error_code);
 
 /* 写运动模式（PP）：已配过的轴会被设备层拒绝，不算错 */
 int axis_config_movemode(struct axis *a);

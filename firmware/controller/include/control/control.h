@@ -1,5 +1,5 @@
 /*
- * control.h — 控制层生命周期、事件推进、命令与只读快照
+ * control.h — 控制层生命周期、事件推进、命令与只读信息
  *
  * CANopen 工作线程调用 init 和 event_poll，退出并 join 后调用 deinit。
  * event_poll 阻塞等待 CAN、定时器或外部命令；业务 poll 本身不阻塞。
@@ -26,10 +26,20 @@ struct controller_move_req {
 	float mm_s2;
 };
 
-/* 整机只读快照：两个字段同一次加锁读出，保证属于同一时刻 */
-struct controller_status {
+/* 单轴反馈：位置 mm，速度 mm/s，状态字与错误码为驱动器原始值 */
+struct controller_feedback {
+	float position;
+	float velocity;
+	uint16_t statusword;
+	uint16_t error_code;
+};
+
+/* 上报给 Qt 等外部的信息；一次加锁复制，保证属于同一时刻 */
+struct controller_info {
 	enum controller_state state;
-	enum controller_fault fault;
+	struct controller_feedback feedback[CONTROLLER_AXIS_COUNT];
+	enum controller_fault fault_code;
+	uint32_t abort[CONTROLLER_AXIS_COUNT];
 };
 
 /* 在接口名指定的 SocketCAN 通道上登记节点 1、2 并装配状态机 */
@@ -44,8 +54,8 @@ enum controller_result controller_event_poll(void);
 /* 唤醒等待中的事件循环；用于外部命令和宿主退出 */
 void controller_wakeup(void);
 
-/* 读取整机状态与故障码；未初始化时返回 STATE，两个字段均为 0 */
-enum controller_result controller_status_get(struct controller_status *out);
+/* 读取完整控制器信息；未初始化时返回 STATE */
+enum controller_result controller_info_get(struct controller_info *out);
 
 /*
  * 请求各轴使能。只有 IDLE（已配置、未使能）接受，其余状态直接丢弃。
@@ -73,20 +83,6 @@ void controller_estop(void);
  * 只有 ESTOP 状态接受，其余状态丢弃。
  */
 void controller_clear_estop(void);
-
-/* 最近一次失败的 SDO abort；0 表示没有记录到 abort。 */
-uint32_t controller_axis_abort(uint8_t axis);
-
-struct controller_axis_sample {
-	float position_mm;
-	float velocity_mm_s;
-	uint16_t statusword;
-	uint16_t error_code;
-	uint32_t updated_ms[4]; /* 状态字、位置、速度、错误码各自的读取时刻 */
-	uint8_t valid_mask;     /* bit0..3：对应字段是否至少成功读取一次 */
-};
-
-enum controller_result controller_axis_sample(uint8_t axis, struct controller_axis_sample *out);
 
 #ifdef __cplusplus
 }

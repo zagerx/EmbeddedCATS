@@ -40,7 +40,9 @@ void controller_stm_init(struct controller *ctl)
 	ctl->move_done = 0u;
 	ctl->axis_done = 0u;
 	ctl->estop_clearing = 0u;
-	ctl->fault_code = CONTROLLER_FAULT_NONE;
+	pthread_mutex_lock(&ctl->info_lock);
+	ctl->info.fault_code = CONTROLLER_FAULT_NONE;
+	pthread_mutex_unlock(&ctl->info_lock);
 	controller_evtq_init(&ctl->evtq);
 
 	/* 初始转移沿 ROOT 进入 PREPARING，并从其 ENTRY 发出通信复位。 */

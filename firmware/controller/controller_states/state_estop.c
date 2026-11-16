@@ -62,7 +62,7 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 		if (ctl->axis_done != controller_axis_mask(ctl->axis_count) &&
 		    controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done) ==
 			    CONTROLLER_AXES_FAILED) {
-			ctl->fault_code = CONTROLLER_FAULT_ESTOP_FAILED;
+			controller_set_fault(ctl, CONTROLLER_FAULT_ESTOP_FAILED);
 			ctl->axis_done = controller_axis_mask(ctl->axis_count);
 		}
 		if (ctl->estop_clearing != 0u &&

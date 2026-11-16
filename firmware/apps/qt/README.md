@@ -29,7 +29,7 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 - **CANopen 工作线程**：接收接口名，初始化主站并运行 `controller_event_poll()`。
   CAN 数据、基础 timerfd 和命令 eventfd 都会唤醒它，不再运行三个固定节拍线程。
-- **界面线程**：`QTimer 50 ms` 读取发布快照刷状态与轴反馈；`QTimer 5 s` 写循环统计。
+- **界面线程**：`QTimer 50 ms` 读取 `controller_info` 刷状态与轴反馈；`QTimer 5 s` 写循环统计。
   按钮通过命令队列下发，eventfd 立即唤醒工作线程，界面不碰总线或设备对象。
 - **退出**：停止标志 → eventfd 唤醒 → join → `controller_deinit()`。
 
@@ -50,9 +50,9 @@ main → shell → ui → theme（这一支完全不认识业务）
 
 ## 状态显示
 
-界面上**没有任何状态名表**：只显示 `bindings` 读到的数据（`controller_status_get()`
-的状态值与故障码数值），大号字是状态值、副行是故障码。控制层的名称映射已删除，
-界面不再产出任何状态/故障名称。
+界面上**没有任何状态名表**：只显示 `bindings` 通过 `controller_info_get()` 一次读取的
+状态值与故障码数值，大号字是状态值、副行是故障码。控制层的名称映射已删除，界面不再
+产出任何状态/故障名称。
 
 颜色与圆点只由**粗粒度档位**决定（`to_bar_state()`，纯 UI 表现）：
 
@@ -74,8 +74,8 @@ main → shell → ui → theme（这一支完全不认识业务）
 （`6041` 状态字 → `6064` 实际位置 → `606C` 实际速度 → `603F` 驱动器错误码），
 与状态机串行共用同一条 SDO 通道（流程优先，监控读让路；超时 100 ms，失败保留上一次有效值）。
 
-- 位置 / 速度在轴层按 `controller/config/cats_mech.h` 的编译期常量换算成 `mm`、`mm/s`
-  （当前临时值：1000 pulse/rev、5 mm/rev）；读到过才有值，没读到显示 `—`。
+- 位置 / 速度在控制器反馈保存时按 `controller/config/cats_mech.h` 的编译期常量换算成
+  `mm`、`mm/s`（当前临时值：1000 pulse/rev、5 mm/rev）；读取成功才更新，失败保留上一次值。
 - 状态字显示成 `0x001F` 形式。
 - 「错误码」**只显示驱动器自己报的 `603F`**（`0x0000` = 驱动器无错误）；
   主站自己的故障原因（`CONFIG_FAILED`、`ENABLE_FAILED`…）属于整机状态，

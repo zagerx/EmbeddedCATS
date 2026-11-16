@@ -27,7 +27,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_ENTRY:
 		ctl->move_done = 0u;
 		if (issue_move(ctl) < 0) {
-			ctl->fault_code = CONTROLLER_FAULT_MOTION_FAILED;
+			controller_set_fault(ctl, CONTROLLER_FAULT_MOTION_FAILED);
 		}
 		break;
 
@@ -48,7 +48,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			switch (axis_take_motion(&ctl->axes[ctl->move.axis[i].axis])) {
 			case AXIS_MOTION_FAILED:
-				ctl->fault_code = CONTROLLER_FAULT_MOTION_FAILED;
+				controller_set_fault(ctl, CONTROLLER_FAULT_MOTION_FAILED);
 				return SM_SUPER(&st_root);
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);

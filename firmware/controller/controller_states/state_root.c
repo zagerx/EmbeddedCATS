@@ -24,7 +24,7 @@ sm_ret_t st_root(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_estop); /* 急停优先于一切，连故障出口规则也让位 */
 	}
 
-	if (e->sig == CONTROLLER_SIG_TICK && ctl->fault_code != CONTROLLER_FAULT_NONE) {
+	if (e->sig == CONTROLLER_SIG_TICK && ctl->info.fault_code != CONTROLLER_FAULT_NONE) {
 		return SM_TRAN(&st_fault); /* 任何状态下置了故障码，都在这里统一出去 */
 	}
 

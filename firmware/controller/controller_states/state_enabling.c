@@ -43,9 +43,9 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_holding);
 		}
 		if (result == CONTROLLER_AXES_FAILED) {
-			ctl->fault_code = CONTROLLER_FAULT_ENABLE_FAILED;
+			controller_set_fault(ctl, CONTROLLER_FAULT_ENABLE_FAILED);
 		} else if (elapsed > ENABLE_TIMEOUT_MS) {
-			ctl->fault_code = CONTROLLER_FAULT_ENABLE_TIMEOUT;
+			controller_set_fault(ctl, CONTROLLER_FAULT_ENABLE_TIMEOUT);
 		}
 		return SM_SUPER(&st_root);
 	}

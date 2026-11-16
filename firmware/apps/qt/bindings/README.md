@@ -14,10 +14,9 @@
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
 | CANopen 事件循环 | `controller_event_poll()` |
-| 顶部状态条 | `controller_status_get()`（状态值与故障码，一次加锁同刻） |
-| 故障码 | 同上，`struct controller_status.fault` |
-| 轴反馈与 SDO abort | `controller_axis_sample()` / `controller_axis_abort()` |
+| 状态、故障、轴反馈与 SDO abort | `controller_info_get()`（一次加锁读取完整信息） |
 | 运动、暂停、急停、解除急停按钮 | `controller_move()` / `controller_halt()` / `controller_estop()` / `controller_clear_estop()` |
 
-命令入队后立即通过 eventfd 唤醒工作线程，不必等待下一次基础定时器。UI 只读发布
-快照，不访问 CANopenNode、SDO 或 CiA402 内部对象。
+命令入队后立即通过 eventfd 唤醒工作线程，不必等待下一次基础定时器。UI 通过加锁的
+`controller_info` 读取信息，不访问 CANopenNode、SDO 或 CiA402 内部对象；反馈查询直接
+返回已转换为 mm / mm·s⁻¹ 的数据。

@@ -1,61 +1,57 @@
 /*
- * control_api.c — 将控制 API 翻译成状态机操作并发布只读快照
+ * control_api.c — 将控制 API 翻译成状态机操作并提供只读信息
  *
  * 外部指令经带锁队列进入工作线程，成功入队后用 eventfd 唤醒。
- * 查询只读发布快照，不接触主站、CANopenNode 或设备内部对象。
+ * 查询只读 controller_info，不接触主站、CANopenNode 或设备内部对象。
  *
  * Author: zager
  */
 
 #include "controller_internal.h"
 
-#include <string.h>
-
 /**
- * controller_publish - 发布整机状态、故障和各轴反馈快照
+ * controller_set_fault - 锁存业务故障
+ * @ctl: 控制上下文；NULL 安全
+ * @fault: 待锁存故障码
  *
- * 只能由工作线程调用；轴单位换算与事实收集在发布锁外完成。
+ * 已经存在非零故障时保留最初原因，避免后续故障覆盖根因。
  */
-void controller_publish(void)
+void controller_set_fault(struct controller *ctl, enum controller_fault fault)
 {
-	struct controller *app = control_ctx();
-	int state;
-	struct controller_axis_sample samples[CONTROLLER_AXIS_COUNT];
-	uint32_t aborts[CONTROLLER_AXIS_COUNT];
-	uint8_t i;
-
-	if (app->master == NULL) {
+	if (ctl == NULL) {
 		return;
 	}
-	state = CONTROLLER_STATE_PREPARING;
+	pthread_mutex_lock(&ctl->info_lock);
+	if (ctl->info.fault_code == CONTROLLER_FAULT_NONE) {
+		ctl->info.fault_code = fault;
+	}
+	pthread_mutex_unlock(&ctl->info_lock);
+}
+
+/**
+ * controller_info_update - 更新全部上报信息
+ * @ctl: 控制上下文；NULL 安全
+ *
+ * 仅 CANopen 工作线程调用；所有字段在同一个临界区内更新。
+ */
+void controller_info_update(struct controller *ctl)
+{
+	uint8_t i;
+
+	if (ctl == NULL) {
+		return;
+	}
+	pthread_mutex_lock(&ctl->info_lock);
 	for (i = 0u; i < CONTROLLER_STATE_COUNT; i++) {
-		if (states[i] == sm_hsm_state(&app->hsm)) {
-			state = (int)i;
+		if (states[i] == sm_hsm_state(&ctl->hsm)) {
+			ctl->info.state = (enum controller_state)i;
 			break;
 		}
 	}
-	for (i = 0; i < CONTROLLER_AXIS_COUNT; i++) {
-		struct axis_sample s;
-		const struct controller_axis_feedback *feedback = &app->feedback[i];
-
-		axis_sample(&app->axes[i], &s, feedback->position, feedback->velocity,
-			    feedback->statusword, feedback->error_code);
-		samples[i].position_mm = s.position_mm;
-		samples[i].velocity_mm_s = s.velocity_mm_s;
-		samples[i].statusword = s.statusword;
-		samples[i].error_code = s.error_code;
-		memcpy(samples[i].updated_ms, feedback->updated_ms, sizeof(samples[i].updated_ms));
-		samples[i].valid_mask = feedback->valid_mask;
-		aborts[i] = axis_abort_code(&app->axes[i]);
+	for (i = 0u; i < ctl->axis_count; i++) {
+		ctl->info.abort[i] = axis_abort_code(&ctl->axes[i]);
 	}
-	pthread_mutex_lock(&app->lock);
-	app->published_state = state;
-	app->published_fault = (int)app->fault_code;
-	for (i = 0; i < CONTROLLER_AXIS_COUNT; i++) {
-		app->published_axes[i] = samples[i];
-		app->published_abort[i] = aborts[i];
-	}
-	pthread_mutex_unlock(&app->lock);
+	pthread_mutex_unlock(&ctl->info_lock);
 }
 
 /**
@@ -171,14 +167,14 @@ void controller_halt(void)
 }
 
 /**
- * controller_status_get - 读取已发布的整机状态与故障码
- * @out: 输出快照；NULL 时返回 PARAM
+ * controller_info_get - 读取完整控制器信息
+ * @out: 输出信息；NULL 时返回 PARAM
  *
- * 两个字段在同一次加锁里读出，避免拿到“旧状态 + 新故障”这种不同刻组合。
+ * 在同一次加锁里复制全部字段，保证状态、故障、反馈和 abort 属于同一时刻。
  *
  * Return: OK 已填充；PARAM 参数为空；STATE 控制层未初始化。
  */
-enum controller_result controller_status_get(struct controller_status *out)
+enum controller_result controller_info_get(struct controller_info *out)
 {
 	struct controller *ctl = control_ctx();
 
@@ -186,53 +182,10 @@ enum controller_result controller_status_get(struct controller_status *out)
 		return CONTROLLER_ERR_PARAM;
 	}
 	if (ctl->master == NULL) {
-		out->state = CONTROLLER_STATE_PREPARING;
-		out->fault = CONTROLLER_FAULT_NONE;
 		return CONTROLLER_ERR_STATE;
 	}
-	pthread_mutex_lock(&ctl->lock);
-	out->state = (enum controller_state)ctl->published_state;
-	out->fault = (enum controller_fault)ctl->published_fault;
-	pthread_mutex_unlock(&ctl->lock);
-	return CONTROLLER_OK;
-}
-
-/**
- * controller_axis_abort - 读取已发布的 SDO abort 码
- * @axis: 轴索引
- *
- * Return: abort 码；没有记录或轴索引越界时返回 0。
- */
-uint32_t controller_axis_abort(uint8_t axis)
-{
-	struct controller *ctl = control_ctx();
-	uint32_t abort_code;
-
-	if (axis >= CONTROLLER_AXIS_COUNT) {
-		return 0U;
-	}
-	pthread_mutex_lock(&ctl->lock);
-	abort_code = ctl->published_abort[axis];
-	pthread_mutex_unlock(&ctl->lock);
-	return abort_code;
-}
-
-/**
- * controller_axis_sample - 拷贝一轴已发布的反馈样本
- * @axis: 轴索引，范围为 0 至 CONTROLLER_AXIS_COUNT-1
- * @out: 输出样本；NULL 时拒绝
- *
- * Return: CONTROLLER_OK 成功；CONTROLLER_ERR_PARAM 输出为空或轴索引越界。
- */
-enum controller_result controller_axis_sample(uint8_t axis, struct controller_axis_sample *out)
-{
-	struct controller *ctl = control_ctx();
-
-	if (out == NULL || axis >= CONTROLLER_AXIS_COUNT) {
-		return CONTROLLER_ERR_PARAM;
-	}
-	pthread_mutex_lock(&ctl->lock);
-	*out = ctl->published_axes[axis];
-	pthread_mutex_unlock(&ctl->lock);
+	pthread_mutex_lock(&ctl->info_lock);
+	*out = ctl->info;
+	pthread_mutex_unlock(&ctl->info_lock);
 	return CONTROLLER_OK;
 }

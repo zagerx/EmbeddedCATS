@@ -27,7 +27,7 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		for (i = 0u; i < ctl->move.count; i++) {
 			/* ENTRY 里不迁移，失败交给 ROOT */
 			if (axis_halt(&ctl->axes[ctl->move.axis[i].axis]) != 0) {
-				ctl->fault_code = CONTROLLER_FAULT_HALT_FAILED;
+				controller_set_fault(ctl, CONTROLLER_FAULT_HALT_FAILED);
 			}
 		}
 		break;
@@ -50,7 +50,7 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			m = axis_take_motion(&ctl->axes[ctl->move.axis[i].axis]);
 			if (m == AXIS_MOTION_FAILED) {
-				ctl->fault_code = CONTROLLER_FAULT_HALT_FAILED;
+				controller_set_fault(ctl, CONTROLLER_FAULT_HALT_FAILED);
 			} else if (m == AXIS_MOTION_DONE) {
 				ctl->move_done |= (uint8_t)(1u << i);
 			}

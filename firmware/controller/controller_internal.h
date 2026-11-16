@@ -31,22 +31,10 @@ enum controller_sig {
 	CONTROLLER_SIG_ENABLE       /* IDLE 收到它才进 ENABLING */
 };
 
-/* 控制器持有的逐轴反馈缓存；valid_mask 各位对应四个读取项 */
-struct controller_axis_feedback {
-	uint16_t statusword;
-	int32_t position;
-	int32_t velocity;
-	uint16_t error_code;
-	uint32_t updated_ms[4];
-	uint8_t valid_mask;
-	uint8_t next;
-};
-
-/* 控制器的对象实体、状态图上下文和跨线程发布值集中在这里 */
+/* 控制器的对象实体、状态图上下文和上报信息集中在这里 */
 struct controller {
 	struct master *master;
 	struct axis axes[CONTROLLER_AXIS_COUNT];
-	struct controller_axis_feedback feedback[CONTROLLER_AXIS_COUNT];
 	uint8_t axis_count;
 
 	struct controller_move_cmd move;
@@ -55,14 +43,10 @@ struct controller {
 	uint8_t estop_clearing; /* 非 0：已发出解除急停请求，等回执齐了再迁 IDLE */
 	struct sm_hsm hsm;
 	uint32_t state_since_ms;
-	enum controller_fault fault_code;
 	struct controller_evtq evtq;
 
-	pthread_mutex_t lock;
-	int published_state;
-	int published_fault;
-	struct controller_axis_sample published_axes[CONTROLLER_AXIS_COUNT];
-	uint32_t published_abort[CONTROLLER_AXIS_COUNT];
+	pthread_mutex_t info_lock;
+	struct controller_info info;
 };
 
 /* 状态图注册表，由 states/states.c 定义；本层只发布枚举值，不产出字符串 */
@@ -75,7 +59,10 @@ sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 uint32_t controller_now_ms(struct controller *ctl);
 
 /* 空闲通道上推进各轴反馈读取；由工作线程调用 */
-void controller_feedback_poll(struct controller *ctl, uint32_t now_ms);
+void controller_feedback_poll(struct controller *ctl);
+
+/* 控制器重新初始化时复位各轴反馈轮询游标 */
+void controller_feedback_reset(void);
 
 /* 装配状态图并注入主站与时钟能力（仅初始化阶段调用） */
 void controller_stm_init(struct controller *app);
@@ -83,7 +70,10 @@ void controller_stm_init(struct controller *app);
 /* 控制层单例（由 controller.c 创建；同层另一文件通过它拿上下文） */
 struct controller *control_ctx(void);
 
-/* 把其他线程可以看的值发布出去（只在控制线程里调） */
-void controller_publish(void);
+/* 锁存业务故障；已锁存非零故障时不覆盖最初原因 */
+void controller_set_fault(struct controller *ctl, enum controller_fault fault);
+
+/* 每轮末尾将状态、故障、反馈和 abort 一次性汇入上报信息 */
+void controller_info_update(struct controller *ctl);
 
 #endif /* CONTROL_INTERNAL_H */

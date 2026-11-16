@@ -43,15 +43,13 @@ class AppBinder : public QObject
 	void onClearEStop(); /* 驱动器断使能，控制器回空闲（故障保留） */
 
       private:
-	void findWidgets(QWidget *root);          /* 按 objectName 取状态条与日志面板 */
-	struct controller_status currentStatus(); /* 一次加锁读整机状态与故障码 */
-	void startTimers();                       /* 刷新与统计两个界面定时器 */
+	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */
+	void startTimers();              /* 刷新与统计两个界面定时器 */
 	void bindCommands(); /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
 	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
 	void updateCommands(enum controller_state s); /* 按钮可用性跟随状态 */
-	void tickPrefill();                /* 首次进 HOLDING：目标位置 = 实际位置 */
-	void publish();                    /* app 状态 → 界面（状态没变就不碰） */
-	void updateAxisCards();            /* 两轴实时样本 → 轴卡片（每 50 ms） */
+	void publish(const struct controller_info &info); /* 整机状态与故障 → 界面 */
+	void updateAxisCards(const struct controller_info &info); /* 两轴反馈与 abort → 界面 */
 	void pushLog(const QString &line); /* 往日志面板追加一行 */
 
 	CanThread worker_; /* 唯一的 CANopen 工作线程 */
@@ -68,7 +66,6 @@ class AppBinder : public QObject
 	QPushButton *btn_estop_ = nullptr;
 	QPushButton *btn_clear_estop_ = nullptr;
 	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
-	bool prefilled_ = false; /* 首次进入 HOLDING 已把目标位置填成实际位置 */
 
 	enum controller_state last_state_ = CONTROLLER_STATE_COUNT;
 	enum controller_fault last_fault_ = CONTROLLER_FAULT_NONE;
