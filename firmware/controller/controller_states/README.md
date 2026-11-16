@@ -15,11 +15,18 @@
 PREPARING → CONFIGURING → IDLE ──CONTROLLER_SIG_ENABLE──> ENABLING → HOLDING ⇄ MOVING
                                                           ↑              │
                                                           └─ HALTING ────┘
-FAULT / ESTOP 为终态。
+FAULT 为终态；ESTOP 只能解除回 IDLE。
 ```
 
 `IDLE` 表示"已配置、未使能"：配置完成后停在这里，只有 `controller_enable()` 投递的
 使能事件才继续。状态函数名是 `st_idle_ctrl`，因为 `st_idle` 已被 cia402 设备层占用。
+
+`ESTOP` 的入口只做两件事：给各轴写一次 quick stop 控制字、清空事件队列。它不等减速过程、
+不写断使能，也不让 `ROOT` 的"故障码 → FAULT"规则把它拉走；那一笔写没送到时置
+`CONTROLLER_FAULT_ESTOP_FAILED` 供 UI 显示。
+
+`ESTOP` 只接受一条命令：`CONTROLLER_SIG_ESTOP_CLEAR`（解除急停）。它让各轴写一次
+`6040 = 0x0F`，驱动器回可操作，同时清掉故障码与旧运动批次，控制器回 `IDLE` 等新的使能。
 
 ## 线程与边界
 

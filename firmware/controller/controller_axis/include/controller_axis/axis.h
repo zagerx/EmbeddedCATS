@@ -68,8 +68,11 @@ int axis_config_movemode(struct axis *a);
 /* 请求使能：已使能时会被内部拒绝，不算错 */
 int axis_enable(struct axis *a);
 
-/* quick stop → 断使能（由本轴的异步推进器走完） */
+/* quick stop → 只写一次控制字，驱动器自行停机 */
 int axis_quick_stop(struct axis *a);
+
+/* 解除急停：让驱动器从 quick stop 状态回到可操作 */
+int axis_clear_estop(struct axis *a);
 
 #ifdef __cplusplus
 } /* extern "C" */

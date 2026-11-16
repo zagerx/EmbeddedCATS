@@ -76,6 +76,24 @@ void controller_estop(void)
 }
 
 /**
+ * controller_clear_estop - 请求解除急停
+ *
+ * 任意线程均可调用；事件插入队头并立即唤醒工作线程。
+ * 只有 ESTOP 接受：状态机回 IDLE，驱动器被写 0x0F 回到可操作。
+ */
+void controller_clear_estop(void)
+{
+	struct controller *ctl = control_ctx();
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ESTOP_CLEAR}};
+
+	if (ctl->master == NULL) {
+		return;
+	}
+	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_wakeup();
+}
+
+/**
  * controller_enable - 请求各轴使能
  *
  * 任意线程均可调用；只有 IDLE 会接受，其余状态由状态机丢弃。

@@ -27,12 +27,14 @@ struct probe_cmd {
 	long move2_at_ms;
 	long halt_at_ms;
 	long estop_at_ms;
+	long clear_at_ms;
 	long spam;
 	long spam_at_ms;
 	int has_move;
 	int has_move2;
 	int has_halt;
 	int has_estop;
+	int has_clear;
 	int has_spam;
 	int armed;
 	int no_enable; /* 置位后不自动发使能，用来验证停在 IDLE */
@@ -64,6 +66,7 @@ int main(int argc, char **argv)
 	int spammed = 0;
 	int halted = 0;
 	int estopped = 0;
+	int cleared = 0;
 
 	signal(SIGINT, on_sigint);
 	printf("接口 %s，节点 1/2，CANopenLinux epoll（基础定时 1 ms）\n", ifname);
@@ -179,6 +182,12 @@ int main(int argc, char **argv)
 				controller_estop();
 				fflush(stdout);
 			}
+			if (cmd.has_clear && !cleared && t >= cmd.clear_at_ms) {
+				cleared = 1;
+				printf("[%6ld] 指令：clear estop\n", t);
+				controller_clear_estop();
+				fflush(stdout);
+			}
 		}
 
 		if (controller_state() != last) {
@@ -228,6 +237,7 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.move2_at_ms = -1;
 	c.halt_at_ms = -1;
 	c.estop_at_ms = -1;
+	c.clear_at_ms = -1;
 	c.spam = -1;
 	c.spam_at_ms = -1;
 	for (i = 3; i < argc; i++) {
@@ -260,6 +270,9 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 		} else if (strcmp(k, "--estop-at") == 0) {
 			c.estop_at_ms = (long)v;
 			c.has_estop = 1;
+		} else if (strcmp(k, "--clear-at") == 0) {
+			c.clear_at_ms = (long)v;
+			c.has_clear = 1;
 		} else if (strcmp(k, "--spam") == 0) {
 			c.spam = (long)v;
 			c.has_spam = c.spam > 0;
@@ -271,7 +284,8 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.acc_mm_s2 = v;
 		}
 	}
-	c.armed = c.has_move || c.has_move2 || c.has_halt || c.has_estop || c.has_spam;
+	c.armed =
+		c.has_move || c.has_move2 || c.has_halt || c.has_estop || c.has_clear || c.has_spam;
 	if (c.has_move && c.move_at_ms < 0) {
 		c.move_at_ms = 1500;
 	}

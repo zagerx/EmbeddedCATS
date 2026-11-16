@@ -34,12 +34,13 @@ class AppBinder : public QObject
 	void attach(QWidget *root, const QString &ifname = QStringLiteral("can0"));
 
       private slots:
-	void onRefresh(); /* 50 ms：状态 → 控件 */
-	void onStats();   /* 5 s：循环统计 → 日志 */
-	void onEnable();  /* 空闲态下发使能请求 */
-	void onMove();    /* 按轴选择下发位置指令 */
-	void onHalt();    /* 减速停在当前位置 */
-	void onEStop();   /* 所有轴 quick stop 并断使能 */
+	void onRefresh();    /* 50 ms：状态 → 控件 */
+	void onStats();      /* 5 s：循环统计 → 日志 */
+	void onEnable();     /* 空闲态下发使能请求 */
+	void onMove();       /* 按轴选择下发位置指令 */
+	void onHalt();       /* 减速停在当前位置 */
+	void onEStop();      /* 所有轴 quick stop（只写一次控制字） */
+	void onClearEStop(); /* 驱动器回可操作，控制器回空闲 */
 
       private:
 	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */
@@ -64,6 +65,7 @@ class AppBinder : public QObject
 	QPushButton *btn_move_ = nullptr;
 	QPushButton *btn_halt_ = nullptr;
 	QPushButton *btn_estop_ = nullptr;
+	QPushButton *btn_clear_estop_ = nullptr;
 	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
 	bool prefilled_ = false; /* 首次进入 HOLDING 已把目标位置填成实际位置 */
 

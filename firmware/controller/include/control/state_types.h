@@ -54,7 +54,8 @@ enum controller_fault {
 	CONTROLLER_FAULT_ENABLE_TIMEOUT, /* ENABLING 里超时还没使能上 */
 	CONTROLLER_FAULT_ENABLE_FAILED,  /* ENABLING 里驱动器回了 abort 或 402 进故障 */
 	CONTROLLER_FAULT_MOTION_FAILED,  /* MOVING 里 abort / 超时 / 402 进故障 */
-	CONTROLLER_FAULT_HALT_FAILED     /* HALTING 里停不下来（超时或 abort） */
+	CONTROLLER_FAULT_HALT_FAILED,    /* HALTING 里停不下来（超时或 abort） */
+	CONTROLLER_FAULT_ESTOP_FAILED    /* ESTOP 里 quick stop 那一笔没送到 */
 };
 
 #ifdef __cplusplus

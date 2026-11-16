@@ -21,7 +21,7 @@ const sm_state_t states[CONTROLLER_STATE_COUNT] = {
 };
 
 static const char *const NAMES[CONTROLLER_STATE_COUNT];
-static const char *const FAULT_NAMES[CONTROLLER_FAULT_HALT_FAILED + 1];
+static const char *const FAULT_NAMES[CONTROLLER_FAULT_ESTOP_FAILED + 1];
 
 /**
  * initial - 定义状态机的顶层初始转移
@@ -81,4 +81,5 @@ static const char *const FAULT_NAMES[] = {
 	[CONTROLLER_FAULT_ENABLE_FAILED] = "ENABLE_FAILED",
 	[CONTROLLER_FAULT_MOTION_FAILED] = "MOTION_FAILED",
 	[CONTROLLER_FAULT_HALT_FAILED] = "HALT_FAILED",
+	[CONTROLLER_FAULT_ESTOP_FAILED] = "ESTOP_FAILED",
 };

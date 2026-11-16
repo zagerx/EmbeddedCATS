@@ -28,7 +28,7 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		 * NMT 没有应答：对象访问失败或超时由配置流程给出结论。 */
 		ctl->axis_done = 0u;
 		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
-		(void)controller_config_movemode(ctl->axes, ctl->axis_count, UINT8_MAX);
+		(void)controller_config_movemode(ctl->axes, ctl->axis_count, CONTROLLER_AXIS_ALL);
 		break;
 
 	case SM_SIG_EXIT:

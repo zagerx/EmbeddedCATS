@@ -62,6 +62,12 @@ const char *controller_state_name(enum controller_state s);
 /* 请求所有轴 quick stop 并断使能；事件插到队头，ESTOP 只能重启退出。 */
 void controller_estop(void);
 
+/*
+ * 解除急停：驱动器回到可操作（6040 = 0x0F），控制器回 IDLE 等新的使能指令。
+ * 只有 ESTOP 状态接受，其余状态丢弃。
+ */
+void controller_clear_estop(void);
+
 enum controller_fault controller_fault_code(void);
 const char *controller_fault_name(enum controller_fault f);
 

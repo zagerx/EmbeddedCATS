@@ -183,7 +183,7 @@ int axis_enable(struct axis *a)
 }
 
 /**
- * axis_quick_stop - 请求本轴快速停止并断使能
+ * axis_quick_stop - 请求本轴快速停止
  * @a: 轴对象；NULL 时拒绝
  *
  * Return: 0 已受理；1 设备忙；-1 轴为空。
@@ -191,6 +191,24 @@ int axis_enable(struct axis *a)
 int axis_quick_stop(struct axis *a)
 {
 	const struct cia402_request req = {.kind = CIA402_REQ_QUICK_STOP};
+
+	if (a == NULL) {
+		return -1;
+	}
+	return axis_submit(a, &req);
+}
+
+/**
+ * axis_clear_estop - 解除本轴急停
+ * @a: 轴对象；NULL 时拒绝
+ *
+ * 只负责下发：写 6040 = 0x0F 让驱动器退出 quick stop 状态。
+ *
+ * Return: 0 已受理；1 设备忙；-1 轴为空。
+ */
+int axis_clear_estop(struct axis *a)
+{
+	const struct cia402_request req = {.kind = CIA402_REQ_ESTOP_CLEAR};
 
 	if (a == NULL) {
 		return -1;

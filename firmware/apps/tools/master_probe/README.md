@@ -28,7 +28,7 @@
 | `--move <mm>` / `--move-at <ms>` | 轴 1 位置与注入时刻 |
 | `--move2 <mm>` / `--move2-at <ms>` | 轴 2 位置与注入时刻 |
 | `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度 |
-| `--halt-at <ms>` / `--estop-at <ms>` | 暂停 / 急停注入时刻 |
+| `--halt-at <ms>` / `--estop-at <ms>` / `--clear-at <ms>` | 暂停 / 急停 / 解除急停的注入时刻 |
 | `--spam <n>` / `--spam-at <ms>` | 连续提交 n 条命令，检查队列拒绝行为 |
 | `--no-enable` | 不自动请求使能，用于验证停在 `IDLE` |
 

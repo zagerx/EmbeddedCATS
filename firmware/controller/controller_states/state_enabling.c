@@ -25,7 +25,10 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_ENTRY:
 		/* 节点已在 CONFIGURING 里进入运行态，这里只下发使能请求 */
 		ctl->axis_done = 0u;
-		(void)controller_enable_all(ctl->axes, ctl->axis_count);
+		if (controller_enable_all(ctl->axes, ctl->axis_count) != 0) {
+			/* 有轴没受理（多为一笔在途事务占着通道）：退回空闲，由上层重发 */
+			return SM_TRAN(&st_idle_ctrl);
+		}
 		break;
 
 	case SM_SIG_EXIT:

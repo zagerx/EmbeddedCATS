@@ -30,7 +30,8 @@ enum cia402_kind {
 	CIA402_REQ_DISABLE,    /* 断使能 */
 	CIA402_REQ_MOVE,       /* PP 绝对位置（参数在 req.pp 里）*/
 	CIA402_REQ_HALT,       /* 抢占：减速停并保持使能 */
-	CIA402_REQ_QUICK_STOP  /* 抢占：快速停并断使能 */
+	CIA402_REQ_QUICK_STOP, /* 抢占：只写一次快速停，写完不再发帧 */
+	CIA402_REQ_ESTOP_CLEAR /* 解除急停：0x0F 让驱动器回可操作 */
 };
 
 struct cia402_request {

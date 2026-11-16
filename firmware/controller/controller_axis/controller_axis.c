@@ -9,7 +9,8 @@
 
 #include <controller_axis/controller_axis.h>
 
-#define CONTROLLER_AXIS_ALL UINT8_MAX
+/* 解析轴号范围后逐轴调用同一动作；三个逐轴接口共用这一处 */
+static int axes_apply(struct axis *axes, uint8_t count, uint8_t axis_no, int (*fn)(struct axis *));
 
 /**
  * controller_config_movemode - 给指定轴写运动模式
@@ -17,32 +18,13 @@
  * @count: 已装配轴数
  * @axis_no: 轴号；传 CONTROLLER_AXIS_ALL 表示全部轴
  *
- * 只负责下发，不看每轴结果：已配过的轴会被设备层拒绝，不算错。
+ * 只负责下发，不看每轴结果：已配过的轴会被设备层拒绝，返回 -1 但不算错。
  *
- * Return: 0 已下发；-1 轴号越界、未装配或参数为空。
+ * Return: 0 全部受理；-1 轴号越界、未装配或至少一轴未受理。
  */
 int controller_config_movemode(struct axis *axes, uint8_t count, uint8_t axis_no)
 {
-	uint8_t first;
-	uint8_t last;
-	uint8_t i;
-
-	if (axes == NULL || count == 0u) {
-		return -1;
-	}
-	if (axis_no == CONTROLLER_AXIS_ALL) {
-		first = 0u;
-		last = (uint8_t)(count - 1u);
-	} else if (axis_no < count) {
-		first = axis_no;
-		last = axis_no;
-	} else {
-		return -1;
-	}
-	for (i = first; i <= last; i++) {
-		(void)axis_config_movemode(&axes[i]);
-	}
-	return 0;
+	return axes_apply(axes, count, axis_no, axis_config_movemode);
 }
 
 /**
@@ -50,19 +32,25 @@ int controller_config_movemode(struct axis *axes, uint8_t count, uint8_t axis_no
  * @axes: 轴数组
  * @count: 已装配轴数
  *
- * Return: 0 已下发，不表示每轴均受理；-1 未装配或参数为空。
+ * Return: 0 全部受理；-1 未装配或至少一轴未受理（设备忙）。
  */
 int controller_enable_all(struct axis *axes, uint8_t count)
 {
-	uint8_t i;
+	return axes_apply(axes, count, CONTROLLER_AXIS_ALL, axis_enable);
+}
 
-	if (axes == NULL || count == 0u) {
-		return -1;
-	}
-	for (i = 0u; i < count; i++) {
-		(void)axis_enable(&axes[i]);
-	}
-	return 0;
+/**
+ * controller_clear_estop_all - 逐轴解除急停
+ * @axes: 轴数组
+ * @count: 已装配轴数
+ *
+ * 只负责下发：写 6040 = 0x0F 让驱动器退出 quick stop 状态。
+ *
+ * Return: 0 全部受理；-1 未装配或至少一轴未受理（设备忙）。
+ */
+int controller_clear_estop_all(struct axis *axes, uint8_t count)
+{
+	return axes_apply(axes, count, CONTROLLER_AXIS_ALL, axis_clear_estop);
 }
 
 /**
@@ -130,18 +118,11 @@ enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t c
  * @axes: 轴数组
  * @count: 已装配轴数
  *
- * Return: 无。
+ * Return: 0 已下发，不表示每轴均受理；-1 未装配或参数为空。
  */
-void controller_quick_stop_all(struct axis *axes, uint8_t count)
+int controller_quick_stop_all(struct axis *axes, uint8_t count)
 {
-	uint8_t i;
-
-	if (axes == NULL) {
-		return;
-	}
-	for (i = 0u; i < count; i++) {
-		(void)axis_quick_stop(&axes[i]);
-	}
+	return axes_apply(axes, count, CONTROLLER_AXIS_ALL, axis_quick_stop);
 }
 
 /**
@@ -159,4 +140,31 @@ uint8_t controller_axis_mask(uint8_t count)
 		return 0xFFu;
 	}
 	return (uint8_t)((1u << count) - 1u);
+}
+
+static int axes_apply(struct axis *axes, uint8_t count, uint8_t axis_no, int (*fn)(struct axis *))
+{
+	uint8_t first;
+	uint8_t last;
+	uint8_t i;
+	int rejected = 0;
+
+	if (axes == NULL || count == 0u || fn == NULL) {
+		return -1;
+	}
+	if (axis_no == CONTROLLER_AXIS_ALL) {
+		first = 0u;
+		last = (uint8_t)(count - 1u);
+	} else if (axis_no < count) {
+		first = axis_no;
+		last = axis_no;
+	} else {
+		return -1; /* 轴号越界 */
+	}
+	for (i = first; i <= last; i++) {
+		if (fn(&axes[i]) != 0) {
+			rejected = 1; /* 一轴被拒也要把其余轴发完：各轴各自独立 */
+		}
+	}
+	return (rejected != 0) ? -1 : 0;
 }

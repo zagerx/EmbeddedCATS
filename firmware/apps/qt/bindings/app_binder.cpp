@@ -115,6 +115,7 @@ void AppBinder::findWidgets(QWidget *root)
 	btn_move_ = root->findChild<QPushButton *>(QStringLiteral("btn_move"));
 	btn_halt_ = root->findChild<QPushButton *>(QStringLiteral("btn_halt"));
 	btn_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_estop"));
+	btn_clear_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_clear_estop"));
 }
 
 void AppBinder::bindCommands()
@@ -126,11 +127,15 @@ void AppBinder::bindCommands()
 	if (btn_enable_ == nullptr) {
 		pushLog(QStringLiteral("绑定：找不到使能按钮，无法从空闲态启动"));
 	}
+	if (btn_clear_estop_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到解除急停按钮，急停后无法恢复"));
+	}
 
 	connect(btn_enable_, &QPushButton::clicked, this, &AppBinder::onEnable);
 	connect(btn_move_, &QPushButton::clicked, this, &AppBinder::onMove);
 	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
 	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
+	connect(btn_clear_estop_, &QPushButton::clicked, this, &AppBinder::onClearEStop);
 	updateCommands(controller_state());
 }
 
@@ -150,6 +155,10 @@ void AppBinder::updateCommands(enum controller_state s)
 	}
 	if (btn_estop_ != nullptr) {
 		btn_estop_->setEnabled(s != CONTROLLER_STATE_ESTOP);
+	}
+	if (btn_clear_estop_ != nullptr) {
+		/* 解除急停只在急停态有意义；解除后驱动器回到使能，控制器回空闲 */
+		btn_clear_estop_->setEnabled(s == CONTROLLER_STATE_ESTOP);
 	}
 }
 
@@ -229,7 +238,13 @@ void AppBinder::onHalt()
 void AppBinder::onEStop()
 {
 	controller_estop();
-	pushLog(QStringLiteral("已请求急停：所有轴 quick stop 并断使能"));
+	pushLog(QStringLiteral("已请求急停：所有轴 quick stop（驱动器仍保持使能）"));
+}
+
+void AppBinder::onClearEStop()
+{
+	controller_clear_estop();
+	pushLog(QStringLiteral("已请求解除急停：驱动器回可操作，控制器回空闲"));
 }
 
 void AppBinder::startTimers()

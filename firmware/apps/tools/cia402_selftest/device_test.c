@@ -50,7 +50,8 @@ static void test_request_rules(void);
 static void test_enable(void);
 static void test_pp(void);
 static void test_quick_stop_preempts(void);
-static void test_quick_stop_timeout_chain(void);
+static void test_quick_stop_write_failure(void);
+static void test_quick_stop_clear(void);
 static void test_start_rejected(void);
 static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
@@ -78,7 +79,8 @@ int cia402_device_tests(void)
 	test_enable();
 	test_pp();
 	test_quick_stop_preempts();
-	test_quick_stop_timeout_chain();
+	test_quick_stop_write_failure();
+	test_quick_stop_clear();
 	test_start_rejected();
 	test_cancel_beats_pending_failure();
 	test_timeout();
@@ -323,17 +325,16 @@ static void test_quick_stop_preempts(void)
 
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	fx_complete(&f, 0, 0x0040u);
-	fx_poll(&f);
-	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
-
-	fx_complete(&f, 0, 0u);
-	fx_poll(&f);
 	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+
+	/* 写完就停手：急停整条链路只有那一帧 */
+	f.fake.started = 0u;
+	fx_poll(&f);
+	CHECK(f.fake.started == 0u);
 }
 
-/* 安全链：qstop 写超时仍读状态，读超时仍断使能 */
-static void test_quick_stop_timeout_chain(void)
+/* 急停写失败：只报错，不重试、不断使能 */
+static void test_quick_stop_write_failure(void)
 {
 	struct fx f;
 
@@ -353,22 +354,54 @@ static void test_quick_stop_timeout_chain(void)
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
-	/* qstop 写超时：仍必须去读状态字 */
+	/* qstop 写超时：报失败就结束，不读状态字、不写断使能 */
 	fx_poll_at(&f, f.t + 300u);
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
-	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
+	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
 
-	/* 读状态超时：仍必须写断使能 */
-	fx_poll_at(&f, f.t + 300u);
-	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
+	/* 失败也不补发、不补断使能 */
+	f.fake.started = 0u;
 	fx_poll(&f);
-	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
+	CHECK(f.fake.started == 0u);
+}
 
-	/* 最后一步成功才收尾 */
+/* 急停终态只认解除请求：写 0x0F 后恢复受理 */
+static void test_quick_stop_clear(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	fx_request(&f, CIA402_REQ_QUICK_STOP);
+	fx_poll(&f); /* 抢占：先结清取消事件 */
+	fx_poll(&f); /* 受理请求 → 写控制字 */
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
 	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+
+	/* 终态期间：普通请求被丢弃，不发帧 */
+	fx_request(&f, CIA402_REQ_ENABLE);
+	f.fake.started = 0u;
+	fx_poll(&f);
+	CHECK(f.fake.started == 0u);
+
+	/* 解除急停：只写 0x0F */
+	f.fake.aborts = 0u;
+	fx_request(&f, CIA402_REQ_ESTOP_CLEAR);
+	fx_poll(&f); /* 抢占：先结清取消事件 */
+	fx_poll(&f); /* 受理请求 → 写控制字 */
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+
+	/* 恢复受理：使能请求能被接纳并发起读状态字 */
+	f.fake.started = 0u;
+	fx_request(&f, CIA402_REQ_ENABLE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 }
 
 /* 发起被立即拒绝：下一拍给出失败结论 */

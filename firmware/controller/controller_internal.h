@@ -27,7 +27,8 @@ enum controller_sig {
 	CONTROLLER_SIG_MOVE,
 	CONTROLLER_SIG_HALT,
 	CONTROLLER_SIG_ESTOP,
-	CONTROLLER_SIG_ENABLE /* IDLE 收到它才进 ENABLING */
+	CONTROLLER_SIG_ESTOP_CLEAR, /* 急停终态下唯一接受的命令 */
+	CONTROLLER_SIG_ENABLE       /* IDLE 收到它才进 ENABLING */
 };
 
 /* 控制器持有的逐轴反馈缓存；valid_mask 各位对应四个读取项 */

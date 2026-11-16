@@ -59,7 +59,7 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
 	if (d == NULL || req == NULL) {
 		return CIA402_INVALID;
 	}
-	if (req->kind > CIA402_REQ_QUICK_STOP) {
+	if (req->kind > CIA402_REQ_ESTOP_CLEAR) {
 		return CIA402_INVALID;
 	}
 	if (req->kind == CIA402_REQ_MOVE &&

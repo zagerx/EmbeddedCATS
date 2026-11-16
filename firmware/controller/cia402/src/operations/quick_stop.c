@@ -1,8 +1,12 @@
 /*
- * quick_stop.c — 快速停操作：6040 = 02，等驱动器自己停下，再断使能
+ * quick_stop.c — 快速停与解除急停
  *
- * 这条链即使中途失败也要走完：写失败仍去读状态，读失败仍去断使能。
- * 三个状态各自处理 CIA402_SIG_CANCEL，只有最后一步失败才报失败。
+ * 急停只写一次 6040 = 02：减速曲线与最终停在哪个状态由驱动器自己的 605A
+ * （Quick stop 代码）决定，本层不读状态字、不等减速过程、不再断使能。
+ * 写失败只留 abort 码并报失败，不重试。
+ *
+ * 急停终态只有一条出口：收到解除急停请求后写 6040 = 0F（转移 16），
+ * 让驱动器回到可操作状态，然后恢复受理普通请求。
  *
  * Author: zager
  */
@@ -10,11 +14,11 @@
 #include "../states/states.h"
 
 /**
- * st_qstop_write - 写快速停控制字
+ * st_qstop_write - 写快速停控制字，整条急停只有这一帧
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: 无论写成功与否都迁 st_qstop_read。
+ * Return: 写成功报 DONE、失败报 FAILED；两者都进 st_qstop_hold，不再发帧。
  */
 sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -27,14 +31,12 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_HANDLED();
 
 	case CIA402_SIG_SDO_DONE:
-		/* 写失败也继续读：断使能链不因一笔事务失败而中断 */
-		d->operation.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
-		return SM_TRAN(&st_qstop_read);
-
-	case CIA402_SIG_CANCEL:
-		/* 事务失败或被抢断：同样往下走 */
-		d->operation.deadline = d->now_ms + CIA402_DEVICE_QUICK_STOP_TIMEOUT_MS;
-		return SM_TRAN(&st_qstop_read);
+		if (DEV_SDO_RESULT(e)->status != 0) {
+			dev_fail(d, DEV_SDO_RESULT(e)); /* 只记 abort 码，不重发 */
+		} else {
+			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+		}
+		return SM_TRAN(&st_qstop_hold);
 
 	default:
 		return SM_SUPER(&st_operation_active);
@@ -42,59 +44,61 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 }
 
 /**
- * st_qstop_read - 等驱动器停下（Switch on disabled 或 Not ready）
+ * st_qstop_hold - 急停终态：不再发帧，只等一条解除急停请求
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: 停下或超时都迁 st_qstop_disable，继续走断使能。
+ * 停在哪里由驱动器的 605A 决定（出厂 6 = quick stop 状态、仍保持使能），
+ * 因此本层不推断、不跟踪，只保证开关量只有那一笔写入。
+ *
+ * Return: 解除请求迁 st_qstop_clear；其余请求与节拍被消费。
  */
-sm_ret_t st_qstop_read(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+	case CIA402_SIG_REQUEST: {
+		const struct request_evt *ev = SM_EVT_CAST(struct request_evt, e);
 
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-
-		if (r->status == 0) {
-			enum cia402_pds_state pds = cia402_parse((uint16_t)r->value);
-
-			if (pds == CIA402_SWITCH_ON_DISABLED || pds == CIA402_NOT_READY) {
-				return SM_TRAN(&st_qstop_disable);
-			}
+		if (ev->req.kind != CIA402_REQ_ESTOP_CLEAR) {
+			return SM_HANDLED(); /* 急停中：其他请求一律丢弃 */
 		}
-		/* 读失败也判期限：停下就不再重读，直接断使能 */
-		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			return SM_TRAN(&st_qstop_disable);
-		}
-		return SM_TRAN(&st_qstop_read);
+		/* 先占住流程：解除那一笔在途时，别的请求必须拿到 BUSY */
+		d->operation.kind = ev->req.kind;
+		d->operation.running = 1u;
+		d->operation.cancel = CIA402_CANCEL_NONE;
+		return SM_TRAN(&st_qstop_clear);
 	}
 
+	case CIA402_SIG_TICK:
 	case CIA402_SIG_CANCEL:
-		/* 超时或被抢断：不等了，直接断使能 */
-		return SM_TRAN(&st_qstop_disable);
+	case CIA402_SIG_SDO_DONE:
+		return SM_HANDLED();
 
 	default:
-		return SM_SUPER(&st_operation_active);
+		DEV_IGNORE(); /* 进入/退出事件直接忽略 */
 	}
 }
 
 /**
- * st_qstop_disable - 断使能并收尾
+ * st_qstop_clear - 解除急停：写 6040 = 0x0F 让驱动器回可操作
  * @me: 状态机内核对象
  * @e: 待处理事件
+ *
+ * 0x0F 是 CiA 402 从 quick stop 状态回到 Operation enabled 的转移 16。
+ * 驱动器若本来就不在 quick stop 状态，这一帧不起作用也不报错，
+ * 后续使能链会按实际状态字选路。
+ *
+ * Return: 写成功报 DONE、失败报 FAILED；两者都回 st_idle 恢复受理。
  */
-sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_qstop_clear(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
+		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP, 2u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
 
@@ -104,11 +108,6 @@ sm_ret_t st_qstop_disable(struct sm_hsm *const me, const struct sm_event *const 
 		} else {
 			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 		}
-		return SM_TRAN(&st_idle);
-
-	case CIA402_SIG_CANCEL:
-		/* 最后一环也失败：这里是唯一该报失败的地方 */
-		dev_fail(d, DEV_CANCEL_RESULT(e));
 		return SM_TRAN(&st_idle);
 
 	default:
