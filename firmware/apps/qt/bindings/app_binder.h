@@ -68,7 +68,7 @@ class AppBinder : public QObject
 	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
 
 	enum controller_state last_state_ = CONTROLLER_STATE_COUNT;
-	enum controller_fault last_fault_ = CONTROLLER_FAULT_NONE;
+	struct controller_fault last_fault_ = {};
 };
 
 #endif /* BINDINGS_APP_BINDER_H */

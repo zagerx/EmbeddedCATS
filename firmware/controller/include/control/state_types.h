@@ -7,6 +7,8 @@
 #ifndef CONTROL_STATE_TYPES_H
 #define CONTROL_STATE_TYPES_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -46,16 +48,35 @@ enum controller_state {
 	CONTROLLER_STATE_COUNT /* 状态个数，states[] 表的大小 */
 };
 
-/* 故障码：进 FAULT 时确定，之后不再变 */
-enum controller_fault {
-	CONTROLLER_FAULT_NONE = 0,
-	CONTROLLER_FAULT_CONFIG_TIMEOUT, /* CONFIGURING 里超时仍未配完 */
-	CONTROLLER_FAULT_CONFIG_FAILED,  /* CONFIGURING 里写参数被 abort 或读回值不符 */
-	CONTROLLER_FAULT_ENABLE_TIMEOUT, /* ENABLING 里超时还没使能上 */
-	CONTROLLER_FAULT_ENABLE_FAILED,  /* ENABLING 里驱动器回了 abort 或 402 进故障 */
-	CONTROLLER_FAULT_MOTION_FAILED,  /* MOVING 里 abort / 超时 / 402 进故障 */
-	CONTROLLER_FAULT_HALT_FAILED,    /* HALTING 里停不下来（超时或 abort） */
-	CONTROLLER_FAULT_ESTOP_FAILED    /* ESTOP 里 quick stop 那一笔没送到 */
+/*
+ * 故障原因：说明“为什么失败”。数值对外上报，禁止重排。
+ * BIZ_TIMEOUT 与 DEV_TIMEOUT 是不同层的超时，不能合并：
+ * 前者是状态机自己的计时，后者是单笔对象事务或步骤的期限。
+ */
+enum controller_fault_reason {
+	CONTROLLER_FAULT_REASON_NONE = 0,
+	CONTROLLER_FAULT_REASON_BIZ_TIMEOUT = 1, /* 状态机计时超时 */
+	CONTROLLER_FAULT_REASON_DEV_TIMEOUT = 2, /* 事务或步骤超时 */
+	CONTROLLER_FAULT_REASON_DRIVER = 3,      /* 驱动器进入故障态 */
+	CONTROLLER_FAULT_REASON_SDO = 4,         /* 对象访问被 abort */
+	CONTROLLER_FAULT_REASON_CHECK = 5,       /* 回读值不符 */
+	CONTROLLER_FAULT_REASON_REFUSED = 6,     /* 设备拒绝受理（忙或不合法） */
+	CONTROLLER_FAULT_REASON_COUNT
+};
+
+/* first_axis 取此值表示未定位到具体轴 */
+#define CONTROLLER_FAULT_NO_AXIS UINT8_MAX
+
+/*
+ * 首个故障的快照：进入 FAULT 时确定，之后只有 axis_mask 继续累积。
+ * abort_code 只对应 first_axis，且仅在 reason == SDO 时有效。
+ */
+struct controller_fault {
+	enum controller_state stage;         /* 失败时所处状态 */
+	enum controller_fault_reason reason; /* 失败原因 */
+	uint8_t first_axis;                  /* 首个失败轴；NO_AXIS = 未定位 */
+	uint8_t axis_mask;                   /* 全部失败轴位图 */
+	uint32_t abort_code;                 /* 首个失败轴的 abort；0 = 没有 */
 };
 
 #ifdef __cplusplus

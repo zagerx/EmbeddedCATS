@@ -78,24 +78,41 @@ void controller_axes_poll(struct axis *axes, uint8_t count, uint32_t now_ms)
  * @axes: 轴数组
  * @count: 已装配轴数
  * @done_mask: 跨拍保存的已完成位图
+ * @failure: 失败汇总；可为 NULL
  *
  * 优先报告失败，只有全部轴成功才报完成。仅由工作线程调用。
  *
  * Return: WAITING 等待后续回执；DONE 全部成功；FAILED 至少一轴失败。
  */
 enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t count,
-						    uint8_t *done_mask)
+						    uint8_t *done_mask,
+						    struct controller_axes_failure *failure)
 {
 	uint8_t failed = 0u;
 	uint8_t i;
 
+	if (failure != NULL) {
+		failure->mask = 0u;
+		failure->first_axis = 0u;
+		failure->first.fail = CIA402_FAIL_NONE;
+		failure->first.abort_code = 0u;
+	}
 	for (i = 0u; i < count; i++) {
+		struct axis_failure detail;
+
 		if ((*done_mask & (uint8_t)(1u << i)) != 0u) {
 			continue;
 		}
-		switch (axis_take_motion(&axes[i])) {
+		switch (axis_take_motion(&axes[i], &detail)) {
 		case AXIS_MOTION_FAILED:
 			failed = 1u;
+			if (failure != NULL) {
+				if (failure->mask == 0u) {
+					failure->first_axis = i;
+					failure->first = detail; /* 首个失败轴的归类与 abort */
+				}
+				failure->mask |= (uint8_t)(1u << i);
+			}
 			break;
 		case AXIS_MOTION_DONE:
 			*done_mask |= (uint8_t)(1u << i);

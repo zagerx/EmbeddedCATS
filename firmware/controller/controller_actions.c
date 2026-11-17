@@ -9,6 +9,7 @@
 
 #include "controller_internal.h"
 
+#include <string.h>
 #include <time.h>
 
 /**
@@ -41,7 +42,8 @@ void controller_stm_init(struct controller *ctl)
 	ctl->axis_done = 0u;
 	ctl->estop_clearing = 0u;
 	pthread_mutex_lock(&ctl->info_lock);
-	ctl->info.fault_code = CONTROLLER_FAULT_NONE;
+	memset(&ctl->info.fault, 0, sizeof(ctl->info.fault));
+	ctl->info.fault.first_axis = CONTROLLER_FAULT_NO_AXIS;
 	pthread_mutex_unlock(&ctl->info_lock);
 	controller_evtq_init(&ctl->evtq);
 

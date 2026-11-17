@@ -70,10 +70,18 @@ void controller_stm_init(struct controller *app);
 /* 控制层单例（由 controller.c 创建；同层另一文件通过它拿上下文） */
 struct controller *control_ctx(void);
 
-/* 锁存业务故障；已锁存非零故障时不覆盖最初原因 */
-void controller_set_fault(struct controller *ctl, enum controller_fault fault);
+/*
+ * 锁存首个故障：stage / reason / first_axis / abort_code 只在无故障时写入，
+ * axis_mask 每次调用都累积。axis 不在已装配范围时按“未定位”记录。
+ */
+void controller_set_fault(struct controller *ctl, enum controller_state stage,
+			  enum controller_fault_reason reason, uint8_t axis,
+			  uint32_t abort_code);
 
-/* 每轮末尾将状态、故障、反馈和 abort 一次性汇入上报信息 */
+/* 把 cia402 的失败归类映射为业务故障原因 */
+enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail);
+
+/* 每轮末尾将状态与 abort 汇入上报信息 */
 void controller_info_update(struct controller *ctl);
 
 #endif /* CONTROL_INTERNAL_H */

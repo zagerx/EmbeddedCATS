@@ -1,6 +1,5 @@
 #include "state_bar.h"
 
-#include "theme/theme.h"
 #include "ui/status_led.h"
 
 #include <QFrame>
@@ -20,7 +19,7 @@ struct StateInfo {
 /* 1.1.2（故障四项）的固定高度：标题 + 两行字段，上下各 8 px 内边距 */
 constexpr int kFaultAreaHeight = 88;
 
-/* 粗粒度档位表（顺序与 StateBar::State 一致）；文字只显示控制层上报的数值 */
+/* 粗粒度档位表（顺序与 StateBar::State 一致） */
 const StateInfo kStates[] = {
 	{StatusLed::State::Busy, 12},  {StatusLed::State::Idle, 12}, {StatusLed::State::Busy, 12},
 	{StatusLed::State::Ok, 12},    {StatusLed::State::Busy, 12}, {StatusLed::State::Fault, 12},
@@ -36,10 +35,10 @@ QLabel *make_tag(const QString &text, QWidget *parent)
 	return label;
 }
 
-/* 1.1.2 的字段值：初始为 0，宽度固定避免数字变化时抖动 */
+/* 1.1.2 的字段值：无值时显示破折号，宽度固定避免文字变化时抖动 */
 QLabel *make_value(QWidget *parent)
 {
-	auto *label = new QLabel(QStringLiteral("0"), parent);
+	auto *label = new QLabel(QStringLiteral("—"), parent);
 
 	label->setObjectName(QStringLiteral("faultValue"));
 	label->setMinimumWidth(56);
@@ -51,7 +50,7 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 {
 	setObjectName(QStringLiteral("stateBar"));
 
-	/* 纵向分两块：1.1.1 主站状态（占满剩余高度）/ 横线 / 1.1.2 故障码 */
+	/* 纵向分两块：1.1.1 主站状态（占满剩余高度）/ 横线 / 1.1.2 故障明细 */
 	auto *root = new QVBoxLayout(this);
 	root->setContentsMargins(0, 0, 0, 0);
 	root->setSpacing(0);
@@ -62,7 +61,7 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	status_layout->setContentsMargins(16, 10, 16, 10);
 	status_layout->setSpacing(12);
 
-	/* 状态值来自控制层，未接入前先显示占位符 */
+	/* 状态文字由绑定层提供，未接入前先显示占位符 */
 	led_ = new StatusLed(QStringLiteral("—"), status_area);
 	led_->setObjectName(QStringLiteral("stateLed"));
 	led_->setDotSize(kStates[0].dot_size);
@@ -109,25 +108,20 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	root->addWidget(fault_area);
 }
 
-void StateBar::setState(State state, int code)
+void StateBar::setState(State state, const QString &text)
 {
 	const StateInfo &info = kStates[static_cast<int>(state)];
 
 	led_->setState(info.led);
 	led_->setDotSize(info.dot_size);
-	led_->setText(QString::number(code)); /* 直接显示控制层上报的状态值 */
+	led_->setText(text);
 }
 
-void StateBar::setFault(int stage, int cause, int axis_mask, uint32_t abort_code)
+void StateBar::setFault(const QString &stage, const QString &reason, const QString &axis,
+		      const QString &abort)
 {
-	/* 全部数字直出：十六进制字段保留固定宽度，方便对位 */
-	stage_value_->setText(QString::number(stage));
-	cause_value_->setText(QString::number(cause));
-	axis_value_->setText(QStringLiteral("0x") +
-			     QString::number(static_cast<uint>(axis_mask), 16)
-				     .toUpper()
-				     .rightJustified(2, QLatin1Char('0')));
-	abort_value_->setText(
-		QStringLiteral("0x") +
-		QString::number(abort_code, 16).toUpper().rightJustified(8, QLatin1Char('0')));
+	stage_value_->setText(stage);
+	cause_value_->setText(reason);
+	axis_value_->setText(axis);
+	abort_value_->setText(abort);
 }

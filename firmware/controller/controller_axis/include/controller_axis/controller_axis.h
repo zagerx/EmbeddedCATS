@@ -28,6 +28,13 @@ enum controller_axes_result {
 	CONTROLLER_AXES_FAILED
 };
 
+/* 集合动作的失败汇总：mask == 0 表示没有轴失败，first 无意义 */
+struct controller_axes_failure {
+	uint8_t mask;              /* 失败轴位图 */
+	uint8_t first_axis;        /* 首个失败轴号 */
+	struct axis_failure first; /* 首个失败轴的归类与 abort 码 */
+};
+
 /* 配置运动模式：0 = 已下发；-1 = 轴号越界、未装配或参数为空 */
 int controller_config_movemode(struct axis *axes, uint8_t count, uint8_t axis_no);
 
@@ -40,9 +47,10 @@ int controller_clear_estop_all(struct axis *axes, uint8_t count);
 /* 用同一时刻推进每个轴的设备状态机；时钟由调用方提供 */
 void controller_axes_poll(struct axis *axes, uint8_t count, uint32_t now_ms);
 
-/* 消费全部轴的新回执，并将 DONE 保留在 done_mask */
+/* 消费全部轴的新回执，将 DONE 保留在 done_mask，失败汇总写入 failure */
 enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t count,
-						    uint8_t *done_mask);
+						    uint8_t *done_mask,
+						    struct controller_axes_failure *failure);
 
 /* 急停所有轴：quick stop → 断使能（由各自的异步推进器走完） */
 int controller_quick_stop_all(struct axis *axes, uint8_t count);

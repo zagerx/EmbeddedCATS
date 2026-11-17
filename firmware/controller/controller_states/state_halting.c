@@ -25,9 +25,12 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 
 		ctl->move_done = 0u;
 		for (i = 0u; i < ctl->move.count; i++) {
+			const uint8_t axis = ctl->move.axis[i].axis;
+
 			/* ENTRY 里不迁移，失败交给 ROOT */
-			if (axis_halt(&ctl->axes[ctl->move.axis[i].axis]) != 0) {
-				controller_set_fault(ctl, CONTROLLER_FAULT_HALT_FAILED);
+			if (axis_halt(&ctl->axes[axis]) != 0) {
+				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
+						     CONTROLLER_FAULT_REASON_REFUSED, axis, 0u);
 			}
 		}
 		break;
@@ -43,14 +46,18 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		uint8_t i;
 
 		for (i = 0u; i < ctl->move.count; i++) {
+			const uint8_t axis = ctl->move.axis[i].axis;
+			struct axis_failure failure;
 			enum axis_motion m;
 
 			if ((ctl->move_done & (uint8_t)(1u << i)) != 0u) {
 				continue; /* 这一轴已停稳 */
 			}
-			m = axis_take_motion(&ctl->axes[ctl->move.axis[i].axis]);
+			m = axis_take_motion(&ctl->axes[axis], &failure);
 			if (m == AXIS_MOTION_FAILED) {
-				controller_set_fault(ctl, CONTROLLER_FAULT_HALT_FAILED);
+				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
+						     controller_fault_reason_of(failure.fail), axis,
+						     failure.abort_code);
 			} else if (m == AXIS_MOTION_DONE) {
 				ctl->move_done |= (uint8_t)(1u << i);
 			}

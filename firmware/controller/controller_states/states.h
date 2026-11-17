@@ -6,14 +6,14 @@
  *
  * 层次（父状态在各自的 return SM_SUPER(&父) 里，或见下方注释）：
  *   sm_top               框架提供的顶层（返回 IGNORED，冒泡终点）
- *   └── st_root          公共规则：置了故障码 → FAULT；ESTOP 事件 → ESTOP
+ *   └── st_root          公共规则：锁存了故障 → FAULT；ESTOP 事件 → ESTOP
  *       ├── st_preparing / st_configuring / st_idle_ctrl / st_enabling /
  *       │   st_holding / st_moving / st_halting
  *       ├── st_fault
  *       └── st_estop
  *
  * 约定：子状态的 TICK 处理完自己的事后返回 SM_SUPER(&st_root)，
- *       由 st_root 判断故障码并决定归属。
+ *       由 st_root 判断故障并决定归属。
  *
  * 内核协议：任何状态收到 SM_SIG_EMPTY 都必须 return SM_SUPER(&父状态)，
  *           内核靠它反查父状态算 LCA。本工程统一把 default 分支写成

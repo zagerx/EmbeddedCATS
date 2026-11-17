@@ -100,11 +100,16 @@ uint32_t axis_abort_code(const struct axis *a)
 /**
  * axis_take_motion - 取走轴最近一次动作的结论
  * @a: 轴对象；NULL 安全
+ * @failure: 输出失败归类；可为 NULL
+ *
+ * 取走后 outcome 回 NONE，失败诊断（归类与 abort）仍保留在设备回执里，
+ * 因此这里先取结论、再读诊断。
  *
  * Return: DONE、FAILED 或 NONE；@a 为 NULL 时返回 NONE。
  */
-enum axis_motion axis_take_motion(struct axis *a)
+enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure)
 {
+	struct cia402_operation_result status;
 	enum cia402_outcome result;
 
 	if (a == NULL) {
@@ -112,6 +117,11 @@ enum axis_motion axis_take_motion(struct axis *a)
 	}
 
 	result = cia402_take_result(&a->dev);
+	cia402_get_result(&a->dev, &status);
+	if (failure != NULL) {
+		failure->fail = status.fail;
+		failure->abort_code = status.abort_code;
+	}
 	if (result == CIA402_OUTCOME_DONE) {
 		return AXIS_MOTION_DONE;
 	}

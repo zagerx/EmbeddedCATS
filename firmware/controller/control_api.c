@@ -10,22 +10,56 @@
 #include "controller_internal.h"
 
 /**
- * controller_set_fault - 锁存业务故障
+ * controller_set_fault - 锁存首个故障并累积失败轴
  * @ctl: 控制上下文；NULL 安全
- * @fault: 待锁存故障码
+ * @stage: 失败时所处状态
+ * @reason: 失败原因；NONE 表示不是故障，直接返回
+ * @axis: 失败轴号；超出已装配范围时记作未定位
+ * @abort_code: 首个失败轴的 abort 码；非 SDO 类故障传 0
  *
- * 已经存在非零故障时保留最初原因，避免后续故障覆盖根因。
+ * 已经存在故障时保留最初快照，避免后续故障覆盖根因；axis_mask 始终累积。
  */
-void controller_set_fault(struct controller *ctl, enum controller_fault fault)
+void controller_set_fault(struct controller *ctl, enum controller_state stage,
+			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code)
 {
-	if (ctl == NULL) {
+	if (ctl == NULL || reason == CONTROLLER_FAULT_REASON_NONE) {
 		return;
 	}
 	pthread_mutex_lock(&ctl->info_lock);
-	if (ctl->info.fault_code == CONTROLLER_FAULT_NONE) {
-		ctl->info.fault_code = fault;
+	if (ctl->info.fault.reason == CONTROLLER_FAULT_REASON_NONE) {
+		ctl->info.fault.stage = stage;
+		ctl->info.fault.reason = reason;
+		ctl->info.fault.first_axis =
+			(axis < CONTROLLER_AXIS_COUNT) ? axis : CONTROLLER_FAULT_NO_AXIS;
+		ctl->info.fault.abort_code = abort_code;
+	}
+	if (axis < CONTROLLER_AXIS_COUNT) {
+		ctl->info.fault.axis_mask |= (uint8_t)(1u << axis);
 	}
 	pthread_mutex_unlock(&ctl->info_lock);
+}
+
+/**
+ * controller_fault_reason_of - 把设备层失败归类映射为业务故障原因
+ * @fail: cia402 回执里的失败归类
+ *
+ * Return: 对应的业务故障原因；未知归类按驱动器故障上报。
+ */
+enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail)
+{
+	switch (fail) {
+	case CIA402_FAIL_TIMEOUT:
+		return CONTROLLER_FAULT_REASON_DEV_TIMEOUT;
+	case CIA402_FAIL_DRIVER:
+		return CONTROLLER_FAULT_REASON_DRIVER;
+	case CIA402_FAIL_SDO:
+		return CONTROLLER_FAULT_REASON_SDO;
+	case CIA402_FAIL_CHECK:
+		return CONTROLLER_FAULT_REASON_CHECK;
+	case CIA402_FAIL_NONE:
+	default:
+		return CONTROLLER_FAULT_REASON_DRIVER;
+	}
 }
 
 /**
@@ -75,7 +109,7 @@ void controller_estop(void)
  * controller_clear_estop - 请求解除急停
  *
  * 任意线程均可调用；事件插入队头并立即唤醒工作线程。
- * 只有 ESTOP 接受：驱动器断使能，控制器回 IDLE，故障码保持锁存。
+ * 只有 ESTOP 接受：驱动器断使能，控制器回 IDLE，故障快照保持锁存。
  */
 void controller_clear_estop(void)
 {

@@ -1,7 +1,7 @@
 /*
  * state_fault.c — 保持业务故障终态并丢弃运行命令
  *
- * 故障原因由触发位置写入 fault_code；本状态没有退出事件，只能重启程序。
+ * 故障快照由触发位置写入 controller_info.fault；本状态没有退出事件，只能重启程序。
  *
  * Author: zager
  */
@@ -34,7 +34,7 @@ sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_HANDLED(); /* 终态：命令直接丢弃 */
 
 	case CONTROLLER_SIG_TICK:
-		/* 终态吃掉节拍：不往上抛，免得 ROOT 再判一次故障码（自迁移）*/
+		/* 终态吃掉节拍：不往上抛，免得 ROOT 再判一次故障（自迁移）*/
 		return SM_HANDLED();
 
 	default:

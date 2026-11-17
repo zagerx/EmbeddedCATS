@@ -38,8 +38,8 @@ struct controller_feedback {
 struct controller_info {
 	enum controller_state state;
 	struct controller_feedback feedback[CONTROLLER_AXIS_COUNT];
-	enum controller_fault fault_code;
-	uint32_t abort[CONTROLLER_AXIS_COUNT];
+	struct controller_fault fault;
+	uint32_t abort[CONTROLLER_AXIS_COUNT]; /* 每轴最新 abort，实时诊断用 */
 };
 
 /* 在接口名指定的 SocketCAN 通道上登记节点 1、2 并装配状态机 */
@@ -78,7 +78,7 @@ void controller_halt(void);
 void controller_estop(void);
 
 /*
- * 解除急停：驱动器断使能（6040 = 0x00），控制器回 IDLE；故障码不动，
+ * 解除急停：驱动器断使能（6040 = 0x00），控制器回 IDLE；已锁存的故障不动，
  * 若本来就有故障，下一个节拍由 ROOT 迁到 FAULT。
  * 只有 ESTOP 状态接受，其余状态丢弃。
  */

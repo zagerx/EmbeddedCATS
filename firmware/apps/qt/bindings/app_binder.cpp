@@ -6,11 +6,13 @@
 #include "ui/log_panel.h"
 #include "ui/state_bar.h"
 
-#include <QLatin1Char>
 #include <QComboBox>
+#include <QLatin1Char>
 #include <QPushButton>
 #include <QString>
 #include <QTimer>
+
+#include <cstring>
 
 namespace
 {
@@ -26,8 +28,95 @@ QString hex16(uint16_t v)
 	       QString::number(v, 16).rightJustified(4, QLatin1Char('0')).toUpper();
 }
 
-/* app 的运行状态 → 状态条档位（只决定颜色与圆点，文字显示控制层上报的数值） */ StateBar::State
-to_bar_state(enum controller_state s)
+/* 控制层状态 → 界面文字；名称映射只存在于 Qt 绑定层 */
+QString state_text(enum controller_state s)
+{
+	switch (s) {
+	case CONTROLLER_STATE_PREPARING:
+		return QStringLiteral("准备中");
+	case CONTROLLER_STATE_CONFIGURING:
+		return QStringLiteral("配置中");
+	case CONTROLLER_STATE_IDLE:
+		return QStringLiteral("空闲");
+	case CONTROLLER_STATE_ENABLING:
+		return QStringLiteral("使能中");
+	case CONTROLLER_STATE_HOLDING:
+		return QStringLiteral("保持");
+	case CONTROLLER_STATE_MOVING:
+		return QStringLiteral("运动中");
+	case CONTROLLER_STATE_HALTING:
+		return QStringLiteral("暂停中");
+	case CONTROLLER_STATE_FAULT:
+		return QStringLiteral("故障");
+	case CONTROLLER_STATE_ESTOP:
+		return QStringLiteral("急停");
+	case CONTROLLER_STATE_COUNT:
+		break;
+	}
+	return QStringLiteral("未知状态");
+}
+
+/* 控制层故障原因 → 界面文字 */
+QString reason_text(enum controller_fault_reason r)
+{
+	switch (r) {
+	case CONTROLLER_FAULT_REASON_NONE:
+		return QStringLiteral("—");
+	case CONTROLLER_FAULT_REASON_BIZ_TIMEOUT:
+		return QStringLiteral("业务超时");
+	case CONTROLLER_FAULT_REASON_DEV_TIMEOUT:
+		return QStringLiteral("设备超时");
+	case CONTROLLER_FAULT_REASON_DRIVER:
+		return QStringLiteral("驱动器故障");
+	case CONTROLLER_FAULT_REASON_SDO:
+		return QStringLiteral("传输失败");
+	case CONTROLLER_FAULT_REASON_CHECK:
+		return QStringLiteral("回读不符");
+	case CONTROLLER_FAULT_REASON_REFUSED:
+		return QStringLiteral("请求被拒");
+	case CONTROLLER_FAULT_REASON_COUNT:
+		break;
+	}
+	return QStringLiteral("未知原因");
+}
+
+/* 故障涉及轴：单轴显示轴号，多轴追加首个失败轴 */
+QString axis_text(const struct controller_fault &fault)
+{
+	QString text;
+
+	if (fault.axis_mask == 0U) {
+		return QStringLiteral("—");
+	}
+	for (uint8_t i = 0U; i < CONTROLLER_AXIS_COUNT; i++) {
+		if ((fault.axis_mask & (1u << i)) == 0U) {
+			continue;
+		}
+		if (!text.isEmpty()) {
+			text += QLatin1Char('+');
+		}
+		text += QStringLiteral("轴%1").arg(i + 1);
+	}
+	if (fault.axis_mask != 0U && fault.first_axis < CONTROLLER_AXIS_COUNT &&
+	    (fault.axis_mask & (fault.axis_mask - 1u)) != 0u) {
+		text += QStringLiteral("（首个轴%1）").arg(fault.first_axis + 1);
+	}
+	return text;
+}
+
+/* abort 码只在传输失败时才有意义，其他原因显示破折号 */
+QString abort_text(const struct controller_fault &fault)
+{
+	if (fault.reason != CONTROLLER_FAULT_REASON_SDO || fault.abort_code == 0U) {
+		return QStringLiteral("—");
+	}
+	return QStringLiteral("0x") + QString::number(fault.abort_code, 16)
+					   .toUpper()
+					   .rightJustified(8, QLatin1Char('0'));
+}
+
+/* app 的运行状态 → 状态条档位（只决定颜色与圆点） */
+StateBar::State to_bar_state(enum controller_state s)
 {
 	switch (s) {
 	case CONTROLLER_STATE_PREPARING:
@@ -321,21 +410,26 @@ void AppBinder::pushLog(const QString &line)
 
 void AppBinder::publish(const struct controller_info &info)
 {
-	if (info.state == last_state_ && info.fault_code == last_fault_) {
+	if (info.state == last_state_ &&
+	    std::memcmp(&info.fault, &last_fault_, sizeof(info.fault)) == 0) {
 		return; /* 状态和故障都没变就不碰控件 */
 	}
 	last_state_ = info.state;
-	last_fault_ = info.fault_code;
+	last_fault_ = info.fault;
 
 	updateCommands(info.state);
 
 	if (state_bar_ != nullptr) {
-		/* 界面只显示上报上来的数值：大号字是状态值，下面一行是故障四项 */
-		state_bar_->setState(to_bar_state(info.state), static_cast<int>(info.state));
-		/* 阶段暂用现有的故障码；原因 / 轴位图 / abort 码等控制层上行后再接，先占 0 */
-		state_bar_->setFault(static_cast<int>(info.fault_code), 0, 0, 0U);
+		state_bar_->setState(to_bar_state(info.state), state_text(info.state));
+		state_bar_->setFault(state_text(info.fault.stage), reason_text(info.fault.reason),
+				     axis_text(info.fault), abort_text(info.fault));
 	}
-	pushLog(QStringLiteral("状态 %1 / 故障 %2")
-			.arg(static_cast<int>(info.state))
-			.arg(static_cast<int>(info.fault_code)));
+
+	if (info.fault.reason != CONTROLLER_FAULT_REASON_NONE) {
+		pushLog(QStringLiteral("故障：阶段 %1 / 原因 %2 / 轴 %3 / 码 %4")
+				.arg(state_text(info.fault.stage), reason_text(info.fault.reason),
+				     axis_text(info.fault), abort_text(info.fault)));
+	} else {
+		pushLog(QStringLiteral("状态 %1").arg(state_text(info.state)));
+	}
 }

@@ -23,9 +23,9 @@ sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e)
 	case SM_SIG_ENTRY: {
 		uint8_t i;
 
-		/* 只丢旧结论：故障码不在这里清，带码的状态由 ROOT 统一迁 FAULT */
+		/* 只丢旧结论：故障不在这里清，有故障时由 ROOT 统一迁 FAULT */
 		for (i = 0; i < ctl->axis_count; i++) {
-			(void)axis_take_motion(&ctl->axes[i]);
+			(void)axis_take_motion(&ctl->axes[i], NULL);
 		}
 		break;
 	}

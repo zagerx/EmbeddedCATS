@@ -9,8 +9,8 @@
 
 #include "states.h"
 
-/* 把本批请求逐轴下发；有轴被拒就返回 -1（由 ENTRY 置故障） */
-static int issue_move(struct controller *ctl);
+/* 把本批请求逐轴下发；有轴被拒就返回 -1，并通过 first_axis 带回轴号 */
+static int issue_move(struct controller *ctl, uint8_t *first_axis);
 
 /**
  * st_moving - 处理运动发起、暂停请求和运动结论
@@ -24,12 +24,17 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
+	case SM_SIG_ENTRY: {
+		uint8_t axis = CONTROLLER_FAULT_NO_AXIS;
+
 		ctl->move_done = 0u;
-		if (issue_move(ctl) < 0) {
-			controller_set_fault(ctl, CONTROLLER_FAULT_MOTION_FAILED);
+		if (issue_move(ctl, &axis) < 0) {
+			/* 设备没受理（忙或轴号不合法）：本批没有启动任何轴 */
+			controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
+					     CONTROLLER_FAULT_REASON_REFUSED, axis, 0u);
 		}
 		break;
+	}
 
 	case CONTROLLER_SIG_MOVE:
 		/* 运动中的新目标：驱动层不接受改目标，本段跑完再说 ⇒ 丢弃 */
@@ -43,12 +48,17 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 		uint8_t i;
 
 		for (i = 0u; i < ctl->move.count; i++) {
+			const uint8_t axis = ctl->move.axis[i].axis;
+			struct axis_failure failure;
+
 			if ((ctl->move_done & (uint8_t)(1u << i)) != 0u) {
 				continue; /* 这一轴已到位，结论已经取走 */
 			}
-			switch (axis_take_motion(&ctl->axes[ctl->move.axis[i].axis])) {
+			switch (axis_take_motion(&ctl->axes[axis], &failure)) {
 			case AXIS_MOTION_FAILED:
-				controller_set_fault(ctl, CONTROLLER_FAULT_MOTION_FAILED);
+				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
+						     controller_fault_reason_of(failure.fail), axis,
+						     failure.abort_code);
 				return SM_SUPER(&st_root);
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);
@@ -74,7 +84,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	return SM_HANDLED();
 }
 
-static int issue_move(struct controller *ctl)
+static int issue_move(struct controller *ctl, uint8_t *first_axis)
 {
 	uint8_t i;
 
@@ -89,6 +99,9 @@ static int issue_move(struct controller *ctl)
 		}
 		/* 非 0（拒绝或忙）都算失败：一批要么一起启动，要么整体报错 */
 		if (axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2) != 0) {
+			if (first_axis != NULL) {
+				*first_axis = m->axis;
+			}
 			return -1;
 		}
 	}

@@ -36,16 +36,21 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_TICK: {
 		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
-		enum controller_axes_result result =
-			controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done);
+		struct controller_axes_failure failure;
+		enum controller_axes_result result = controller_axes_collect(
+			ctl->axes, ctl->axis_count, &ctl->axis_done, &failure);
 
 		if (result == CONTROLLER_AXES_DONE) {
 			return SM_TRAN(&st_idle_ctrl); /* 配置完成：停在未使能态等指令 */
 		}
 		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_fault(ctl, CONTROLLER_FAULT_CONFIG_FAILED);
+			controller_set_fault(ctl, CONTROLLER_STATE_CONFIGURING,
+					     controller_fault_reason_of(failure.first.fail),
+					     failure.first_axis, failure.first.abort_code);
 		} else if (elapsed > CONFIG_TIMEOUT_MS) {
-			controller_set_fault(ctl, CONTROLLER_FAULT_CONFIG_TIMEOUT);
+			controller_set_fault(ctl, CONTROLLER_STATE_CONFIGURING,
+					     CONTROLLER_FAULT_REASON_BIZ_TIMEOUT,
+					     CONTROLLER_FAULT_NO_AXIS, 0u);
 		}
 		return SM_SUPER(&st_root);
 	}

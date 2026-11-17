@@ -112,7 +112,8 @@ enum controller_result controller_deinit(void)
 	controller_evtq_clear(&ctl->evtq);
 	pthread_mutex_lock(&ctl->info_lock);
 	ctl->info.state = CONTROLLER_STATE_PREPARING;
-	ctl->info.fault_code = CONTROLLER_FAULT_NONE;
+	memset(&ctl->info.fault, 0, sizeof(ctl->info.fault));
+	ctl->info.fault.first_axis = CONTROLLER_FAULT_NO_AXIS;
 	memset(ctl->info.feedback, 0, sizeof(ctl->info.feedback));
 	memset(ctl->info.abort, 0, sizeof(ctl->info.abort));
 	pthread_mutex_unlock(&ctl->info_lock);
