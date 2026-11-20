@@ -21,7 +21,7 @@ extern "C" {
 
 enum master_nmt_cmd {
 	MASTER_NMT_START = 1,
-	MASTER_NMT_RESET_COMM = 130,
+	MASTER_NMT_RESET_NODE = 129,
 };
 
 #define MASTER_NMT_ALL_NODES 0u

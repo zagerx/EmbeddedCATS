@@ -86,6 +86,10 @@ enum controller_result controller_init(const char *can_ifname)
 	}
 	ctl->master = &master_instance;
 	controller_feedback_reset();
+	/* 反馈轮询关闭期间对外只报 0：这里清一次，之后没有写入方 */
+	pthread_mutex_lock(&ctl->info_lock);
+	memset(ctl->info.feedback, 0, sizeof(ctl->info.feedback));
+	pthread_mutex_unlock(&ctl->info_lock);
 	controller_stm_init(ctl);
 	controller_info_update(ctl);
 	return CONTROLLER_OK;
@@ -124,7 +128,8 @@ enum controller_result controller_deinit(void)
  * controller_event_poll - 等待并处理一轮完整事件
  *
  * CAN 帧先进入协议栈，SDO 使用真实时间差推进，再处理轴和整机。
- * 自身收到通信复位时重建协议服务，不重新分配已绑定的客户端对象。
+ * 本机站号也在这条总线上，广播的复位命令会被自己收到：无论通信复位还是
+ * 复位节点，都只重建本机通信服务，不重新分配已绑定的客户端对象。
  *
  * Return: OK 本轮完成；STATE 未初始化、请求退出或协议重建失败。
  */
@@ -154,7 +159,8 @@ enum controller_result controller_event_poll(void)
 		controller_axes_poll(ctl->axes, ctl->axis_count, now);
 		(void)controller_poll(now);
 		controller_info_update(ctl);
-	} else if (reset != CO_RESET_COMM || master_reset_communication(m) != 0) {
+	} else if ((reset != CO_RESET_COMM && reset != CO_RESET_APP) ||
+		   master_reset_communication(m) != 0) {
 		CO_epoll_processLast(&m->ep);
 		return CONTROLLER_ERR_STATE;
 	}
