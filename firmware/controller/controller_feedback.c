@@ -16,6 +16,13 @@
 
 #define CONTROLLER_FEEDBACK_TIMEOUT_MS 30u
 
+/*
+ * 临时开关（2026-11-20）：真机抓总线期间关闭反馈轮询，让总线上只剩控制流程的帧。
+ * 关闭时 controller_info.feedback 保持全 0（由 controller_init 清零后无人写入）。
+ * 恢复：把这个值改成 1 即可，轮询逻辑原样保留。
+ */
+#define CONTROLLER_FEEDBACK_ENABLED 0u
+
 /* pulse / pulse·s⁻¹ 转为 mm / mm·s⁻¹ */
 static float feedback_mm(int32_t pulse);
 
@@ -52,6 +59,10 @@ void controller_feedback_poll(struct controller *ctl)
 	struct sdo_result result;
 	uint8_t i;
 
+	if (CONTROLLER_FEEDBACK_ENABLED == 0u) {
+		(void)ctl; /* 反馈轮询已临时关闭：不发帧、不改上报值 */
+		return;
+	}
 	if (ctl == NULL) {
 		return;
 	}
