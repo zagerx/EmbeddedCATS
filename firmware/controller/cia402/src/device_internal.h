@@ -26,6 +26,8 @@
 #define CIA402_DEVICE_HALT_TIMEOUT_MS 3000u
 /* PP 触发到到位的期限：按最长行程留余量（10 mm/s 走 500 mm 也要 50 s） */
 #define CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS 60000u
+/* 回零的业务期限：找开关的时间取决于行程和人手操作，给足余量 */
+#define CIA402_DEVICE_HOMING_TIMEOUT_MS 30000u
 
 /* ---- 业务事件 ---- */
 
@@ -59,6 +61,9 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
 /* 发起一笔写；写 6040 时暂存期望值，事务成功后才落到控制字镜像 */
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms);
+/* 带子索引的写：数组类对象（如 6099h 的回零速度）用 */
+void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
+		   uint8_t size, uint32_t timeout_ms);
 /* 结束当前流程：写回执与失败原因，调用方随后迁回 st_idle */
 void dev_finish(struct cia402_device *d, enum cia402_outcome result, enum cia402_fail fail);
 /* 事务失败时的统一收尾 */
@@ -104,5 +109,19 @@ sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_qstop_clear(struct sm_hsm *const me, const struct sm_event *const e);
+
+sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_read_mode(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_write_method(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_write_speed_fast(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_write_speed_slow(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_write_accel(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_start(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_halt(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_halt_wait(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_restore_cw(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home_restore_mode(struct sm_hsm *const me, const struct sm_event *const e);
 
 #endif /* CIA402_DEVICE_INTERNAL_H */

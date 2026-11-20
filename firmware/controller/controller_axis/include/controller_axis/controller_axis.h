@@ -41,6 +41,9 @@ int controller_config_movemode(struct axis *axes, uint8_t count, uint8_t axis_no
 /* 请求所有轴使能：0 = 全部受理；-1 = 未装配或至少一轴未受理 */
 int controller_enable_all(struct axis *axes, uint8_t count);
 
+/* 请求指定轴回原点：0 = 全部受理；-1 = 轴号越界、未装配或至少一轴未受理 */
+int controller_home_axes(struct axis *axes, uint8_t count, uint8_t axis_no);
+
 /* 解除所有轴急停：写 6040 = 0x0F 让驱动器回可操作；0 = 全部受理 */
 int controller_clear_estop_all(struct axis *axes, uint8_t count);
 

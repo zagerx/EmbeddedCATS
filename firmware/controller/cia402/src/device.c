@@ -59,12 +59,16 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
 	if (d == NULL || req == NULL) {
 		return CIA402_INVALID;
 	}
-	if (req->kind > CIA402_REQ_ESTOP_CLEAR) {
+	if (req->kind > CIA402_REQ_HOME) {
 		return CIA402_INVALID;
 	}
 	if (req->kind == CIA402_REQ_MOVE &&
 	    (req->pp.velocity <= 0 || req->pp.accel <= 0 || req->pp.decel <= 0)) {
 		return CIA402_INVALID; /* 速度/加速度非正等于原地不动，驱动器会报错 */
+	}
+	if (req->kind == CIA402_REQ_HOME && (req->home.method == 0u || req->home.speed_fast <= 0 ||
+					     req->home.speed_slow <= 0 || req->home.accel <= 0)) {
+		return CIA402_INVALID; /* 回零必须给方法号与正的速度/加速度 */
 	}
 	return admit(d, req);
 }

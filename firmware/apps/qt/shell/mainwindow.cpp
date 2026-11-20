@@ -71,7 +71,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 	btn_halt->setObjectName(QStringLiteral("btn_halt"));
 	auto *btn_clear_estop = new QPushButton(QStringLiteral("解除急停"), top_reserved);
 	btn_clear_estop->setObjectName(QStringLiteral("btn_clear_estop"));
-	for (QPushButton *button : {btn_enable, btn_estop, btn_halt, btn_clear_estop}) {
+	auto *btn_home = new QPushButton(QStringLiteral("回零"), top_reserved);
+	btn_home->setObjectName(QStringLiteral("btn_home"));
+	for (QPushButton *button : {btn_enable, btn_estop, btn_halt, btn_clear_estop, btn_home}) {
 		button->setMinimumWidth(92);
 		top_reserved_layout->addWidget(button, 0, Qt::AlignTop);
 	}

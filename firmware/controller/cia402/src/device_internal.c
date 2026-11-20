@@ -40,11 +40,26 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 	       uint32_t timeout_ms)
 {
+	dev_write_sub(d, index, 0u, value, size, timeout_ms);
+}
+
+/**
+ * dev_write_sub - 发起一笔带子索引的写事务
+ * @d: 设备对象
+ * @index: 对象索引
+ * @sub: 子索引；数组类对象（如 6099h）用
+ * @value: 待写值
+ * @size: 字节数
+ * @timeout_ms: 本笔事务的期限，由通道掌握
+ */
+void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
+		   uint8_t size, uint32_t timeout_ms)
+{
 	if (index == CIA402_OD_CONTROLWORD) {
 		d->cw.pending = (uint16_t)value;
 		d->cw.pending_valid = 1u;
 	}
-	(void)d->access->start(d->access->ctx, SDO_DIR_WRITE, index, 0u, value, size, timeout_ms);
+	(void)d->access->start(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, timeout_ms);
 }
 
 /**

@@ -50,6 +50,9 @@ int axis_move_to(struct axis *a, float mm, float mm_s, float mm_s2);
 /* 减速停在当前位置，保持使能。0 = 已受理 */
 int axis_halt(struct axis *a);
 
+/* 回原点（原点开关法，方法号与速度见 cats_mech.h）。0 = 已受理；1 = 设备忙；-1 = 不允许 */
+int axis_home(struct axis *a);
+
 /* 取上一段动作的结论（取走后回 NONE）；failure 可为 NULL，失败时带回原因 */
 enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure);
 

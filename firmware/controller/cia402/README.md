@@ -37,11 +37,17 @@ cia402/
         ├── disable.c    断使能
         ├── move.c       PP 参数、触发、到位
         ├── halt.c       减速停
+        ├── homing.c     回零（HM 模式，13 个状态）
         └── quick_stop.c 快速停
 ```
 
 层次只有三层：`sm_top → st_operation_active → 具体操作状态链`。`st_idle`
 直接挂在 `sm_top` 下，不属于任何操作，因此不继承 `st_operation_active` 的"被抢占"语义。
+
+回零多一层：`sm_top → st_operation_active → st_home_active → st_home_*`。
+`st_home_active` 拦下 `CIA402_SIG_CANCEL` 改走中止链（停电机 → 落 bit4 →
+切回 PP），而不是像其他操作那样直接被抢占到 `st_idle`——否则驱动器会带着
+`6040` bit4 继续找原点。
 
 ## 对外接口
 

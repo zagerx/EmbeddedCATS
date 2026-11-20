@@ -38,6 +38,7 @@ class AppBinder : public QObject
 	void onStats();      /* 5 s：循环统计 → 日志 */
 	void onEnable();     /* 空闲态下发使能请求 */
 	void onMove();       /* 按轴选择下发位置指令 */
+	void onHome();       /* 已使能时下发回零请求 */
 	void onHalt();       /* 减速停在当前位置 */
 	void onEStop();      /* 所有轴 quick stop（只写一次控制字） */
 	void onClearEStop(); /* 驱动器断使能，控制器回空闲（故障保留） */
@@ -45,12 +46,12 @@ class AppBinder : public QObject
       private:
 	void findWidgets(QWidget *root); /* 按 objectName 取状态条与日志面板 */
 	void startTimers();              /* 刷新与统计两个界面定时器 */
-	void bindCommands(); /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
+	void bindCommands();             /* 1.2 的使能 / 暂停 / 急停与 2.1 的运动 */
 	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
-	void updateCommands(enum controller_state s); /* 按钮可用性跟随状态 */
+	void updateCommands(enum controller_state s);     /* 按钮可用性跟随状态 */
 	void publish(const struct controller_info &info); /* 整机状态与故障 → 界面 */
 	void updateAxisCards(const struct controller_info &info); /* 两轴反馈与 abort → 界面 */
-	void pushLog(const QString &line); /* 往日志面板追加一行 */
+	void pushLog(const QString &line);                        /* 往日志面板追加一行 */
 
 	CanThread worker_; /* 唯一的 CANopen 工作线程 */
 
@@ -62,6 +63,7 @@ class AppBinder : public QObject
 	QComboBox *axis_selector_ = nullptr;           /* 运动下发到哪一轴 */
 	QPushButton *btn_enable_ = nullptr;
 	QPushButton *btn_move_ = nullptr;
+	QPushButton *btn_home_ = nullptr;
 	QPushButton *btn_halt_ = nullptr;
 	QPushButton *btn_estop_ = nullptr;
 	QPushButton *btn_clear_estop_ = nullptr;

@@ -33,7 +33,8 @@ enum controller_result {
 /*
  * 业务运行状态（与 NMT 状态、402 状态三者不混）。
  * PREPARING → CONFIGURING → IDLE ──使能指令──> ENABLING → HOLDING ⇄ MOVING；
- * MOVING 可经 HALTING 回 HOLDING；FAULT / ESTOP 为终态。
+ * MOVING 可经 HALTING 回 HOLDING；HOLDING ──回零指令──> HOMING → HOLDING；
+ * FAULT / ESTOP 为终态。HOMING 放在末尾：新增状态不挪动已有值。
  */
 enum controller_state {
 	CONTROLLER_STATE_PREPARING = 0,
@@ -45,7 +46,8 @@ enum controller_state {
 	CONTROLLER_STATE_HALTING,
 	CONTROLLER_STATE_FAULT,
 	CONTROLLER_STATE_ESTOP,
-	CONTROLLER_STATE_COUNT /* 状态个数，states[] 表的大小 */
+	CONTROLLER_STATE_HOMING, /* 回原点：驱动器在跑 HM 流程，主站等结论 */
+	CONTROLLER_STATE_COUNT   /* 状态个数，states[] 表的大小 */
 };
 
 /*

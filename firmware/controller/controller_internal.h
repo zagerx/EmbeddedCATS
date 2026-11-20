@@ -28,7 +28,8 @@ enum controller_sig {
 	CONTROLLER_SIG_HALT,
 	CONTROLLER_SIG_ESTOP,
 	CONTROLLER_SIG_ESTOP_CLEAR, /* 急停终态下唯一接受的命令 */
-	CONTROLLER_SIG_ENABLE       /* IDLE 收到它才进 ENABLING */
+	CONTROLLER_SIG_ENABLE,      /* IDLE 收到它才进 ENABLING */
+	CONTROLLER_SIG_HOME         /* HOLDING 收到它才进 HOMING */
 };
 
 /* 控制器的对象实体、状态图上下文和上报信息集中在这里 */
@@ -42,6 +43,8 @@ struct controller {
 	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */
 	uint8_t estop_clearing; /* 非 0：已发出解除急停请求，等回执齐了再迁 IDLE */
 	uint8_t node_ready;     /* 非 0：驱动器已重启完毕，允许发起对象访问 */
+	uint8_t home_mask;      /* 位图：本次回零涉及哪些轴 */
+
 	struct sm_hsm hsm;
 	uint32_t state_since_ms;
 	struct controller_evtq evtq;

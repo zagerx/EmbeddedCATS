@@ -50,6 +50,8 @@ QString state_text(enum controller_state s)
 		return QStringLiteral("故障");
 	case CONTROLLER_STATE_ESTOP:
 		return QStringLiteral("急停");
+	case CONTROLLER_STATE_HOMING:
+		return QStringLiteral("回零中");
 	case CONTROLLER_STATE_COUNT:
 		break;
 	}
@@ -110,9 +112,8 @@ QString abort_text(const struct controller_fault &fault)
 	if (fault.reason != CONTROLLER_FAULT_REASON_SDO || fault.abort_code == 0U) {
 		return QStringLiteral("—");
 	}
-	return QStringLiteral("0x") + QString::number(fault.abort_code, 16)
-					   .toUpper()
-					   .rightJustified(8, QLatin1Char('0'));
+	return QStringLiteral("0x") +
+	       QString::number(fault.abort_code, 16).toUpper().rightJustified(8, QLatin1Char('0'));
 }
 
 /* app 的运行状态 → 状态条档位（只决定颜色与圆点） */
@@ -127,9 +128,10 @@ StateBar::State to_bar_state(enum controller_state s)
 		return StateBar::State::Idle;
 	case CONTROLLER_STATE_ENABLING:
 		return StateBar::State::Enabling;
-	/* HOLDING 与 MOVING 在界面上合成一档“已使能” */
+	/* HOLDING 与 MOVING 在界面上合成一档“已使能”；回零也是使能着在动 */
 	case CONTROLLER_STATE_HOLDING:
 	case CONTROLLER_STATE_MOVING:
+	case CONTROLLER_STATE_HOMING:
 		return StateBar::State::Running;
 	case CONTROLLER_STATE_HALTING:
 		return StateBar::State::Halting;
@@ -202,6 +204,7 @@ void AppBinder::findWidgets(QWidget *root)
 	axis_selector_ = root->findChild<QComboBox *>(QStringLiteral("axisSelector"));
 	btn_enable_ = root->findChild<QPushButton *>(QStringLiteral("btn_enable"));
 	btn_move_ = root->findChild<QPushButton *>(QStringLiteral("btn_move"));
+	btn_home_ = root->findChild<QPushButton *>(QStringLiteral("btn_home"));
 	btn_halt_ = root->findChild<QPushButton *>(QStringLiteral("btn_halt"));
 	btn_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_estop"));
 	btn_clear_estop_ = root->findChild<QPushButton *>(QStringLiteral("btn_clear_estop"));
@@ -216,12 +219,16 @@ void AppBinder::bindCommands()
 	if (btn_enable_ == nullptr) {
 		pushLog(QStringLiteral("绑定：找不到使能按钮，无法从空闲态启动"));
 	}
+	if (btn_home_ == nullptr) {
+		pushLog(QStringLiteral("绑定：找不到回零按钮，无法标定原点"));
+	}
 	if (btn_clear_estop_ == nullptr) {
 		pushLog(QStringLiteral("绑定：找不到解除急停按钮，急停后无法恢复"));
 	}
 
 	connect(btn_enable_, &QPushButton::clicked, this, &AppBinder::onEnable);
 	connect(btn_move_, &QPushButton::clicked, this, &AppBinder::onMove);
+	connect(btn_home_, &QPushButton::clicked, this, &AppBinder::onHome);
 	connect(btn_halt_, &QPushButton::clicked, this, &AppBinder::onHalt);
 	connect(btn_estop_, &QPushButton::clicked, this, &AppBinder::onEStop);
 	connect(btn_clear_estop_, &QPushButton::clicked, this, &AppBinder::onClearEStop);
@@ -238,7 +245,12 @@ void AppBinder::updateCommands(enum controller_state s)
 		/* 只有 HOLDING 接受位置指令；其余状态点下去只会被丢弃 */
 		btn_move_->setEnabled(s == CONTROLLER_STATE_HOLDING);
 	}
+	if (btn_home_ != nullptr) {
+		/* 回零要求已使能：只有 HOLDING 接受 */
+		btn_home_->setEnabled(s == CONTROLLER_STATE_HOLDING);
+	}
 	if (btn_halt_ != nullptr) {
+		/* 回零是原子的，期间暂停不生效；要中途停只能急停 */
 		btn_halt_->setEnabled(s == CONTROLLER_STATE_HOLDING ||
 				      s == CONTROLLER_STATE_MOVING);
 	}
@@ -318,6 +330,18 @@ bool AppBinder::fillMove(uint8_t axis, struct controller_move_req *out)
 	return true;
 }
 
+void AppBinder::onHome()
+{
+	const enum controller_result r = controller_home();
+
+	if (r == CONTROLLER_OK) {
+		pushLog(QStringLiteral(
+			"已请求回零：请手动遮挡原点开关，电机减速反向到开关释放处停"));
+	} else {
+		pushLog(QStringLiteral("回零请求被拒：%1").arg(result_text(r)));
+	}
+}
+
 void AppBinder::onHalt()
 {
 	controller_halt();
@@ -370,8 +394,7 @@ void AppBinder::updateAxisCards(const struct controller_info &info)
 			continue;
 		}
 		card->setPosition(QString::number(static_cast<double>(feedback.position), 'f', 3));
-		card->setVelocity(
-			QString::number(static_cast<double>(feedback.velocity), 'f', 3));
+		card->setVelocity(QString::number(static_cast<double>(feedback.velocity), 'f', 3));
 		card->setStatusword(hex16(feedback.statusword));
 
 		/* 错误码只有一来源：驱动器的 603F（主站的故障判断不往这里写） */

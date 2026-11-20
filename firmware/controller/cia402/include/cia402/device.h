@@ -25,13 +25,14 @@ extern "C" {
 
 /* 一类请求对应一条流程 */
 enum cia402_kind {
-	CIA402_REQ_CONFIG = 0, /* 写模式并回读确认 */
-	CIA402_REQ_ENABLE,     /* PDS 使能链 */
-	CIA402_REQ_DISABLE,    /* 断使能 */
-	CIA402_REQ_MOVE,       /* PP 绝对位置（参数在 req.pp 里）*/
-	CIA402_REQ_HALT,       /* 抢占：减速停并保持使能 */
-	CIA402_REQ_QUICK_STOP, /* 抢占：只写一次快速停，写完不再发帧 */
-	CIA402_REQ_ESTOP_CLEAR /* 解除急停：0x0F 让驱动器回可操作 */
+	CIA402_REQ_CONFIG = 0,  /* 写模式并回读确认 */
+	CIA402_REQ_ENABLE,      /* PDS 使能链 */
+	CIA402_REQ_DISABLE,     /* 断使能 */
+	CIA402_REQ_MOVE,        /* PP 绝对位置（参数在 req.pp 里）*/
+	CIA402_REQ_HALT,        /* 抢占：减速停并保持使能 */
+	CIA402_REQ_QUICK_STOP,  /* 抢占：只写一次快速停，写完不再发帧 */
+	CIA402_REQ_ESTOP_CLEAR, /* 解除急停：0x0F 让驱动器回可操作 */
+	CIA402_REQ_HOME         /* 回原点：HM 模式跑驱动器自己的回零流程 */
 };
 
 struct cia402_request {
@@ -42,6 +43,12 @@ struct cia402_request {
 		int32_t accel;    /* 轮廓加速度 */
 		int32_t decel;    /* 轮廓减速度 */
 	} pp;                     /* 仅 CIA402_REQ_MOVE 使用 */
+	struct {
+		uint8_t method;     /* 6098h 回零方法号 */
+		int32_t speed_fast; /* 6099h:01 搜索速度 */
+		int32_t speed_slow; /* 6099h:02 反向精细速度 */
+		int32_t accel;      /* 609Ah 回零加减速 */
+	} home;                     /* 仅 CIA402_REQ_HOME 使用 */
 };
 
 /* 投递结果：只说收不收，不承诺成功 */

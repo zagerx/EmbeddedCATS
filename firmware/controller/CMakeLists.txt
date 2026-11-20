@@ -64,6 +64,7 @@ add_library(cia402 STATIC
 	cia402/src/operations/disable.c
 	cia402/src/operations/move.c
 	cia402/src/operations/halt.c
+	cia402/src/operations/homing.c
 	cia402/src/operations/quick_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cia402/src)
@@ -99,6 +100,7 @@ add_library(cats_control STATIC
 	controller_states/state_holding.c
 	controller_states/state_moving.c
 	controller_states/state_halting.c
+	controller_states/state_homing.c
 	controller_states/state_fault.c
 	controller_states/state_estop.c)
 target_include_directories(cats_control PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

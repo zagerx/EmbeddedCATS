@@ -96,6 +96,9 @@ main → shell → ui → theme（这一支完全不认识业务）
   机械换算参数是编译期常量（`controller/config/cats_mech.h`）。
 - 运动按钮按轴选择器提交单轴或双轴命令；暂停与急停分别调用 `controller_halt()` 和
   `controller_estop()`。
+- 「回零」按钮调用 `controller_home()`（全部轴）：只在 `HOLDING` 可用。点下去电机开始
+  按 `cats_mech.h` 的搜索速度转，需要**手动遮挡原点开关**；驱动器检测到后减速反向，
+  开关释放处标零。回零期间是原子的：暂停与运动指令一律丢弃，要中途停下来只能急停。
 - 启动不需要按钮：`controller_init()` 建完即 `PREPARING`；配置完成后停在 `IDLE`，
   点“使能”按钮才进 `ENABLING`。
 

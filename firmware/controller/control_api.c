@@ -201,6 +201,44 @@ void controller_halt(void)
 }
 
 /**
+ * controller_home - 请求全部轴回原点
+ *
+ * 任意线程均可调用；只有 HOLDING 会接受，其余状态由状态机丢弃。
+ * 方法号与三档速度是机械常量，调用方不传参数。
+ *
+ * Return: OK 已入队并唤醒；BUSY 队列满；STATE 控制层未初始化。
+ */
+enum controller_result controller_home(void)
+{
+	return controller_home_axis(CONTROLLER_AXIS_ALL);
+}
+
+/**
+ * controller_home_axis - 请求指定轴回原点
+ * @axis: 轴号；CONTROLLER_AXIS_ALL 表示全部轴
+ *
+ * Return: OK 已入队并唤醒；BUSY 队列满；PARAM 轴号越界或未初始化。
+ */
+enum controller_result controller_home_axis(uint8_t axis)
+{
+	struct controller *ctl = control_ctx();
+	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_HOME}};
+
+	if (ctl->master == NULL) {
+		return CONTROLLER_ERR_PARAM;
+	}
+	if (axis != CONTROLLER_AXIS_ALL && axis >= ctl->axis_count) {
+		return CONTROLLER_ERR_PARAM;
+	}
+	evt.u.home.axis = axis;
+	if (!controller_evtq_push(&ctl->evtq, &evt)) {
+		return CONTROLLER_ERR_BUSY;
+	}
+	controller_wakeup();
+	return CONTROLLER_OK;
+}
+
+/**
  * controller_info_get - 读取完整控制器信息
  * @out: 输出信息；NULL 时返回 PARAM
  *

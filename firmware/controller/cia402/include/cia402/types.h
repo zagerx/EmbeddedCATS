@@ -26,20 +26,25 @@ enum cia402_pds_state {
 };
 
 /* 控制字 6040 的命令值（DS 402 表 13） */
-#define CIA402_CW_DISABLE 0x0000u      /* 断电压 / 断使能 */
-#define CIA402_CW_QUICK_STOP 0x0002u   /* 快速停止 */
-#define CIA402_CW_SHUTDOWN 0x0006u     /* 电压输出 + 允许急停 */
-#define CIA402_CW_SWITCH_ON 0x0007u    /* 再置 bit0 = 启动 */
-#define CIA402_CW_ENABLE_OP 0x000Fu    /* 允许操作（使能完成） */
-#define CIA402_CW_FAULT_RESET 0x0080u  /* bit7：故障复位（上升沿） */
-#define CIA402_CW_NEW_SETPOINT 0x0010u /* bit4：PP 新目标 */
-#define CIA402_CW_HALT 0x0100u         /* bit8：暂停（减速停） */
+#define CIA402_CW_DISABLE 0x0000u                     /* 断电压 / 断使能 */
+#define CIA402_CW_QUICK_STOP 0x0002u                  /* 快速停止 */
+#define CIA402_CW_SHUTDOWN 0x0006u                    /* 电压输出 + 允许急停 */
+#define CIA402_CW_SWITCH_ON 0x0007u                   /* 再置 bit0 = 启动 */
+#define CIA402_CW_ENABLE_OP 0x000Fu                   /* 允许操作（使能完成） */
+#define CIA402_CW_FAULT_RESET 0x0080u                 /* bit7：故障复位（上升沿） */
+#define CIA402_CW_NEW_SETPOINT 0x0010u                /* bit4：PP 新目标 */
+#define CIA402_CW_HOMING_START CIA402_CW_NEW_SETPOINT /* bit4：HM 回零启动，必须保持 */
+#define CIA402_CW_HALT 0x0100u                        /* bit8：暂停（减速停） */
 
 /* 状态字 6041 的位（只列本工程实际使用的） */
-#define CIA402_SW_TARGET_REACHED 0x0400u /* bit10：PP 到位判据 */
+#define CIA402_SW_TARGET_REACHED 0x0400u  /* bit10：PP 到位 / HM 目标到达 */
+#define CIA402_SW_LIMIT_ACTIVE 0x0800u    /* bit11：正负限位生效 */
+#define CIA402_SW_HOMING_ATTAINED 0x1000u /* bit12：HM 回零完成 */
+#define CIA402_SW_HOMING_ERROR 0x2000u    /* bit13：HM 回零错误 */
 
 /* 操作模式 6060 的值（只列本工程实际使用的） */
 #define CIA402_MODE_PP 1u /* Profile Position */
+#define CIA402_MODE_HM 6u /* Homing */
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -19,6 +19,7 @@ const sm_state_t states[CONTROLLER_STATE_COUNT] = {
 	[CONTROLLER_STATE_HALTING] = st_halting,
 	[CONTROLLER_STATE_FAULT] = st_fault,
 	[CONTROLLER_STATE_ESTOP] = st_estop,
+	[CONTROLLER_STATE_HOMING] = st_homing,
 };
 
 /**

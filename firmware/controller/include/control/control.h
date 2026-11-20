@@ -74,6 +74,16 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 /* 暂停在当前位置并保持使能；事件插到队头。 */
 void controller_halt(void);
 
+/*
+ * 请求全部轴回原点（原点开关法）。只有 HOLDING 接受，其余状态直接丢弃。
+ * 回零期间是原子的：暂停与位置指令一律丢弃，只响应急停与故障。
+ * 方法号与三档速度是机械常量（见 cats_mech.h），调用方不传参数。
+ */
+enum controller_result controller_home(void);
+
+/* 同上，只回一个轴；调试单轴时用，轴号越界返回 PARAM。 */
+enum controller_result controller_home_axis(uint8_t axis);
+
 /* 请求所有轴 quick stop 并断使能；事件插到队头，ESTOP 只能重启退出。 */
 void controller_estop(void);
 

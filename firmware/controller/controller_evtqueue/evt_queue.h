@@ -33,11 +33,20 @@ struct controller_move_cmd {
 	struct controller_move_req axis[CONTROLLER_AXIS_COUNT];
 };
 
+/*
+ * 回零载荷：只带轴号，方法号与速度是 cats_mech.h 里的机械常量。
+ * axis 取 CONTROLLER_AXIS_ALL（0xFF）表示全部轴。
+ */
+struct controller_home_cmd {
+	uint8_t axis;
+};
+
 /* 队列元素：取最大的一种事件。以后加别的带参事件就往 union 里加成员 */
 struct controller_evt {
 	struct sm_event super; /* 必须是第一个成员（SM_EVT_CAST 依赖这条） */
 	union {
 		struct controller_move_cmd move;
+		struct controller_home_cmd home;
 	} u;
 };
 

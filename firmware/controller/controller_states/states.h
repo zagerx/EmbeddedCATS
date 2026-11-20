@@ -8,7 +8,7 @@
  *   sm_top               框架提供的顶层（返回 IGNORED，冒泡终点）
  *   └── st_root          公共规则：锁存了故障 → FAULT；ESTOP 事件 → ESTOP
  *       ├── st_preparing / st_configuring / st_idle_ctrl / st_enabling /
- *       │   st_holding / st_moving / st_halting
+ *       │   st_holding / st_moving / st_halting / st_homing
  *       ├── st_fault
  *       └── st_estop
  *
@@ -43,6 +43,7 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_homing(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_fault(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e);
 

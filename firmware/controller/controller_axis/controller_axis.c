@@ -40,6 +40,21 @@ int controller_enable_all(struct axis *axes, uint8_t count)
 }
 
 /**
+ * controller_home_axes - 逐轴请求回原点
+ * @axes: 轴数组
+ * @count: 已装配轴数
+ * @axis_no: 轴号；传 CONTROLLER_AXIS_ALL 表示全部轴
+ *
+ * 方法号与速度由轴层从 cats_mech.h 取，集合层不持有协议参数。
+ *
+ * Return: 0 全部受理；-1 轴号越界、未装配或至少一轴未受理（设备忙）。
+ */
+int controller_home_axes(struct axis *axes, uint8_t count, uint8_t axis_no)
+{
+	return axes_apply(axes, count, axis_no, axis_home);
+}
+
+/**
  * controller_clear_estop_all - 逐轴解除急停
  * @axes: 轴数组
  * @count: 已装配轴数

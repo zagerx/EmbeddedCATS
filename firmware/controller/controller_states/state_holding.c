@@ -1,7 +1,7 @@
 /*
  * state_holding.c — 保持已使能状态并受理新的位置指令
  *
- * MOVE 迁移到 MOVING；没有运动在途时 HALT 直接忽略。
+ * MOVE 迁移到 MOVING；HOME 迁移到 HOMING；没有运动在途时 HALT 直接忽略。
  *
  * Author: zager
  */
@@ -37,6 +37,15 @@ sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_HALT:
 		return SM_HANDLED(); /* 已经在保持位置，没有可做的事 */
+
+	case CONTROLLER_SIG_HOME: {
+		const uint8_t axis = SM_EVT_CAST(struct controller_evt, e)->u.home.axis;
+
+		ctl->home_mask = (axis == CONTROLLER_AXIS_ALL)
+					 ? controller_axis_mask(ctl->axis_count)
+					 : (uint8_t)(1u << axis);
+		return SM_TRAN(&st_homing);
+	}
 
 	case CONTROLLER_SIG_TICK:
 		return SM_SUPER(&st_root);

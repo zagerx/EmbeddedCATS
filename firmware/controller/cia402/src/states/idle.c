@@ -55,6 +55,12 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		d->operation.pp.decel = ev->req.pp.decel;
 		d->operation.pp.issued = 0;
 		d->operation.pp.seen_low = 0u;
+		d->operation.home.method = ev->req.home.method;
+		d->operation.home.speed_fast = ev->req.home.speed_fast;
+		d->operation.home.speed_slow = ev->req.home.speed_slow;
+		d->operation.home.accel = ev->req.home.accel;
+		d->operation.home.failed = 0u;
+		d->operation.home.fail_kind = CIA402_FAIL_NONE;
 
 		switch (ev->req.kind) {
 		case CIA402_REQ_CONFIG:
@@ -69,6 +75,8 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_halt_write);
 		case CIA402_REQ_QUICK_STOP:
 			return SM_TRAN(&st_qstop_write);
+		case CIA402_REQ_HOME:
+			return SM_TRAN(&st_home_write_mode);
 		default:
 			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_NONE);
 			return SM_HANDLED();

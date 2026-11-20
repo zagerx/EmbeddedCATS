@@ -13,8 +13,8 @@
 
 ```text
 PREPARING → CONFIGURING → IDLE ──CONTROLLER_SIG_ENABLE──> ENABLING → HOLDING ⇄ MOVING
-                                                          ↑              │
-                                                          └─ HALTING ────┘
+                                                          ↑              │    ⇅
+                                                          └─ HALTING ────┘  HOMING
 FAULT 为终态；ESTOP 只能解除回 IDLE。
 ```
 
@@ -39,6 +39,29 @@ SDO 不会被拒绝，而是排队后延迟应答，所以必须等够时间再�
 **急停是覆盖层，故障独立锁存**：解除时不碰 `controller_info.fault`，所以若急停前已有故障
 （或急停/解除那笔没送到而锁存了新故障），等迁到 `IDLE` 后由 `ROOT` 的"有故障 → FAULT"
 规则把整机送进 `FAULT`。想恢复必须重启程序，不能用"解除急停"把故障顶掉。
+
+`HOMING` 与 `MOVING` 同级，且只能从 `HOLDING` 进：回零要求驱动器已使能。
+进入时对参与轴下发 `axis_home()`（方法号与三档速度是 `cats_mech.h` 里的
+机械常量，业务层不传参数）。
+
+**回零期间是原子的**：只响应急停（由 `ROOT` 迁 `ESTOP`）与故障（由 `ROOT` 迁
+`FAULT`），`MOVE` / `HALT` 一律在状态里丢弃 —— 丢在这里而不是留在队列里，避免
+回零结束后被意外执行。半个回零流程比走完更危险：原点没标定，上层却以为标了；
+要中途停只能按急停。
+
+- 完成：参与轴全部回成功 → `HOLDING`（保持使能，不回 `IDLE`）。
+
+设备忙导致某轴没起来时，只把这轴从本次委托里摘掉，不锁故障；一个都没起来就直接
+回 `HOLDING`（等于没发生）。
+
+`HOMING` 的完成判据是 `(axis_done & home_mask) == home_mask`（参与的轴都置位），
+不能用集合层返回的 `CONTROLLER_AXES_DONE`——那个要求**全部**轴都完成，单轴回零时
+永远等不到；也不能写成相等比较，`controller_axes_collect()` 遍历的是全部已装配轴，
+非参与轴的 `DONE` 会进 `axis_done` 形成超集，相等判据遇到超集只能干等 30 s 超时。
+
+急停抢占回零时，402 层由 `st_home_active` 拦下 `CIA402_SIG_CANCEL` 走中止链
+（停电机 → 落 bit4 → 切回 PP）：`halt.c` 清 bit8 用的是 `confirmed` 镜像，若直接
+被抢占跳 `st_idle`，随后那笔 halt 会把 bit4 一起带回来，驱动器会**重启回零**。
 
 故障以 `struct controller_fault` 上报：失败阶段、失败原因（业务超时/设备超时/驱动器故障/
 SDO abort/回读不符/请求被拒）、首个失败轴、失败轴位图、首个失败轴的 abort 码。后续故障

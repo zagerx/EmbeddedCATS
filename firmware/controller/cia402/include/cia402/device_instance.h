@@ -28,9 +28,9 @@ enum cia402_cancel_reason {
 
 /* 6040 控制字镜像；生命周期是一次操作，跨多笔事务，仅工作线程使用 */
 struct cia402_controlword {
-	uint16_t confirmed;     /* 最近一次写成功的控制字 */
-	uint16_t pending;       /* 在途的控制字 */
-	uint8_t pending_valid;  /* pending 有待确认的写入 */
+	uint16_t confirmed;    /* 最近一次写成功的控制字 */
+	uint16_t pending;      /* 在途的控制字 */
+	uint8_t pending_valid; /* pending 有待确认的写入 */
 };
 
 /* 当前流程：仅 CANopen 工作线程使用 */
@@ -47,6 +47,14 @@ struct cia402_operation {
 		int32_t issued;   /* 触发时锁定的目标，判定到位用它 */
 		uint8_t seen_low; /* 见过 bit10 = 0 */
 	} pp;
+	struct {
+		uint8_t method;     /* 6098h 回零方法号 */
+		int32_t speed_fast; /* 6099h:01 */
+		int32_t speed_slow; /* 6099h:02 */
+		int32_t accel;      /* 609Ah */
+		uint8_t failed;     /* 收尾链用：非 0 表示这条回零要报失败 */
+		uint8_t fail_kind;  /* enum cia402_fail */
+	} home;
 };
 
 /* 所有字段仅由同一个 CANopen 工作线程访问 */

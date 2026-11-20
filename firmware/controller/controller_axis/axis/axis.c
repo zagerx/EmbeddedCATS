@@ -81,6 +81,29 @@ int axis_halt(struct axis *a)
 }
 
 /**
+ * axis_home - 请求回原点（原点开关法）
+ * @a: 轴对象；NULL 时拒绝
+ *
+ * 方法号与三档速度是机械常量，见 cats_mech.h：业务层不传参数，避免把
+ * 协议级数值（6098/6099/609A）漏到上层。
+ *
+ * Return: 设备请求结果；@a 为 NULL 时返回 -1。
+ */
+int axis_home(struct axis *a)
+{
+	struct cia402_request req = {.kind = CIA402_REQ_HOME};
+
+	if (a == NULL) {
+		return -1;
+	}
+	req.home.method = (uint8_t)CATS_AXIS_HOME_METHOD;
+	req.home.speed_fast = CATS_AXIS_HOME_SPEED_SEARCH;
+	req.home.speed_slow = CATS_AXIS_HOME_SPEED_CREEP;
+	req.home.accel = CATS_AXIS_HOME_ACCEL;
+	return axis_submit(a, &req);
+}
+
+/**
  * axis_abort_code - 读取轴最近一次 SDO abort 码
  * @a: 轴对象；NULL 安全
  *

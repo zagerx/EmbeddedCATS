@@ -26,6 +26,8 @@ struct probe_cmd {
 	long move_at_ms;
 	long move2_at_ms;
 	long halt_at_ms;
+	long home_at_ms;
+	long home_axis;
 	long estop_at_ms;
 	long clear_at_ms;
 	long spam;
@@ -33,6 +35,7 @@ struct probe_cmd {
 	int has_move;
 	int has_move2;
 	int has_halt;
+	int has_home;
 	int has_estop;
 	int has_clear;
 	int has_spam;
@@ -66,6 +69,7 @@ int main(int argc, char **argv)
 	int batch = 0;
 	int spammed = 0;
 	int halted = 0;
+	int homed = 0;
 	int estopped = 0;
 	int cleared = 0;
 
@@ -177,6 +181,14 @@ int main(int argc, char **argv)
 				controller_halt();
 				fflush(stdout);
 			}
+			if (cmd.has_home && !homed && t >= cmd.home_at_ms) {
+				homed = 1;
+				printf("[%6ld] 指令：home 轴 %ld\n", t, cmd.home_axis + 1);
+				if (controller_home_axis((uint8_t)cmd.home_axis) != CONTROLLER_OK) {
+					printf("          —— 入队失败（参数错或队列满）\n");
+				}
+				fflush(stdout);
+			}
 			if (cmd.has_estop && !estopped && t >= cmd.estop_at_ms) {
 				estopped = 1;
 				printf("[%6ld] 指令：estop\n", t);
@@ -233,6 +245,8 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.move_at_ms = -1;
 	c.move2_at_ms = -1;
 	c.halt_at_ms = -1;
+	c.home_at_ms = -1;
+	c.home_axis = 0;
 	c.estop_at_ms = -1;
 	c.clear_at_ms = -1;
 	c.spam = -1;
@@ -264,6 +278,12 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 		} else if (strcmp(k, "--halt-at") == 0) {
 			c.halt_at_ms = (long)v;
 			c.has_halt = 1;
+		} else if (strcmp(k, "--home-at") == 0) {
+			c.home_at_ms = (long)v;
+			c.has_home = 1;
+		} else if (strcmp(k, "--home-axis") == 0) {
+			/* 1 或 2，台架调试单轴时用 */
+			c.home_axis = ((long)v == 2) ? 1 : 0;
 		} else if (strcmp(k, "--estop-at") == 0) {
 			c.estop_at_ms = (long)v;
 			c.has_estop = 1;
@@ -281,8 +301,8 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.acc_mm_s2 = v;
 		}
 	}
-	c.armed =
-		c.has_move || c.has_move2 || c.has_halt || c.has_estop || c.has_clear || c.has_spam;
+	c.armed = c.has_move || c.has_move2 || c.has_halt || c.has_home || c.has_estop ||
+		  c.has_clear || c.has_spam;
 	if (c.has_move && c.move_at_ms < 0) {
 		c.move_at_ms = 1500;
 	}
@@ -291,6 +311,10 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	}
 	if (c.has_spam && c.spam_at_ms < 0) {
 		c.spam_at_ms = (c.has_move ? c.move_at_ms : 1500) + 200;
+	}
+	/* 轴号越界退回轴 1：main 里会把实际下发的轴号打印出来 */
+	if (c.home_axis < 0 || c.home_axis >= CONTROLLER_AXIS_COUNT) {
+		c.home_axis = 0;
 	}
 	return c;
 }

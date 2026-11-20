@@ -16,6 +16,7 @@
 | CANopen 事件循环 | `controller_event_poll()` |
 | 状态、故障、轴反馈与 SDO abort | `controller_info_get()`（一次加锁读取完整信息） |
 | 运动、暂停、急停、解除急停按钮 | `controller_move()` / `controller_halt()` / `controller_estop()` / `controller_clear_estop()` |
+| 回零按钮 | `controller_home()`（全部轴；只在 `HOLDING` 可用，回零期间暂停不生效） |
 
 命令入队后立即通过 eventfd 唤醒工作线程，不必等待下一次基础定时器。UI 通过加锁的
 `controller_info` 读取信息，不访问 CANopenNode、SDO 或 CiA402 内部对象；反馈查询直接
