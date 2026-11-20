@@ -4,7 +4,7 @@
  * 反馈是控制器的观察行为，不属于 402 操作流程。每个轴复用自己的
  * SDO 通道：忙就跳过，不排队、不抢占；成功才更新样本，失败保留旧值。
  * 样本以 mm / mm·s⁻¹ 直接保存在 controller_info，写入时持 info_lock。
- * 每轴四项依次轮转，多个轴在同一轮中各尝试一笔空闲通道读取。
+ * 每轴四项依次轮转，每轴每 10 ms 只发起一笔，多个轴在同一轮中各尝试一笔。
  *
  * Author: zager
  */
@@ -16,12 +16,15 @@
 
 #define CONTROLLER_FEEDBACK_TIMEOUT_MS 30u
 
+/* 每轴发起下一笔读取的最小间隔：四项轮完一圈约 40 ms，总线占用约 10% */
+#define CONTROLLER_FEEDBACK_PERIOD_MS 10u
+
 /*
- * 临时开关（2026-11-20）：真机抓总线期间关闭反馈轮询，让总线上只剩控制流程的帧。
- * 关闭时 controller_info.feedback 保持全 0（由 controller_init 清零后无人写入）。
- * 恢复：把这个值改成 1 即可，轮询逻辑原样保留。
+ * 抓总线时的静音开关：置 0 可让总线上只剩控制流程的帧，此时
+ * controller_info.feedback 保持全 0（由 controller_init 清零后无人写入）。
+ * 正常运行必须为 1。
  */
-#define CONTROLLER_FEEDBACK_ENABLED 0u
+#define CONTROLLER_FEEDBACK_ENABLED 1u
 
 /* pulse / pulse·s⁻¹ 转为 mm / mm·s⁻¹ */
 static float feedback_mm(int32_t pulse);
@@ -31,6 +34,7 @@ static void feedback_store(struct controller_feedback *feedback, uint8_t item,
 			   const struct sdo_result *result);
 
 static uint8_t next_item[CONTROLLER_AXIS_COUNT];
+static uint32_t next_due_ms[CONTROLLER_AXIS_COUNT];
 
 /**
  * controller_feedback_reset - 复位各轴反馈轮询游标
@@ -43,16 +47,19 @@ void controller_feedback_reset(void)
 
 	for (i = 0u; i < CONTROLLER_AXIS_COUNT; i++) {
 		next_item[i] = 0u;
+		next_due_ms[i] = 0u;
 	}
 }
 
 /**
  * controller_feedback_poll - 每轴尝试推进一项反馈读取
  * @ctl: 控制上下文；NULL 安全
+ * @now_ms: 本轮统一时钟，与状态图、402 推进共用
  *
  * 402 流程优先使用通道；反馈读取由下一轮 sdo_client_step() 推进。
+ * 每轴每 CONTROLLER_FEEDBACK_PERIOD_MS 才发起一笔，避免占满总线。
  */
-void controller_feedback_poll(struct controller *ctl)
+void controller_feedback_poll(struct controller *ctl, uint32_t now_ms)
 {
 	static const uint16_t index[4] = {CIA402_OD_STATUSWORD, CIA402_OD_POSITION_ACTUAL,
 					  CIA402_OD_VELOCITY_ACTUAL, CIA402_OD_ERROR_CODE};
@@ -63,8 +70,8 @@ void controller_feedback_poll(struct controller *ctl)
 		(void)ctl; /* 反馈轮询已临时关闭：不发帧、不改上报值 */
 		return;
 	}
-	if (ctl == NULL) {
-		return;
+	if (ctl == NULL || ctl->node_ready == 0u) {
+		return; /* 驱动器还在重启：不发帧，否则应答会排队后乱序回来 */
 	}
 	for (i = 0u; i < ctl->axis_count; i++) {
 		struct axis *axis = &ctl->axes[i];
@@ -86,8 +93,13 @@ void controller_feedback_poll(struct controller *ctl)
 			item = (uint8_t)((item + 1u) % 4u);
 			next_item[i] = item;
 		}
-		(void)access->start(access->ctx, SDO_DIR_READ, index[item], 0u, 0u, 0u,
-				    CONTROLLER_FEEDBACK_TIMEOUT_MS);
+		if ((int32_t)(now_ms - next_due_ms[i]) < 0) {
+			continue; /* 还没到下一笔的时刻 */
+		}
+		if (access->start(access->ctx, SDO_DIR_READ, index[item], 0u, 0u, 0u,
+				  CONTROLLER_FEEDBACK_TIMEOUT_MS) == 0) {
+			next_due_ms[i] = now_ms + CONTROLLER_FEEDBACK_PERIOD_MS;
+		}
 	}
 }
 

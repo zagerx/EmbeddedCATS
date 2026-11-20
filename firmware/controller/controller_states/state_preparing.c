@@ -29,12 +29,16 @@ sm_ret_t st_preparing(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		/* 复位节点（广播所有节点）：驱动器按存储值重载应用参数，
-		 * 位置不受影响（6064 复位前后一致，实测 2026-11-20）。 */
+		 * 位置不受影响（6064 复位前后一致，实测 2026-11-20）。
+		 * 驱动器重启期间不在线：此时发出的 SDO 会被排队后乱序应答，
+		 * 把后续配置搅成 abort，所以整段复位期间不发起任何对象访问。 */
+		ctl->node_ready = 0u;
 		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_RESET_NODE);
 		break;
 
 	case SM_SIG_EXIT:
-		break; /* 无出口动作 */
+		ctl->node_ready = 1u; /* 驱动器已重启完毕，允许发起对象访问 */
+		break;
 
 	case CONTROLLER_SIG_TICK:
 		if (controller_now_ms(ctl) - ctl->state_since_ms < PREPARE_RESET_DWELL_MS) {

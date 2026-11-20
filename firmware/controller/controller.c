@@ -155,7 +155,7 @@ enum controller_result controller_event_poll(void)
 		/* 本轮只取一次时钟：反馈、设备状态机与业务状态机用同一时刻 */
 		now = controller_now_ms(ctl);
 		/* 先收反馈结果，再让 402 发起下一笔，避免结果滞留被当成忙 */
-		controller_feedback_poll(ctl);
+		controller_feedback_poll(ctl, now);
 		controller_axes_poll(ctl->axes, ctl->axis_count, now);
 		(void)controller_poll(now);
 		controller_info_update(ctl);

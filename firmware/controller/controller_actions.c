@@ -41,6 +41,7 @@ void controller_stm_init(struct controller *ctl)
 	ctl->move_done = 0u;
 	ctl->axis_done = 0u;
 	ctl->estop_clearing = 0u;
+	ctl->node_ready = 0u;
 	pthread_mutex_lock(&ctl->info_lock);
 	memset(&ctl->info.fault, 0, sizeof(ctl->info.fault));
 	ctl->info.fault.first_axis = CONTROLLER_FAULT_NO_AXIS;

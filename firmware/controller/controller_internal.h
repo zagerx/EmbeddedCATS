@@ -41,6 +41,7 @@ struct controller {
 	uint8_t move_done;
 	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */
 	uint8_t estop_clearing; /* 非 0：已发出解除急停请求，等回执齐了再迁 IDLE */
+	uint8_t node_ready;     /* 非 0：驱动器已重启完毕，允许发起对象访问 */
 	struct sm_hsm hsm;
 	uint32_t state_since_ms;
 	struct controller_evtq evtq;
@@ -59,7 +60,7 @@ sm_ret_t initial(struct sm_hsm *const me, const struct sm_event *const e);
 uint32_t controller_now_ms(struct controller *ctl);
 
 /* 空闲通道上推进各轴反馈读取；由工作线程调用 */
-void controller_feedback_poll(struct controller *ctl);
+void controller_feedback_poll(struct controller *ctl, uint32_t now_ms);
 
 /* 控制器重新初始化时复位各轴反馈轮询游标 */
 void controller_feedback_reset(void);
@@ -75,8 +76,7 @@ struct controller *control_ctx(void);
  * axis_mask 每次调用都累积。axis 不在已装配范围时按“未定位”记录。
  */
 void controller_set_fault(struct controller *ctl, enum controller_state stage,
-			  enum controller_fault_reason reason, uint8_t axis,
-			  uint32_t abort_code);
+			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code);
 
 /* 把 cia402 的失败归类映射为业务故障原因 */
 enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail);
