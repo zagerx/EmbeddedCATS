@@ -26,4 +26,7 @@
 /* CIA402_SIG_CANCEL 事件里的传输结果（无在途事务时各项为 0） */
 #define DEV_CANCEL_RESULT(e_) (&SM_EVT_CAST(struct cancel_evt, (e_))->result)
 
+/* CIA402_SIG_CANCEL 事件里的原因（enum cia402_cancel_reason） */
+#define DEV_CANCEL_REASON(e_) (SM_EVT_CAST(struct cancel_evt, (e_))->reason)
+
 #endif /* CIA402_STATES_H */

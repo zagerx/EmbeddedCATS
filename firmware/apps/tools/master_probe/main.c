@@ -21,10 +21,12 @@
 struct probe_cmd {
 	double move_mm;
 	double move2_mm;
+	double retarget_mm;
 	double vel_mm_s;
 	double acc_mm_s2;
 	long move_at_ms;
 	long move2_at_ms;
+	long retarget_at_ms;
 	long halt_at_ms;
 	long home_at_ms;
 	long home_axis;
@@ -34,6 +36,7 @@ struct probe_cmd {
 	long spam_at_ms;
 	int has_move;
 	int has_move2;
+	int has_retarget;
 	int has_halt;
 	int has_home;
 	int has_estop;
@@ -68,6 +71,7 @@ int main(int argc, char **argv)
 	uint32_t last_fb = 0u;
 	int moved = 0;
 	int moved2 = 0;
+	int retargeted = 0;
 	int batch = 0;
 	int spammed = 0;
 	int halted = 0;
@@ -148,6 +152,22 @@ int main(int argc, char **argv)
 
 				moved2 = 1;
 				printf("[%6ld] 指令：move_to %.3f mm（第二条）\n", t, cmd.move2_mm);
+				if (controller_move(&req, 1u) != CONTROLLER_OK) {
+					printf("          —— 入队失败（参数错或队列满）\n");
+				}
+				fflush(stdout);
+			}
+			if (cmd.has_retarget && !retargeted && t >= cmd.retarget_at_ms) {
+				struct controller_move_req req = {
+					.axis = 0,
+					.mm = (float)cmd.retarget_mm,
+					.mm_s = (float)cmd.vel_mm_s,
+					.mm_s2 = (float)cmd.acc_mm_s2,
+				};
+
+				retargeted = 1;
+				printf("[%6ld] 指令：move_to %.3f mm（运动中即改目标）\n", t,
+				       cmd.retarget_mm);
 				if (controller_move(&req, 1u) != CONTROLLER_OK) {
 					printf("          —— 入队失败（参数错或队列满）\n");
 				}
@@ -263,6 +283,7 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.acc_mm_s2 = 50.0;
 	c.move_at_ms = -1;
 	c.move2_at_ms = -1;
+	c.retarget_at_ms = -1;
 	c.halt_at_ms = -1;
 	c.home_at_ms = -1;
 	c.home_axis = 0;
@@ -297,6 +318,11 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.has_move2 = 1;
 		} else if (strcmp(k, "--move2-at") == 0) {
 			c.move2_at_ms = (long)v;
+		} else if (strcmp(k, "--retarget") == 0) {
+			c.retarget_mm = v;
+			c.has_retarget = 1;
+		} else if (strcmp(k, "--retarget-at") == 0) {
+			c.retarget_at_ms = (long)v;
 		} else if (strcmp(k, "--halt-at") == 0) {
 			c.halt_at_ms = (long)v;
 			c.has_halt = 1;
@@ -323,13 +349,16 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 			c.acc_mm_s2 = v;
 		}
 	}
-	c.armed = c.has_move || c.has_move2 || c.has_halt || c.has_home || c.has_estop ||
-		  c.has_clear || c.has_spam;
+	c.armed = c.has_move || c.has_move2 || c.has_retarget || c.has_halt || c.has_home ||
+		  c.has_estop || c.has_clear || c.has_spam;
 	if (c.has_move && c.move_at_ms < 0) {
 		c.move_at_ms = 1500;
 	}
 	if (c.has_move2 && c.move2_at_ms < 0) {
 		c.move2_at_ms = (c.has_move ? c.move_at_ms : 1500) + 500;
+	}
+	if (c.has_retarget && c.retarget_at_ms < 0) {
+		c.retarget_at_ms = (c.has_move ? c.move_at_ms : 1500) + 500;
 	}
 	if (c.has_spam && c.spam_at_ms < 0) {
 		c.spam_at_ms = (c.has_move ? c.move_at_ms : 1500) + 200;

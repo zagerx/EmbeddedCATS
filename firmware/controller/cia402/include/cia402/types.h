@@ -35,6 +35,7 @@ enum cia402_pds_state {
 #define CIA402_CW_NEW_SETPOINT 0x0010u                /* bit4：PP 新目标 */
 #define CIA402_CW_HOMING_START CIA402_CW_NEW_SETPOINT /* bit4：HM 回零启动，必须保持 */
 #define CIA402_CW_HALT 0x0100u                        /* bit8：暂停（减速停） */
+#define CIA402_CW_ONLINE_SETPOINT 0x103Fu             /* bit12：在线变位（厂商扩展） */
 
 /* 状态字 6041 的位（只列本工程实际使用的） */
 #define CIA402_SW_TARGET_REACHED 0x0400u  /* bit10：PP 到位 / HM 目标到达 */

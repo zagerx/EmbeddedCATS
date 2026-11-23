@@ -19,6 +19,9 @@
 # 两轴同时运动；move2-at 与 move-at 相同则走批量接口
 ./build/master_probe can0 10 --move 5 --move2 8 --move-at 1500 --move2-at 1500
 
+# 轴 1 运动中改目标（在线变位）：20 mm 没走到就改成 40 mm
+./build/master_probe can0 8 --move 20 --move-at 1500 --retarget 40 --retarget-at 2000
+
 # 速度与加速度覆盖默认值 10 mm/s、50 mm/s²
 ./build/master_probe can0 10 --move 5 --vel 4 --acc 20
 ```
@@ -27,6 +30,7 @@
 |---|---|
 | `--move <mm>` / `--move-at <ms>` | 轴 1 位置与注入时刻 |
 | `--move2 <mm>` / `--move2-at <ms>` | 轴 2 位置与注入时刻 |
+| `--retarget <mm>` / `--retarget-at <ms>` | 轴 1 运动中改目标（驱动器在线变位，不停车） |
 | `--vel <mm/s>` / `--acc <mm/s²>` | 速度与加速度 |
 | `--halt-at <ms>` / `--estop-at <ms>` / `--clear-at <ms>` | 暂停 / 急停 / 解除急停的注入时刻 |
 | `--spam <n>` / `--spam-at <ms>` | 连续提交 n 条命令，检查队列拒绝行为 |

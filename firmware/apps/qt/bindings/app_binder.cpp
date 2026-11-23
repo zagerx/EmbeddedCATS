@@ -76,6 +76,8 @@ QString reason_text(enum controller_fault_reason r)
 		return QStringLiteral("回读不符");
 	case CONTROLLER_FAULT_REASON_REFUSED:
 		return QStringLiteral("请求被拒");
+	case CONTROLLER_FAULT_REASON_ABORT:
+		return QStringLiteral("中止");
 	case CONTROLLER_FAULT_REASON_COUNT:
 		break;
 	}
@@ -106,10 +108,12 @@ QString axis_text(const struct controller_fault &fault)
 	return text;
 }
 
-/* abort 码只在传输失败时才有意义，其他原因显示破折号 */
+/* 诊断码：传输失败时是 abort 码，驱动器故障时是当时的 6041 状态字 */
 QString abort_text(const struct controller_fault &fault)
 {
-	if (fault.reason != CONTROLLER_FAULT_REASON_SDO || fault.abort_code == 0U) {
+	if ((fault.reason != CONTROLLER_FAULT_REASON_SDO &&
+	     fault.reason != CONTROLLER_FAULT_REASON_DRIVER) ||
+	    fault.abort_code == 0U) {
 		return QStringLiteral("—");
 	}
 	return QStringLiteral("0x") +
@@ -242,8 +246,9 @@ void AppBinder::updateCommands(enum controller_state s)
 		btn_enable_->setEnabled(s == CONTROLLER_STATE_IDLE);
 	}
 	if (btn_move_ != nullptr) {
-		/* 只有 HOLDING 接受位置指令；其余状态点下去只会被丢弃 */
-		btn_move_->setEnabled(s == CONTROLLER_STATE_HOLDING);
+		/* MOVING 中再点 = 改目标（驱动器在线变位），两个状态都放开 */
+		btn_move_->setEnabled(s == CONTROLLER_STATE_HOLDING ||
+				      s == CONTROLLER_STATE_MOVING);
 	}
 	if (btn_home_ != nullptr) {
 		/* 回零要求已使能：只有 HOLDING 接受 */

@@ -64,10 +64,20 @@ void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t 
 /* 带子索引的写：数组类对象（如 6099h 的回零速度）用 */
 void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
 		   uint8_t size, uint32_t timeout_ms);
+/*
+ * 写一笔不进控制字镜像的 6040：在线变位 0x103F 这类一次性指令用它。
+ * 驱动器执行完并不停在该值上，若记进镜像，后续 HALT 会带上 bit12。
+ */
+void dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
 /* 结束当前流程：写回执与失败原因，调用方随后迁回 st_idle */
 void dev_finish(struct cia402_device *d, enum cia402_outcome result, enum cia402_fail fail);
 /* 事务失败时的统一收尾 */
 void dev_fail(struct cia402_device *d, const struct sdo_result *result);
+/*
+ * 记录诊断码：失败回执里带给上层看。驱动器故障（6041 报错 / bit13）时
+ * 放当时的 6041 状态字，否则界面上的“码”永远是空的，分不清哪一种。
+ */
+void dev_note_code(struct cia402_device *d, uint32_t code);
 
 /* ---- 状态函数 ---- */
 

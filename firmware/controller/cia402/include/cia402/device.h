@@ -79,7 +79,11 @@ enum cia402_fail {
 struct cia402_operation_result {
 	enum cia402_outcome outcome;
 	enum cia402_fail fail; /* outcome == CIA402_OUTCOME_FAILED 时的主站归类 */
-	uint32_t abort_code;   /* 对应 SDO abort 码；0 = 没有 */
+	/*
+	 * 诊断码：fail == SDO 时是 SDO abort 码；fail == DRIVER 时是出错那一刻的
+	 * 6041 状态字（bit13 回零错误与 bit3 故障靠它区分）；0 = 没有。
+	 */
+	uint32_t abort_code;
 };
 
 /* 实例存储定义见 device_instance.h；普通调用方只使用不透明指针 */

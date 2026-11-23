@@ -49,11 +49,12 @@ void cia402_init(struct cia402_device *d, const struct sdo_access *access)
 /**
  * cia402_request - 投递一条请求
  * @d: 设备对象
- * @req: 请求；HALT / QUICK_STOP 会抢占在途流程
+ * @req: 请求；HALT / QUICK_STOP 会抢占在途流程，MOVE 会改在途 PP 的目标
  *
  * 仅 CANopen 工作线程调用；请求直接登记，状态迁移由 poll 统一完成。
  *
- * Return: 见 enum cia402_response；HALT / QUICK_STOP 不受 BUSY 限制。
+ * Return: 见 enum cia402_response；HALT / QUICK_STOP 不受 BUSY 限制，
+ *         在途 PP 的新目标也不受 BUSY 限制。
  */
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req)
 {
@@ -207,6 +208,24 @@ static uint32_t cia402_flow_timeout_ms(enum cia402_kind kind)
 static int admit(struct cia402_device *d, const struct cia402_request *req)
 {
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
+
+	/*
+	 * PP 运动中的新目标：驱动器支持在线变位（6040 = 0x103F），能在不停车、
+	 * 不重复起步的前提下换目标。所以这里不打断流程，只把新目标存起来，等
+	 * “读到状态字”那一步生效。结论仍归这一条流程：上层看到的是一段连续
+	 * 运动，走到最后一个目标为止。
+	 */
+	if (req->kind == CIA402_REQ_MOVE && d->operation.running != 0u &&
+	    d->operation.kind == CIA402_REQ_MOVE && d->mailbox.pending == 0u) {
+		d->operation.retarget.target = req->pp.target;
+		d->operation.retarget.velocity = req->pp.velocity;
+		d->operation.retarget.accel = req->pp.accel;
+		d->operation.retarget.decel = req->pp.decel;
+		d->operation.retarget_valid = 1u; /* 后到的覆盖先到的：只认最新目标 */
+		/* 新目标重新给足整条流程的余量，长距离跟踪不会被看门狗误判 */
+		d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
+		return CIA402_ACCEPTED;
+	}
 
 	/* 只判断上一件是否还在跑；流程前提由调用方负责 */
 	if (!urgent && (d->operation.running != 0u || d->mailbox.pending != 0u)) {

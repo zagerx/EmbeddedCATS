@@ -67,7 +67,9 @@ enum controller_result controller_enable(void);
  * 同时下发 1..CONTROLLER_AXIS_COUNT 条绝对位置指令（mm、mm/s、mm/s²）：
  * 这批轴一起启动，全部到位才回 HOLDING。
  * 返回 OK 仅表示入队；BUSY 表示队列满，PARAM 表示轴号、条数或参数无效。
- * 只有 HOLDING 接受位置指令，MOVING/HALTING 中的新位置指令被丢弃。
+ * HOLDING 中收到即起步；MOVING 中收到表示改目标：仍在跑的轴由驱动器在线换
+ * 目标（不停车也不重复起步），新批次里没有的轴减速停下并保持使能。
+ * HALTING / HOMING 中的新位置指令被丢弃。
  */
 enum controller_result controller_move(const struct controller_move_req *reqs, uint8_t count);
 

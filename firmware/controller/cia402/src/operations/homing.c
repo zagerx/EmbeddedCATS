@@ -25,7 +25,8 @@ static void home_fail(struct cia402_device *d, enum cia402_fail fail);
  * @e: 待处理事件
  *
  * 被暂停或急停抢占时不直接退出：先停电机、切回 PP 再收尾，否则驱动器会
- * 带着 bit4 继续找原点。中止不算设备故障，回执用 FAILED + FAIL_NONE 表示。
+ * 带着 bit4 继续找原点。被抢占的中止不算设备故障；但单笔事务超时/被拒
+ * 是真的没打通，得按超时上报——两者不能都写成“驱动器故障”。
  */
 sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -33,7 +34,8 @@ sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case CIA402_SIG_CANCEL:
-		home_fail(d, CIA402_FAIL_NONE);
+		home_fail(d, (DEV_CANCEL_REASON(e) == CIA402_CANCEL_TIMEOUT) ? CIA402_FAIL_TIMEOUT
+									     : CIA402_FAIL_NONE);
 		return SM_TRAN(&st_home_halt);
 
 	default:
@@ -160,10 +162,12 @@ sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_home_restore_cw); /* 成功：位置已由驱动器置 0 */
 		}
 		if ((sw & CIA402_SW_HOMING_ERROR) != 0u) {
+			dev_note_code(d, sw); /* 回执带上当时的 6041，区分 bit13 与真故障 */
 			home_fail(d, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_home_restore_cw);
 		}
 		if (cia402_parse(sw) == CIA402_FAULT) {
+			dev_note_code(d, sw);
 			home_fail(d, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_home_halt);
 		}

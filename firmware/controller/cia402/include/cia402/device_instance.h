@@ -45,7 +45,16 @@ struct cia402_operation {
 		int32_t velocity;
 		int32_t accel;
 		int32_t decel;
+		uint8_t online; /* 非 0：本段是在途改目标，用 0x103F 触发 */
 	} pp;
+	/* 在途改目标：运动中的新指令先存这里，等读到状态字那一步才生效 */
+	struct {
+		int32_t target;
+		int32_t velocity;
+		int32_t accel;
+		int32_t decel;
+	} retarget;
+	uint8_t retarget_valid; /* retarget 里有待生效的目标 */
 	struct {
 		uint8_t failed;    /* 收尾链用：非 0 表示这条回零要报失败 */
 		uint8_t fail_kind; /* enum cia402_fail */

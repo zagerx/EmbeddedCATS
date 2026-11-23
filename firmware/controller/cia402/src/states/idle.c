@@ -29,6 +29,7 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		busy = (d->operation.running != 0u);
 		d->operation.running = 0u;
 		d->operation.cancel = CIA402_CANCEL_NONE;
+		d->operation.retarget_valid = 0u; /* 流程结束，没生效的目标作废 */
 		d->cw.pending_valid = 0u;
 
 		if (busy == 0) {
@@ -53,6 +54,7 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		d->operation.pp.velocity = ev->req.pp.velocity;
 		d->operation.pp.accel = ev->req.pp.accel;
 		d->operation.pp.decel = ev->req.pp.decel;
+		d->operation.pp.online = 0u; /* 新流程一律用普通触发 */
 		d->operation.home.failed = 0u;
 		d->operation.home.fail_kind = CIA402_FAIL_NONE;
 

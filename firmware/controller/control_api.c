@@ -43,7 +43,10 @@ void controller_set_fault(struct controller *ctl, enum controller_state stage,
  * controller_fault_reason_of - 把设备层失败归类映射为业务故障原因
  * @fail: cia402 回执里的失败归类
  *
- * Return: 对应的业务故障原因；未知归类按驱动器故障上报。
+ * CIA402_FAIL_NONE 表示“流程被中止、设备侧没有原因”（例如回零被急停打断），
+ * 不能冒充驱动器故障：否则中止、单笔超时、真故障在界面上长得一模一样。
+ *
+ * Return: 对应的业务故障原因。
  */
 enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail)
 {
@@ -58,7 +61,7 @@ enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail)
 		return CONTROLLER_FAULT_REASON_CHECK;
 	case CIA402_FAIL_NONE:
 	default:
-		return CONTROLLER_FAULT_REASON_DRIVER;
+		return CONTROLLER_FAULT_REASON_ABORT;
 	}
 }
 

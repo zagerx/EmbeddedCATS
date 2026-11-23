@@ -5,7 +5,8 @@
  * 所以它们不属于 device.c（device.c 只对应 device.h 的对外接口）。
  *
  * 两件事：
- *   1. 发起一笔对象事务（dev_read / dev_write），在途状态归通道所有；
+ *   1. 发起一笔对象事务（dev_read / dev_write / dev_write_pulse），在途状态归
+ *      通道所有；
  *   2. 收尾流程并写下回执。
  *
  * Author: zager
@@ -68,6 +69,23 @@ void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_
 }
 
 /**
+ * dev_write_pulse - 写一笔不进控制字镜像的 6040
+ * @d: 设备对象
+ * @value: 控制字值
+ * @timeout_ms: 本笔事务的期限，由通道掌握
+ *
+ * 在线变位 0x103F 是一次性指令：驱动器执行完并不停在该值上。若按 dev_write
+ * 记进 cw.confirmed，后续 HALT 就会带着 bit12 发出去。
+ */
+void dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+{
+	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, 0u,
+			     (uint32_t)value, 2u, timeout_ms) != 0) {
+		d->sdo_rejected = 1u; /* 没发起就不会有结果，由 poll 统一收尾 */
+	}
+}
+
+/**
  * dev_finish - 结束当前流程并写下回执
  * @d: 设备对象
  * @result: DONE 或 FAILED
@@ -83,6 +101,18 @@ void dev_finish(struct cia402_device *d, enum cia402_outcome result, enum cia402
 	/* 流程自己收尾：running 清零；被打断退出的流程仍有 running = 1。 */
 	d->operation.running = 0u;
 	d->cw.pending_valid = 0u;
+}
+
+/**
+ * dev_note_code - 记录失败回执里的诊断码
+ * @d: 设备对象
+ * @code: 诊断码（驱动器故障时是当时的 6041 状态字）
+ *
+ * dev_finish 只写结论与归类，不动诊断码；上层取回执时一并读走。
+ */
+void dev_note_code(struct cia402_device *d, uint32_t code)
+{
+	d->outbox.abort_code = code;
 }
 
 /**
