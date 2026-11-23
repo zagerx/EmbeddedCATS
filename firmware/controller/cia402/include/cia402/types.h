@@ -38,7 +38,6 @@ enum cia402_pds_state {
 
 /* 状态字 6041 的位（只列本工程实际使用的） */
 #define CIA402_SW_TARGET_REACHED 0x0400u  /* bit10：PP 到位 / HM 目标到达 */
-#define CIA402_SW_LIMIT_ACTIVE 0x0800u    /* bit11：正负限位生效 */
 #define CIA402_SW_HOMING_ATTAINED 0x1000u /* bit12：HM 回零完成 */
 #define CIA402_SW_HOMING_ERROR 0x2000u    /* bit13：HM 回零错误 */
 

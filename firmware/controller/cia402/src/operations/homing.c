@@ -243,8 +243,9 @@ sm_ret_t st_home_start(struct sm_hsm *const me, const struct sm_event *const e)
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * bit12 = 1 完成；bit13 = 1 回零错误；bit11 = 1 限位生效。
- * 限位生效与超时都要先发 halt 把电机停住再收尾——驱动器自己不会因此停车。
+ * 只看两位：bit12 = 1 回零完成，bit13 = 1 回零错误。
+ * 不看 bit11（"正负限位生效"）：这台驱动器在 PP 模式且已使能时该位恒为 1，
+ * 与限位输入无关（60FD 的 NOT/POT 均为 0），拿它当判据会让回零一开始就误判。
  */
 sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -271,13 +272,9 @@ sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e)
 			home_fail(d, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_home_restore_cw);
 		}
-		if ((sw & CIA402_SW_LIMIT_ACTIVE) != 0u) {
-			home_fail(d, CIA402_FAIL_DRIVER);
-			return SM_TRAN(&st_home_halt);
-		}
 		if (cia402_parse(sw) == CIA402_FAULT) {
 			home_fail(d, CIA402_FAIL_DRIVER);
-			return SM_TRAN(&st_home_restore_cw);
+			return SM_TRAN(&st_home_halt);
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
 			home_fail(d, CIA402_FAIL_TIMEOUT);
