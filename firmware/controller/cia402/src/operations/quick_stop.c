@@ -1,13 +1,13 @@
 /*
  * quick_stop.c — 快速停与解除急停
  *
- * 急停只写一次 6040 = 02：减速曲线与最终停在哪个状态由驱动器自己的 605A
- * （Quick stop 代码）决定，本层不读状态字、不等减速过程、不再断使能。
+ * 急停只写一次 6040 = 02：减速曲线与停在哪个状态全由驱动器的 605A 决定。
+ * 本台 605A = 2 = “通过 6085 减速停止后 switch on disable，断使能”，
+ * 抱闸随后自动抱住。主站不读状态字、不等减速、不补断使能。
  * 写失败只留 abort 码并报失败，不重试。
  *
- * 急停终态只有一条出口：收到解除急停请求后写 6040 = 00（断使能），
- * 让驱动器回到 Switch on disabled，再由操作员刻意使能一次。
- * "复位不得导致重启"：解除只把驱动器置为未使能，不替它重新上力矩。
+ * 解除急停不碰驱动器：断电与抱闸在急停那一帧就完成了，这里只把设备流程
+ * 释放回空闲。再使能必须由操作员刻意发起——“复位不得导致重启”。
  *
  * Author: zager
  */
@@ -49,10 +49,10 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * 停在哪里由驱动器的 605A 决定（出厂 6 = quick stop 状态、仍保持使能），
- * 因此本层不推断、不跟踪，只保证开关量只有那一笔写入。
+ * 驱动器此刻已按 605A = 2 停住、断使能并抱闸。解除请求只释放流程，
+ * 不写任何控制字，也不替操作员重新使能。
  *
- * Return: 解除请求迁 st_qstop_clear；其余请求与节拍被消费。
+ * Return: 解除请求报 DONE 并迁 st_idle；其余请求与节拍被消费。
  */
 sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -65,11 +65,9 @@ sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 		if (ev->req.kind != CIA402_REQ_ESTOP_CLEAR) {
 			return SM_HANDLED(); /* 急停中：其他请求一律丢弃 */
 		}
-		/* 先占住流程：解除那一笔在途时，别的请求必须拿到 BUSY */
-		d->operation.kind = ev->req.kind;
-		d->operation.running = 1u;
-		d->operation.cancel = CIA402_CANCEL_NONE;
-		return SM_TRAN(&st_qstop_clear);
+		/* 断电已在急停那一帧完成，这里只交回执并退出终态 */
+		dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+		return SM_TRAN(&st_idle);
 	}
 
 	case CIA402_SIG_TICK:
@@ -79,38 +77,5 @@ sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 
 	default:
 		DEV_IGNORE(); /* 进入/退出事件直接忽略 */
-	}
-}
-
-/**
- * st_qstop_clear - 解除急停：写 6040 = 0x00 断使能
- * @me: 状态机内核对象
- * @e: 待处理事件
- *
- * 0x00 在任何非故障状态下都把驱动器带到 Switch on disabled：quick stop 状态、
- * 已使能、未使能都一样，所以不需要先读状态字再选路。
- *
- * Return: 写成功报 DONE、失败报 FAILED；两者都回 st_idle 恢复受理。
- */
-sm_ret_t st_qstop_clear(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-		} else {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
-		}
-		return SM_TRAN(&st_idle);
-
-	default:
-		return SM_SUPER(&st_operation_active);
 	}
 }

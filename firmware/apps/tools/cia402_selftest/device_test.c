@@ -367,7 +367,7 @@ static void test_quick_stop_write_failure(void)
 	CHECK(f.fake.started == 0u);
 }
 
-/* 急停终态只认解除请求：写 0x0F 后恢复受理 */
+/* 急停只写一帧（驱动器自行断使能）；终态只认解除请求，解除不写帧 */
 static void test_quick_stop_clear(void)
 {
 	struct fx f;
@@ -387,14 +387,12 @@ static void test_quick_stop_clear(void)
 	fx_poll(&f);
 	CHECK(f.fake.started == 0u);
 
-	/* 解除急停：只写 0x00（断使能，不重新上力矩） */
+	/* 解除急停：不写任何控制字（断电与抱闸已在急停那一帧由驱动器完成） */
 	f.fake.aborts = 0u;
+	f.fake.started = 0u;
 	fx_request(&f, CIA402_REQ_ESTOP_CLEAR);
-	fx_poll(&f); /* 抢占：先结清取消事件 */
-	fx_poll(&f); /* 受理请求 → 写控制字 */
-	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE);
-	fx_complete(&f, 0, 0u);
-	fx_poll(&f);
+	fx_poll(&f); /* 受理请求 → 直接交回执 */
+	CHECK(f.fake.started == 0u);
 	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
 
 	/* 恢复受理：使能请求能被接纳并发起读状态字 */

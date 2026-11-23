@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""2LD2 双轴驱动器的持久配置工具（TPDO 反馈通道 + 回零参数）。
+"""2LD2 双轴驱动器的持久配置工具（TPDO 反馈 + 回零 + 急停）。
 
 配置内容：
   TPDO1  1A00 = 6041:16 + 603F:16 + 6061:8    1800:05 = 10 ms
   TPDO2  1A01 = 6064:32 + 606C:32             1801:05 = 10 ms
   回零    6098 = 21、6099:01 = 2000、6099:02 = 500、609A = 2000
+  急停    605A = 2（按 6085 减速后自动断使能并抱闸）、6085 = 2000 mm/s²、
+          2437/2438 = 100 ms（抱闸延时打开 / 等抱闸完全打开）
 TPDO3/TPDO4 保持出厂禁用，禁止时间（1800:03/1801:03）不写：
 节点 1 可写、节点 2 只读，写它会让两轴行为不一致。
+
+写参数前会先写 6040 = 0x0000 断使能（使能态下参数可能被拒写），结束时也
+保持断使能，不自动使能。
 
 驱动器出厂时四路 TPDO 全部禁用（COB-ID bit31 = 1），必须由本工具清 bit31 才会发送。
 默认不写 1010h：驱动器掉电后配置回到出厂，需要重新执行；--save 才保存到驱动器。
@@ -46,6 +51,22 @@ HOMING_PARAMS = [
     ("6099:02 一级速度", 0x6099, 2, 500, 4),
     ("609Ah 回零加减速", 0x609A, 0, 2000, 4),
 ]
+
+# 急停与抱闸：急停后由驱动器自己减速、自己断使能、抱闸自动抱住。
+# 605A = 2：按 6085 快停减速度停车，然后进 Switch on disabled（断使能）。
+# 6085 = 4,000,000 指令单位/s² = 2000 mm/s²（1 mm = 2000）。
+# 2437 / 2438：抱闸延时打开 / 等抱闸完全打开，单位 ms。手册写的范围是
+# 0~10000，但这两个对象在本机 OD 里是 32 位，用 2 字节写会被拒（0x08000000）。
+SAFETY_PARAMS = [
+    ("605Ah 快停选项码", 0x605A, 0, 2, 2),
+    ("6085h 快停减速度", 0x6085, 0, 4_000_000, 4),
+    ("2437h 抱闸延时打开", 0x2437, 0, 100, 4),
+    ("2438h 抱闸解除等待", 0x2438, 0, 100, 4),
+]
+
+# 6041 里 bit0..3 = 0、bit6 = 1 即 Switch on disabled
+STATUS_MASK = 0x4F
+STATUS_SWITCH_ON_DISABLED = 0x40
 
 CMD_READ = 0x40
 CMD_WRITE_1 = 0x2F
@@ -99,7 +120,7 @@ class SdoClient:
         response = self._transact(
             bytes([CMD_READ, index & 0xFF, index >> 8, sub, 0, 0, 0, 0])
         )
-        self._raise_on_abort(response)
+        self._raise_on_abort(response, index, sub)
         size = RESP_SIZE.get(response[0])
         if size is None:
             raise SdoError(f"节点 {self.node_id} 读到分段应答，本工具不支持")
@@ -111,19 +132,20 @@ class SdoClient:
         response = self._transact(
             bytes([command, index & 0xFF, index >> 8, sub]) + payload
         )
-        self._raise_on_abort(response)
+        self._raise_on_abort(response, index, sub)
         if response[0] != CMD_WRITE_ACK:
             raise SdoError(
                 f"节点 {self.node_id} 写 0x{index:04X}:{sub:02X} 应答异常 0x{response[0]:02X}"
             )
 
-    def _raise_on_abort(self, response: bytes) -> None:
+    def _raise_on_abort(self, response: bytes, index: int, sub: int) -> None:
         if response[0] != CMD_ABORT:
             return
         code = int.from_bytes(response[4:8], "little")
         text = ABORT_TEXT.get(code, "未收录的中止码")
         raise SdoError(
-            f"节点 {self.node_id} 中止 0x{code:08X}（{text}）"
+            f"节点 {self.node_id} 访问 0x{index:04X}:{sub:02X} 中止 "
+            f"0x{code:08X}（{text}）"
         )
 
     def nmt(self, command: int, target: int) -> None:
@@ -175,10 +197,31 @@ def apply_homing(client: SdoClient) -> bool:
     return changed
 
 
+def apply_safety(client: SdoClient) -> bool:
+    """写急停与抱闸参数；已是目标值时不动。返回是否发生写入。"""
+    changed = False
+    for _, index, sub, value, size in SAFETY_PARAMS:
+        if client.read(index, sub) != value:
+            client.write(index, sub, value, size)
+            changed = True
+    return changed
+
+
+def ensure_disabled(client: SdoClient) -> None:
+    """写参数前先断使能：使能态下参数可能被驱动器拒写。"""
+    client.write(0x6040, 0, 0x0000, 2)
+    for _ in range(10):
+        if client.read(0x6041) & STATUS_MASK == STATUS_SWITCH_ON_DISABLED:
+            return
+        time.sleep(0.03)
+    raise SdoError(f"节点 {client.node_id} 断使能后未进入 Switch on disabled")
+
+
 def apply_node(client: SdoClient, node_id: int) -> None:
-    """配置单个从站。配置期间节点处于 Pre-operational。"""
+    """配置单个从站。配置期间节点处于 Pre-operational，且保持断使能。"""
     client.nmt(0x00, node_id)  # Pre-operational：映射只能在配置态写
     time.sleep(0.05)
+    ensure_disabled(client)
 
     changed = apply_mapping(client, 0x1A00, MAP_TPDO1)
     changed |= apply_mapping(client, 0x1A01, MAP_TPDO2)
@@ -193,6 +236,7 @@ def apply_node(client: SdoClient, node_id: int) -> None:
             changed = True
 
     changed |= apply_homing(client)
+    changed |= apply_safety(client)
 
     client.nmt(0x01, node_id)  # Operational：TPDO 只在运行态发送
     print(f"  节点 {node_id}: {'已写入目标配置' if changed else '已是目标配置，未改动'}")
@@ -213,6 +257,8 @@ def verify_node(client: SdoClient, node_id: int) -> bool:
     for i, entry in enumerate(MAP_TPDO2, 1):
         checks.append((f"1A01:{i:02X} 映射", client.read(0x1A01, i), entry))
     for name, index, sub, value, _ in HOMING_PARAMS:
+        checks.append((name, client.read(index, sub), value))
+    for name, index, sub, value, _ in SAFETY_PARAMS:
         checks.append((name, client.read(index, sub), value))
 
     ok = True
