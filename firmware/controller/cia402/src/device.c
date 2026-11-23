@@ -26,6 +26,7 @@ static int admit(struct cia402_device *d, const struct cia402_request *req);
 static int pop_request(struct cia402_device *d, struct cia402_request *out);
 static void dispatch_request(struct cia402_device *d, const struct cia402_request *req);
 static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *result);
+static uint32_t cia402_flow_timeout_ms(enum cia402_kind kind);
 static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
 			    const struct sdo_result *result);
 static void dispatch_tick(struct cia402_device *d);
@@ -122,6 +123,14 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_operati
 		goto done;
 	}
 
+	if (d->sdo_rejected != 0u) {
+		/* 通道忙使上一步根本没发起，不会有结果；按超时收尾，不让流程干等 */
+		d->sdo_rejected = 0u;
+		d->cw.pending_valid = 0u;
+		dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, NULL);
+		goto done;
+	}
+
 	if (pop_request(d, &req) != 0) {
 		dispatch_request(d, &req);
 		goto done;
@@ -170,6 +179,31 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d)
 	return result;
 }
 
+/**
+ * cia402_flow_timeout_ms - 一条流程从受理到收尾最多允许多久
+ * @kind: 请求类型
+ *
+ * 比该流程内最长的单步期限再留一点余量，只作为父状态看门狗的上限：
+ * 任何一步静默卡住（拿不到事务结果）都不会超过这个时间。
+ *
+ * Return: 期限毫秒数。
+ */
+static uint32_t cia402_flow_timeout_ms(enum cia402_kind kind)
+{
+	switch (kind) {
+	case CIA402_REQ_MOVE:
+		return CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS + 5000u;
+	case CIA402_REQ_HOME:
+		return CIA402_DEVICE_HOMING_TIMEOUT_MS + 5000u;
+	case CIA402_REQ_HALT:
+	case CIA402_REQ_QUICK_STOP:
+		return CIA402_DEVICE_HALT_TIMEOUT_MS + 2000u;
+	default:
+		/* 配置、使能、断使能、解除急停：几步 SDO，给足余量 */
+		return 10000u;
+	}
+}
+
 static int admit(struct cia402_device *d, const struct cia402_request *req)
 {
 	int urgent = (req->kind == CIA402_REQ_HALT || req->kind == CIA402_REQ_QUICK_STOP);
@@ -181,9 +215,12 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 
 	d->mailbox.req = *req;
 	d->mailbox.pending = 1u;
-	/* 新流程开始：清空上一条的回执 */
+	/* 新流程开始：清空上一条的回执与遗留标记 */
 	d->outbox.outcome = CIA402_OUTCOME_NONE;
 	d->outbox.fail = CIA402_FAIL_NONE;
+	d->sdo_rejected = 0u;
+	/* 整条流程的总期限：任何一步静默卡住都由父状态看门狗在此兜底 */
+	d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
 	if (urgent) {
 		d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
 	}
@@ -215,6 +252,7 @@ static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *
 {
 	struct sdo_done_evt evt;
 
+	d->sdo_rejected = 0u; /* 真有结果了，未受理标记作废 */
 	/* 控制字镜像只在事务成功后落地：所有写 6040 的状态共用这一处 */
 	if (d->cw.pending_valid != 0u) {
 		if (result->status == 0) {

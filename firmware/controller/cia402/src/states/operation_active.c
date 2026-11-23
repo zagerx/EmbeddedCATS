@@ -1,10 +1,11 @@
 /*
  * operation_active.c — 操作进行中的公共父状态
  *
- * 这一层是全部流程状态共同继承的父状态，只做三件事：
+ * 这一层是全部流程状态共同继承的父状态，只做四件事：
  *   1. 收到取消信号时迁回 st_idle，结论由 st_idle 的 ENTRY 给出；
- *   2. 吞掉 TICK：流程推进只依赖 sdo 完成事件；
- *   3. 兜底漏派发的完成事件：报失败并迁回 st_idle。
+ *   2. 节拍里检查流程总期限：任何一步静默卡住都在这里兜底成超时；
+ *   3. 其余 TICK 吞掉：流程推进只依赖 sdo 完成事件；
+ *   4. 兜底漏派发的完成事件：报失败并迁回 st_idle。
  *
  * Author: zager
  */
@@ -18,7 +19,7 @@
  *
  * 具体操作状态链都是本状态的子状态；Quick Stop 自行覆盖取消规则。
  *
- * Return: 取消迁回 st_idle；其余上抛。
+ * Return: 取消或流程超期迁回 st_idle；其余上抛。
  */
 sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -30,6 +31,15 @@ sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *con
 		return SM_TRAN(&st_idle);
 
 	case CIA402_SIG_TICK:
+		/*
+		 * 流程总期限看门狗：事务没发起或结果丢失时不会有 SDO 事件，
+		 * 各状态的期限根本检查不到，这里把它兜成一次可诊断的超时。
+		 */
+		if (d->operation.flow_deadline != 0u &&
+		    (int32_t)(d->now_ms - d->operation.flow_deadline) >= 0) {
+			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
+			return SM_TRAN(&st_idle);
+		}
 		return SM_HANDLED();
 
 	case CIA402_SIG_SDO_DONE:

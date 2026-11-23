@@ -38,7 +38,8 @@ struct cia402_operation {
 	enum cia402_kind kind;
 	uint8_t running;   /* 流程在跑；自己收尾时清零，被打断退出时仍为 1 */
 	uint8_t cancel;    /* enum cia402_cancel_reason，交给 st_idle 决定要不要报失败 */
-	uint32_t deadline; /* 流程期限 */
+	uint32_t deadline; /* 当前步骤的期限，由各状态自行解释 */
+	uint32_t flow_deadline; /* 整条流程的总期限，公共父状态看门狗用 */
 	struct {
 		int32_t target;
 		int32_t velocity;
@@ -63,6 +64,7 @@ struct cia402_device {
 	} mailbox;
 
 	struct cia402_operation_result outbox; /* 最近一次操作的回执 */
+	uint8_t sdo_rejected; /* 上一步事务没被通道受理，等下一次 poll 收尾 */
 
 	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，事务状态由通道持有 */
 	struct sm_hsm hsm;

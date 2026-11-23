@@ -24,7 +24,9 @@
  */
 void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	(void)d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms);
+	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
+		d->sdo_rejected = 1u; /* 通道忙：这笔没发起，不会有结果，由 poll 统一收尾 */
+	}
 }
 
 /**
@@ -59,7 +61,10 @@ void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_
 		d->cw.pending = (uint16_t)value;
 		d->cw.pending_valid = 1u;
 	}
-	(void)d->access->start(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, timeout_ms);
+	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, timeout_ms) !=
+	    0) {
+		d->sdo_rejected = 1u; /* 同上：没发起就不会有结果 */
+	}
 }
 
 /**
