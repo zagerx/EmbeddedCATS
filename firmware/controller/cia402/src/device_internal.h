@@ -100,7 +100,6 @@ sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *cons
 sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *const e);
 
 sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e);

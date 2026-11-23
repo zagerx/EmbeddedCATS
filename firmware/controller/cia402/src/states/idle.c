@@ -53,8 +53,6 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		d->operation.pp.velocity = ev->req.pp.velocity;
 		d->operation.pp.accel = ev->req.pp.accel;
 		d->operation.pp.decel = ev->req.pp.decel;
-		d->operation.pp.issued = 0;
-		d->operation.pp.seen_low = 0u;
 		d->operation.home.failed = 0u;
 		d->operation.home.fail_kind = CIA402_FAIL_NONE;
 

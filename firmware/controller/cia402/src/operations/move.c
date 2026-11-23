@@ -1,10 +1,11 @@
 /*
  * move.c — PP 绝对位置运动操作
  *
- * 写四个参数 → 6040 bit4 上升沿（再落沿）触发 → 读 6041 等到位。
+ * 写四个参数 → 6040 bit4 上升沿（再落沿）触发 → 读 6041 等 bit10。
  *
- * 到位判定先要求见到 bit10 = 0：刚触发那一拍读到的可能是上一条运动的旧值。
- * 若 bit10 一开始就是 1，则读 6064 与目标比对，分辨“目标等于当前位置”和“旧值未清”。
+ * 到位只信驱动器的状态字 bit10。写 6040 是收到应答才算成功的，应答之前驱动器
+ * 已经处理过该控制字，所以之后读到的 bit10 属于本次运动，不会再拿到上一条的
+ * 陈旧值。位置由 TPDO 反馈另行提供，不参与到位判定。
  *
  * 每笔事务分轮推进：工作线程可以在等待期间处理其它设备。
  *
@@ -100,8 +101,6 @@ sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const
  * st_pp_write_target - 写 607A 目标位置
  * @me: 状态机内核对象
  * @e: 待处理事件
- *
- * 目标值同时存进 pp_tgt：之后判定到位用它，不受调用方改 tgt 影响。
  */
 sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -109,7 +108,6 @@ sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		d->operation.pp.issued = d->operation.pp.target;
 		dev_write(d, CIA402_OD_TARGET_POSITION, (uint32_t)d->operation.pp.target, 4u,
 			  CIA402_DEVICE_SDO_TIMEOUT_MS);
 		return SM_HANDLED();
@@ -183,11 +181,13 @@ sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const
 }
 
 /**
- * st_pp_read_status - 读到没到位
+ * st_pp_read_status - 读 6041 等驱动器报到位
  * @me: 状态机内核对象
  * @e: 待处理事件
  *
- * Return: 到位迁回 st_idle 报成功；故障或超时报失败。
+ * 到位只信状态字 bit10：驱动器说到了就是到了，不再拿 6064 与目标比对。
+ *
+ * Return: bit10 = 1 迁回 st_idle 报成功；故障或超时报失败。
  */
 sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -211,51 +211,7 @@ sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const
 			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_idle);
 		}
-		if ((sw & CIA402_SW_TARGET_REACHED) == 0u) {
-			d->operation.pp.seen_low = 1u; /* 目标确实还没到 */
-		} else if (d->operation.pp.seen_low != 0u) {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
-			return SM_TRAN(&st_idle);
-		} else {
-			/* bit10 一开始就是 1：读 6064 分辨"目标等于当前位置"和旧值 */
-			return SM_TRAN(&st_pp_read_position);
-		}
-		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_read_status);
-	}
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_read_position - 读 6064 与目标比对
- * @me: 状态机内核对象
- * @e: 待处理事件
- *
- * Return: 位置等于目标即到位；否则回 st_pp_read_status 继续等。
- */
-sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_POSITION_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-
-		if (r->status != 0) {
-			dev_fail(d, r);
-			return SM_TRAN(&st_idle);
-		}
-		if ((int32_t)r->value == d->operation.pp.issued) {
+		if ((sw & CIA402_SW_TARGET_REACHED) != 0u) {
 			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
 			return SM_TRAN(&st_idle);
 		}
@@ -273,6 +229,5 @@ sm_ret_t st_pp_read_position(struct sm_hsm *const me, const struct sm_event *con
 
 static void arm_arrive(struct cia402_device *d)
 {
-	d->operation.pp.seen_low = 0u;
 	d->operation.deadline = d->now_ms + CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS;
 }

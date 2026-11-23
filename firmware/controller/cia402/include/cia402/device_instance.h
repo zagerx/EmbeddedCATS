@@ -44,8 +44,6 @@ struct cia402_operation {
 		int32_t velocity;
 		int32_t accel;
 		int32_t decel;
-		int32_t issued;   /* 触发时锁定的目标，判定到位用它 */
-		uint8_t seen_low; /* 见过 bit10 = 0 */
 	} pp;
 	struct {
 		uint8_t failed;    /* 收尾链用：非 0 表示这条回零要报失败 */
