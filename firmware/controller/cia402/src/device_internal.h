@@ -113,10 +113,6 @@ sm_ret_t st_qstop_clear(struct sm_hsm *const me, const struct sm_event *const e)
 sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_home_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_home_read_mode(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_write_method(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_write_speed_fast(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_write_speed_slow(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_write_accel(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_home_start(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_home_halt(struct sm_hsm *const me, const struct sm_event *const e);

@@ -38,6 +38,7 @@ while IFS= read -r f; do
 	case "$f" in
 	controller/third_party/*) continue ;;
 	controller/canopen/master/*) continue ;;
+	controller/canopen/pdo/*) continue ;;
 	controller/canopen/transport/*) continue ;;
 	controller/config/canopen_node/*) continue ;;
 	esac
@@ -76,9 +77,9 @@ out=$(git -C "$SRC/third_party/CANopenLinux" diff --quiet -- . ':!CANopenNode' 2
 	git -C "$SRC/third_party/CANopenLinux/CANopenNode" diff --quiet 2>&1)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
-section "R10  主站不认识 402 与业务"
+section "R10  主站与 PDO 接收不认识 402 与业务"
 out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcontroller_|\baxis_|<cia402/|<transport/|<states/' \
-	"$SRC/canopen/master" $INC 2>/dev/null | code_only)
+	"$SRC/canopen/master" "$SRC/canopen/pdo" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R11  CiA402 不依赖线程、epoll 与协议栈"
@@ -99,6 +100,10 @@ while IFS= read -r f; do
 	viol+="$f"$'\n'
 done <<<"$inc_list"
 if [ -z "$viol" ]; then ok; else bad "$viol"; fi
+
+section "R13  反馈只读 TPDO 快照，不走 SDO"
+out=$(grep -nE 'sdo_(client|access)|->start\(|->poll\(' "$SRC/controller_feedback.c" 2>/dev/null | code_only)
+if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 if [ "$FAILS" -eq 0 ]; then
 	printf '\n分层检查：通过\n'

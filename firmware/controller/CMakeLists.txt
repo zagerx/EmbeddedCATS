@@ -38,17 +38,21 @@ add_library(sdo_access INTERFACE)
 target_include_directories(sdo_access INTERFACE
 	${CMAKE_CURRENT_SOURCE_DIR}/canopen/transport/include)
 
-# SDO 后端：事务推进与仲裁，不实现 DS402 语义
-add_library(canopen_sdo STATIC
-	canopen/transport/src/sdo_client.c
-	canopen/transport/src/sdo_arbiter.c)
+# SDO 后端：事务推进，不实现 DS402 语义。通道由 402 独占，不再仲裁。
+add_library(canopen_sdo STATIC canopen/transport/src/sdo_client.c)
 target_include_directories(canopen_sdo PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/canopen/transport/include)
-target_include_directories(canopen_sdo PRIVATE
-	${CMAKE_CURRENT_SOURCE_DIR}/canopen/transport/src)
 target_link_libraries(canopen_sdo PUBLIC sdo_access canopen_node)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 cats_c_target(canopen_sdo)
+
+# 周期反馈：在协议栈的阳置接收槽上接住从站 TPDO 并解包。
+# 布局与 apps/tools/drive_setup 写入的一致；本层不认识 402 业务。
+add_library(canopen_pdo STATIC canopen/pdo/src/tpdo.c)
+target_include_directories(canopen_pdo PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/canopen/pdo/include)
+target_link_libraries(canopen_pdo PUBLIC cats_master)
+cats_c_target(canopen_pdo)
 
 # CiA 402：pds.c 为纯标准知识；device.c 为装配与推进；states/ 一状态一文件。
 # 本模块只依赖 sdo_access 契约与 hsm 机制，不依赖 CANopenNode。
@@ -78,7 +82,7 @@ add_library(cats_axis STATIC
 target_include_directories(cats_axis PUBLIC
 	${CMAKE_CURRENT_SOURCE_DIR}/controller_axis/include)
 target_include_directories(cats_axis PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
-target_link_libraries(cats_axis PUBLIC cia402 canopen_sdo)
+target_link_libraries(cats_axis PUBLIC cia402 canopen_sdo canopen_pdo)
 cats_c_target(cats_axis)
 
 # 控制层：组合根 + 输入事件队列 + 状态图。
@@ -110,6 +114,6 @@ target_include_directories(cats_control PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/controller_evtqueue)
 # 本库持有控制对象并调用各层，不创建线程
 target_link_libraries(cats_control PRIVATE
-	cats_hsm cats_axis cia402 canopen_sdo cats_master Threads::Threads)
+	cats_hsm cats_axis cia402 canopen_sdo canopen_pdo cats_master Threads::Threads)
 target_compile_definitions(cats_control PRIVATE _POSIX_C_SOURCE=200809L)
 cats_c_target(cats_control)

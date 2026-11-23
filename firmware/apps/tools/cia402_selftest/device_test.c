@@ -480,7 +480,7 @@ static void test_waiting_not_timed_out(void)
 	CHECK(f.fake.aborts == 0u);
 	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
 
-	fx_complete(&f, 0, 0x0040u); /* 仲裁器终于开始并完成传输 */
+	fx_complete(&f, 0, 0x0040u); /* 通道终于开始并完成传输 */
 	fx_poll_at(&f, 5000u);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN);
 }

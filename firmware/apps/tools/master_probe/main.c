@@ -40,7 +40,8 @@ struct probe_cmd {
 	int has_clear;
 	int has_spam;
 	int armed;
-	int no_enable; /* 置位后不自动发使能，用来验证停在 IDLE */
+	int no_enable;    /* 置位后不自动发使能，用来验证停在 IDLE */
+	long feedback_ms; /* > 0 时每这个毫秒数打印一次反馈快照 */
 };
 
 static volatile sig_atomic_t s_stop;
@@ -64,6 +65,7 @@ int main(int argc, char **argv)
 	enum controller_state last = CONTROLLER_STATE_COUNT;
 	uint32_t start_ms;
 	uint32_t now;
+	uint32_t last_fb = 0u;
 	int moved = 0;
 	int moved2 = 0;
 	int batch = 0;
@@ -225,6 +227,23 @@ int main(int argc, char **argv)
 			printf("\n");
 			fflush(stdout);
 		}
+		if (cmd.feedback_ms > 0 && (long)(now - last_fb) >= cmd.feedback_ms) {
+			uint8_t axis;
+
+			last_fb = now;
+			if (controller_info_get(&info) == CONTROLLER_OK) {
+				for (axis = 0u; axis < CONTROLLER_AXIS_COUNT; axis++) {
+					printf("[%6u] 轴%u 位置 %8.3f mm  速度 %8.3f mm/s  "
+					       "状态字 0x%04X  错误码 0x%04X\n",
+					       (unsigned)(now - s_base_ms), (unsigned)(axis + 1u),
+					       (double)info.feedback[axis].position,
+					       (double)info.feedback[axis].velocity,
+					       (unsigned)info.feedback[axis].statusword,
+					       (unsigned)info.feedback[axis].error_code);
+				}
+			}
+			fflush(stdout);
+		}
 		if (seconds > 0 && (long)(now - start_ms) >= seconds * 1000L) {
 			break;
 		}
@@ -251,6 +270,7 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 	c.clear_at_ms = -1;
 	c.spam = -1;
 	c.spam_at_ms = -1;
+	c.feedback_ms = 0;
 	for (i = 3; i < argc; i++) {
 		const char *k = argv[i];
 		double v;
@@ -265,7 +285,9 @@ static struct probe_cmd probe_cmd_parse(int argc, char **argv)
 		v = strtod(argv[i + 1], NULL);
 		i++; /* 消费参数值 */
 
-		if (strcmp(k, "--move") == 0) {
+		if (strcmp(k, "--feedback") == 0) {
+			c.feedback_ms = (long)v;
+		} else if (strcmp(k, "--move") == 0) {
 			c.move_mm = v;
 			c.has_move = 1;
 		} else if (strcmp(k, "--move-at") == 0) {

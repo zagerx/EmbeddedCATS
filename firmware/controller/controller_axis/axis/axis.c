@@ -84,22 +84,18 @@ int axis_halt(struct axis *a)
  * axis_home - 请求回原点（原点开关法）
  * @a: 轴对象；NULL 时拒绝
  *
- * 方法号与三档速度是机械常量，见 cats_mech.h：业务层不传参数，避免把
- * 协议级数值（6098/6099/609A）漏到上层。
+ * 方法号、两档速度与加减速（6098h / 6099h / 609Ah）是驱动器侧的持久配置，
+ * 由 apps/tools/drive_setup 负责写入；业务层只发"回零"这一个动作。
  *
  * Return: 设备请求结果；@a 为 NULL 时返回 -1。
  */
 int axis_home(struct axis *a)
 {
-	struct cia402_request req = {.kind = CIA402_REQ_HOME};
+	const struct cia402_request req = {.kind = CIA402_REQ_HOME};
 
 	if (a == NULL) {
 		return -1;
 	}
-	req.home.method = (uint8_t)CATS_AXIS_HOME_METHOD;
-	req.home.speed_fast = CATS_AXIS_HOME_SPEED_SEARCH;
-	req.home.speed_slow = CATS_AXIS_HOME_SPEED_CREEP;
-	req.home.accel = CATS_AXIS_HOME_ACCEL;
 	return axis_submit(a, &req);
 }
 

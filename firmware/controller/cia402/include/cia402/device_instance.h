@@ -48,12 +48,8 @@ struct cia402_operation {
 		uint8_t seen_low; /* 见过 bit10 = 0 */
 	} pp;
 	struct {
-		uint8_t method;     /* 6098h 回零方法号 */
-		int32_t speed_fast; /* 6099h:01 */
-		int32_t speed_slow; /* 6099h:02 */
-		int32_t accel;      /* 609Ah */
-		uint8_t failed;     /* 收尾链用：非 0 表示这条回零要报失败 */
-		uint8_t fail_kind;  /* enum cia402_fail */
+		uint8_t failed;    /* 收尾链用：非 0 表示这条回零要报失败 */
+		uint8_t fail_kind; /* enum cia402_fail */
 	} home;
 };
 

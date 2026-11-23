@@ -7,7 +7,7 @@
 #define CONTROLLER_AXIS_AXIS_H
 
 #include <cia402/device_instance.h>
-#include <transport/sdo_arbiter_instance.h>
+#include <pdo/tpdo.h>
 #include <transport/sdo_client.h>
 
 #include <stdint.h>
@@ -16,12 +16,12 @@
 extern "C" {
 #endif
 
-/* 一个轴 = 一个节点 + 该节点的驱动对象与独立 SDO 通道。
+/* 一个轴 = 一个节点 + 该节点的驱动对象、独享 SDO 通道与 TPDO 反馈。
  * 机械换算参数是编译期常量（config/cats_mech.h），不属于轴实例状态。 */
 struct axis {
 	struct cia402_device dev; /* 协议知识全在里面，本层只问它结果 */
 	struct sdo_client sdo;    /* 本轴独享的异步对象访问通道 */
-	struct sdo_arbiter arb;   /* 控制与反馈共享通道的仲裁器 */
+	struct tpdo_node tpdo;    /* 本轴的周期反馈通道 */
 };
 
 /* 业务单位：位置 mm，速度 mm·s⁻¹，加速度 mm·s⁻²（float） */

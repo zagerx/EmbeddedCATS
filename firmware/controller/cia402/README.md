@@ -37,7 +37,7 @@ cia402/
         ├── disable.c    断使能
         ├── move.c       PP 参数、触发、到位
         ├── halt.c       减速停
-        ├── homing.c     回零（HM 模式，13 个状态）
+        ├── homing.c     回零（HM 模式，9 个状态）
         └── quick_stop.c 快速停
 ```
 
@@ -119,12 +119,13 @@ Halt 与 Quick Stop 会抢占当前流程。CANopen 工作线程先取消在途�
 再启动暂停或急停状态。Halt 等 `6041` bit10 到位后清 bit8；Quick Stop 只写一帧
 `6040 = 0x0002` 就结束，不再做任何收尾。
 
-单次 SDO 超时与整个使能步骤、停车、PP 到位的业务期限分别管理。外部反馈读取由控制器调度，经每轴仲裁器与控制流程共享通道；控制优先，结果不会跨会话交付。
+单次 SDO 超时与整个使能步骤、停车、PP 到位的业务期限分别管理。反馈不再占用
+SDO 通道（改由 `canopen/pdo` 收 TPDO），通道由 402 流程独占。
 
 ## 依赖边界
 
 ```text
-cia402/device → sdo_access ← transport/sdo_arbiter → sdo_client → CANopenNode
+cia402/device → sdo_access ← transport/sdo_client → CANopenNode
 cia402/pds    → 无依赖
 ```
 

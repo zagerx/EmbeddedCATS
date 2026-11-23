@@ -22,6 +22,7 @@ target_link_libraries(自己的目标 PRIVATE cats_control)
 controller/
 ├── canopen/
 │   ├── master/     主站生命周期、节点表、NMT 与通信复位
+│   ├── pdo/        在空置接收槽上接住从站 TPDO 并解包
 │   └── transport/  对象访问契约与同线程 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
 ├── third_party/    CANopenLinux 与 CANopenNode，只读
@@ -33,7 +34,7 @@ controller/
 ├── include/control/ 公共状态、故障与控制接口
 ├── controller.c       组合根、生命周期与事件循环
 ├── controller_actions.c 时间基准与状态图装配
-├── controller_feedback.c 反馈读取调度、单位换算与样本保存
+├── controller_feedback.c 把 TPDO 快照换算并写入上报结构
 ├── control_api.c      指令、故障锁存与信息查询
 └── controller_internal.h 控制器完整上下文与内部契约
 ```
@@ -45,9 +46,9 @@ controller/
 - `controller_init(ifname)` 装配资源；`controller_event_poll()` 处理一轮事件；
   `controller_deinit()` 在线程退出后释放资源，支持安全重复调用。
 - 提供使能、位置、暂停、急停、状态、故障和轴样本接口。
-- 使用 402 对象索引调度反馈 SDO；每轴仲裁器隔离控制与反馈结果，控制优先。
-- 反馈忙时跳过，成功才更新缓存；控制请求登记后自动取消反馈并等待通道释放。
-- 不创建线程，不直接操作 SocketCAN 或 CANopen PDO 字节。
+- 反馈改由 TPDO 提供：`canopen/pdo` 在空置接收槽上解包，SDO 通道由 402 流程独占。
+- `controller_feedback.c` 只把最新 TPDO 快照搬进上报结构，不发任何总线帧。
+- 不创建线程，不直接操作 SocketCAN；PDO 字节只由 `canopen/pdo` 解。
 
 ## 状态机
 

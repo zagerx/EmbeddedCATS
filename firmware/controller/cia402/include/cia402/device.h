@@ -43,12 +43,6 @@ struct cia402_request {
 		int32_t accel;    /* 轮廓加速度 */
 		int32_t decel;    /* 轮廓减速度 */
 	} pp;                     /* 仅 CIA402_REQ_MOVE 使用 */
-	struct {
-		uint8_t method;     /* 6098h 回零方法号 */
-		int32_t speed_fast; /* 6099h:01 搜索速度 */
-		int32_t speed_slow; /* 6099h:02 反向精细速度 */
-		int32_t accel;      /* 609Ah 回零加减速 */
-	} home;                     /* 仅 CIA402_REQ_HOME 使用 */
 };
 
 /* 投递结果：只说收不收，不承诺成功 */

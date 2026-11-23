@@ -3,6 +3,9 @@
  *
  * 任何地方看到 0x6040 / 0x6041 这类数字，都必须来自这里。
  * 本层不认识总线，所以这里只有编号与类型，没有访问方式。
+ *
+ * 回零配置对象（6098h / 6099h / 609Ah）故意不在表内：它们是驱动器侧的持久
+ * 配置，由 apps/tools/drive_setup 写入，固件不发这些请求。
  */
 
 #ifndef CIA402_OD_H
@@ -18,9 +21,6 @@
 #define CIA402_OD_PROFILE_VELOCITY 0x6081u /* UNSIGNED32 */
 #define CIA402_OD_PROFILE_ACCEL 0x6083u    /* UNSIGNED32 */
 #define CIA402_OD_PROFILE_DECEL 0x6084u    /* UNSIGNED32 */
-#define CIA402_OD_HOMING_METHOD 0x6098u    /* INTEGER8 回零方法 */
-#define CIA402_OD_HOMING_SPEEDS 0x6099u    /* ARRAY：01 搜索速度、02 反向速度 */
-#define CIA402_OD_HOMING_ACCEL 0x609Au     /* UNSIGNED32 回零加减速 */
 #define CIA402_OD_ERROR_CODE 0x603Fu       /* UNSIGNED16 驱动器自己报的错误码 */
 
 #endif /* CIA402_OD_H */

@@ -1,8 +1,9 @@
 /*
- * homing.c — 回原点：切 HM 模式、写方法与速度、启动、等结论、收尾
+ * homing.c — 回原点：切 HM 模式、启动、等结论、收尾
  *
- * 回零由驱动器自己执行（搜开关、减速反向、开关释放处标零），主站只负责配好
- * 参数、发启动、等 6041 的结论。
+ * 回零由驱动器自己执行（搜开关、减速反向、开关释放处标零）。方法号、两档速度
+ * 与加减速（6098h / 6099h / 609Ah）是驱动器侧的持久配置，由
+ * apps/tools/drive_setup 写入；主站这里只切模式、发启动、等 6041 的结论。
  *
  * 这台驱动器的 6040 bit4 是**电平触发**：写一次 0x1F 之后必须一直保持到
  * 6041 bit12 / bit13 出现，中途落回 0x0F 会让回零立即中止（2026-11-20 实测）。
@@ -91,118 +92,8 @@ sm_ret_t st_home_read_mode(struct sm_hsm *const me, const struct sm_event *const
 			home_fail(d, CIA402_FAIL_CHECK); /* 模式没进去，后面的启动无意义 */
 			return SM_TRAN(&st_home_restore_cw);
 		}
-		return SM_TRAN(&st_home_write_method);
-	}
-
-	default:
-		return SM_SUPER(&st_home_active);
-	}
-}
-
-/**
- * st_home_write_method - 写回零方法（6098）
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_home_write_method(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_HOMING_METHOD, d->operation.home.method, 1u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_home_write_speed_fast);
-
-	default:
-		return SM_SUPER(&st_home_active);
-	}
-}
-
-/**
- * st_home_write_speed_fast - 写搜索速度（6099:01）
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_home_write_speed_fast(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_write_sub(d, CIA402_OD_HOMING_SPEEDS, 1u,
-			      (uint32_t)d->operation.home.speed_fast, 4u,
-			      CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_home_write_speed_slow);
-
-	default:
-		return SM_SUPER(&st_home_active);
-	}
-}
-
-/**
- * st_home_write_speed_slow - 写反向精细速度（6099:02）
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_home_write_speed_slow(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_write_sub(d, CIA402_OD_HOMING_SPEEDS, 2u,
-			      (uint32_t)d->operation.home.speed_slow, 4u,
-			      CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_home_write_accel);
-
-	default:
-		return SM_SUPER(&st_home_active);
-	}
-}
-
-/**
- * st_home_write_accel - 写回零加减速（609A）
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_home_write_accel(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_HOMING_ACCEL, (uint32_t)d->operation.home.accel, 4u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
 		return SM_TRAN(&st_home_start);
+	}
 
 	default:
 		return SM_SUPER(&st_home_active);

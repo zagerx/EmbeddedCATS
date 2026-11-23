@@ -45,19 +45,6 @@ add_executable(cia402_selftest
 target_link_libraries(cia402_selftest PRIVATE cia402)
 target_compile_options(cia402_selftest PRIVATE -Wall -Wextra)
 
-# SDO 仲裁器自测：模拟底层通道，不链接 CANopenNode，也不依赖 CAN 硬件。
-# 它只用到 struct sdo_client 的布局，因此需要 CANopenNode 的头文件路径。
-add_executable(sdo_arbiter_selftest
-	apps/tools/sdo_arbiter_selftest/main.c
-	controller/canopen/transport/src/sdo_arbiter.c)
-target_include_directories(sdo_arbiter_selftest PRIVATE
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/include
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/canopen/transport/src
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux
-	${CMAKE_CURRENT_SOURCE_DIR}/controller/third_party/CANopenLinux/CANopenNode)
-target_link_libraries(sdo_arbiter_selftest PRIVATE sdo_access)
-target_compile_options(sdo_arbiter_selftest PRIVATE -Wall -Wextra)
-
 # 工具：主线程直接运行 CANopen epoll 循环，用于无界面端到端验证
 add_executable(master_probe apps/tools/master_probe/main.c)
 target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)

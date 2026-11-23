@@ -29,14 +29,8 @@
 #define CATS_AXIS_MM_PER_REV 5.0f
 
 /*
- * 回零参数（2026-11-20 台架实测可用值，两轴相同）
- *
- * 速度单位是指令单位/s，1 圈 = 10000；方法 21 = 原点开关 + 不用 Z 信号 + 负向起始。
- * 台架建议值偏慢：2000 = 0.2 圈/s，人手遮挡开关来得及。实机按行程重算。
+ * 回零的方法号、两档速度与加减速（6098h / 6099h / 609Ah）不在这里：
+ * 它们是驱动器侧的持久配置，由 apps/tools/drive_setup 写入，固件不碰。
  */
-#define CATS_AXIS_HOME_METHOD 21
-#define CATS_AXIS_HOME_SPEED_SEARCH 2000
-#define CATS_AXIS_HOME_SPEED_CREEP 500
-#define CATS_AXIS_HOME_ACCEL 2000
 
 #endif /* CATS_MECH_H */

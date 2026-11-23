@@ -12,6 +12,7 @@
 
 #include <axis_map.h>
 #include <master/master.h>
+#include <pdo/tpdo.h>
 
 #include <string.h>
 
@@ -26,6 +27,12 @@ static struct master master_instance = {
 
 /* 推进一次业务状态机 */
 static enum controller_result controller_poll(uint32_t now_ms);
+
+/* 把每轴的两路 TPDO 接收挂到当前协议栈上 */
+static int controller_tpdo_attach(struct controller *ctl);
+
+/* 装配失败：释放主站并恢复空状态 */
+static enum controller_result controller_init_fail(struct controller *ctl);
 
 /**
  * control_ctx - 获取控制层单例上下文
@@ -59,6 +66,7 @@ enum controller_result controller_init(const char *can_ifname)
 	if (master_init(&master_instance, can_ifname) != 0) {
 		return CONTROLLER_ERR_STATE;
 	}
+	ctl->master = &master_instance;
 
 	/* 按映射表登记节点：表顺序即登记顺序，登记结果必须与表一致 */
 	ctl->axis_count = AXIS_MAP_COUNT;
@@ -67,24 +75,22 @@ enum controller_result controller_init(const char *can_ifname)
 		CO_SDOclient_t *sdo;
 
 		if (b->axis != (enum controller_axis)i) {
-			master_deinit(&master_instance);
-			return CONTROLLER_ERR_STATE; /* 表顺序与轴号不一致 */
+			return controller_init_fail(ctl); /* 表顺序与轴号不一致 */
 		}
 		if (!master_add_node(&master_instance, b->node_id) ||
 		    master_node_id(&master_instance, i) != b->node_id) {
-			master_deinit(&master_instance);
-			return CONTROLLER_ERR_STATE; /* 登记失败或顺序被改 */
+			return controller_init_fail(ctl); /* 登记失败或顺序被改 */
 		}
 		sdo = master_sdo(&master_instance, b->node_id);
 		if (sdo == NULL) {
-			master_deinit(&master_instance);
-			return CONTROLLER_ERR_STATE;
+			return controller_init_fail(ctl);
 		}
 		sdo_client_init(&ctl->axes[i].sdo, sdo);
-		sdo_arbiter_init(&ctl->axes[i].arb, &ctl->axes[i].sdo);
-		cia402_init(&ctl->axes[i].dev, sdo_arbiter_control(&ctl->axes[i].arb));
+		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo));
 	}
-	ctl->master = &master_instance;
+	if (controller_tpdo_attach(ctl) != 0) {
+		return controller_init_fail(ctl); /* 占不到接收槽：不可能有反馈 */
+	}
 	controller_feedback_reset();
 	/* 反馈轮询关闭期间对外只报 0：这里清一次，之后没有写入方 */
 	pthread_mutex_lock(&ctl->info_lock);
@@ -148,7 +154,6 @@ enum controller_result controller_event_poll(void)
 	CO_epoll_processRT(&m->ep, m->co, false);
 	for (i = 0u; i < ctl->axis_count; i++) {
 		sdo_client_step(&ctl->axes[i].sdo, m->ep.timeDifference_us, &m->ep.timerNext_us);
-		sdo_arbiter_step(&ctl->axes[i].arb);
 	}
 	CO_epoll_processMain(&m->ep, m->co, false, &reset);
 	if (reset == CO_RESET_NOT) {
@@ -160,7 +165,7 @@ enum controller_result controller_event_poll(void)
 		(void)controller_poll(now);
 		controller_info_update(ctl);
 	} else if ((reset != CO_RESET_COMM && reset != CO_RESET_APP) ||
-		   master_reset_communication(m) != 0) {
+		   master_reset_communication(m) != 0 || controller_tpdo_attach(ctl) != 0) {
 		CO_epoll_processLast(&m->ep);
 		return CONTROLLER_ERR_STATE;
 	}
@@ -176,6 +181,28 @@ enum controller_result controller_event_poll(void)
 void controller_wakeup(void)
 {
 	master_notify(controller_singleton.master);
+}
+
+static int controller_tpdo_attach(struct controller *ctl)
+{
+	uint8_t i;
+
+	for (i = 0u; i < ctl->axis_count; i++) {
+		const uint8_t node_id = master_node_id(ctl->master, i);
+
+		if (tpdo_attach(&ctl->axes[i].tpdo, ctl->master, node_id) != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
+static enum controller_result controller_init_fail(struct controller *ctl)
+{
+	master_deinit(ctl->master);
+	ctl->master = NULL;
+	ctl->axis_count = 0u;
+	return CONTROLLER_ERR_STATE;
 }
 
 static enum controller_result controller_poll(uint32_t now_ms)
