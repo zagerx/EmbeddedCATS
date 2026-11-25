@@ -8,62 +8,7 @@
  */
 
 #include "controller_internal.h"
-
-/**
- * controller_set_fault - 锁存首个故障并累积失败轴
- * @ctl: 控制上下文；NULL 安全
- * @stage: 失败时所处状态
- * @reason: 失败原因；NONE 表示不是故障，直接返回
- * @axis: 失败轴号；超出已装配范围时记作未定位
- * @abort_code: 首个失败轴的 abort 码；非 SDO 类故障传 0
- *
- * 已经存在故障时保留最初快照，避免后续故障覆盖根因；axis_mask 始终累积。
- */
-void controller_set_fault(struct controller *ctl, enum controller_state stage,
-			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code)
-{
-	if (ctl == NULL || reason == CONTROLLER_FAULT_REASON_NONE) {
-		return;
-	}
-	pthread_mutex_lock(&ctl->info_lock);
-	if (ctl->info.fault.reason == CONTROLLER_FAULT_REASON_NONE) {
-		ctl->info.fault.stage = stage;
-		ctl->info.fault.reason = reason;
-		ctl->info.fault.first_axis =
-			(axis < CONTROLLER_AXIS_COUNT) ? axis : CONTROLLER_FAULT_NO_AXIS;
-		ctl->info.fault.abort_code = abort_code;
-	}
-	if (axis < CONTROLLER_AXIS_COUNT) {
-		ctl->info.fault.axis_mask |= (uint8_t)(1u << axis);
-	}
-	pthread_mutex_unlock(&ctl->info_lock);
-}
-
-/**
- * controller_fault_reason_of - 把设备层失败归类映射为业务故障原因
- * @fail: cia402 回执里的失败归类
- *
- * CIA402_FAIL_NONE 表示“流程被中止、设备侧没有原因”（例如回零被急停打断），
- * 不能冒充驱动器故障：否则中止、单笔超时、真故障在界面上长得一模一样。
- *
- * Return: 对应的业务故障原因。
- */
-enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail)
-{
-	switch (fail) {
-	case CIA402_FAIL_TIMEOUT:
-		return CONTROLLER_FAULT_REASON_DEV_TIMEOUT;
-	case CIA402_FAIL_DRIVER:
-		return CONTROLLER_FAULT_REASON_DRIVER;
-	case CIA402_FAIL_SDO:
-		return CONTROLLER_FAULT_REASON_SDO;
-	case CIA402_FAIL_CHECK:
-		return CONTROLLER_FAULT_REASON_CHECK;
-	case CIA402_FAIL_NONE:
-	default:
-		return CONTROLLER_FAULT_REASON_ABORT;
-	}
-}
+#include "controller_log.h"
 
 /**
  * controller_info_update - 更新全部上报信息
@@ -100,11 +45,19 @@ void controller_estop(void)
 {
 	struct controller *ctl = control_ctx();
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ESTOP}};
+	struct controller_evt replaced = {.super = {.sig = CONTROLLER_SIG_TICK}};
 
 	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_ESTOP, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
 		return;
 	}
-	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_evtq_push_front(&ctl->evtq, &evt, &replaced);
+	if (replaced.super.sig != CONTROLLER_SIG_TICK) {
+		controller_log_not_executed(ctl, (enum controller_sig)replaced.super.sig,
+					    CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
+	}
 	controller_wakeup();
 }
 
@@ -118,11 +71,21 @@ void controller_clear_estop(void)
 {
 	struct controller *ctl = control_ctx();
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ESTOP_CLEAR}};
+	struct controller_evt replaced = {.super = {.sig = CONTROLLER_SIG_TICK}};
 
 	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_ESTOP_CLEAR,
+					    CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
 		return;
 	}
-	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_evtq_push_front(&ctl->evtq, &evt, &replaced);
+	if (replaced.super.sig != CONTROLLER_SIG_TICK) {
+		controller_log_not_executed(
+			ctl, (enum controller_sig)replaced.super.sig,
+			controller_log_event_axis(&replaced, CONTROLLER_FAULT_NO_AXIS),
+			CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
+	}
 	controller_wakeup();
 }
 
@@ -139,9 +102,13 @@ enum controller_result controller_enable(void)
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_ENABLE}};
 
 	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_ENABLE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
 		return CONTROLLER_ERR_STATE;
 	}
 	if (!controller_evtq_push(&ctl->evtq, &evt)) {
+		controller_log_not_executed(ctl, CONTROLLER_SIG_ENABLE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
 		return CONTROLLER_ERR_BUSY;
 	}
 	controller_wakeup();
@@ -164,17 +131,24 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 	enum controller_result result;
 	uint8_t i;
 
-	if (ctl->master == NULL || reqs == NULL || count == 0u || count > CONTROLLER_AXIS_COUNT) {
+	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_MOVE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
+		return CONTROLLER_ERR_PARAM;
+	}
+	if (reqs == NULL || count == 0u || count > CONTROLLER_AXIS_COUNT) {
+		controller_log_not_executed(ctl, CONTROLLER_SIG_MOVE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_INVALID_ARGUMENT);
 		return CONTROLLER_ERR_PARAM;
 	}
 	evt.u.move.count = count;
 	for (i = 0u; i < count; i++) {
 		const struct controller_move_req *m = &reqs[i];
 
-		if (m->axis >= ctl->axis_count) {
-			return CONTROLLER_ERR_PARAM;
-		}
-		if (m->mm != m->mm || m->mm_s != m->mm_s || m->mm_s2 != m->mm_s2) {
+		if (m->axis >= ctl->axis_count || m->mm != m->mm || m->mm_s != m->mm_s ||
+		    m->mm_s2 != m->mm_s2) {
+			controller_log_not_executed(ctl, CONTROLLER_SIG_MOVE, m->axis,
+						    CONTROLLER_NOT_EXECUTED_INVALID_ARGUMENT);
 			return CONTROLLER_ERR_PARAM;
 		}
 		evt.u.move.axis[i] = reqs[i];
@@ -182,6 +156,9 @@ enum controller_result controller_move(const struct controller_move_req *reqs, u
 	result = controller_evtq_push(&ctl->evtq, &evt) ? CONTROLLER_OK : CONTROLLER_ERR_BUSY;
 	if (result == CONTROLLER_OK) {
 		controller_wakeup();
+	} else {
+		controller_log_not_executed(ctl, CONTROLLER_SIG_MOVE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
 	}
 	return result;
 }
@@ -195,11 +172,20 @@ void controller_halt(void)
 {
 	struct controller *ctl = control_ctx();
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_HALT}};
+	struct controller_evt replaced = {.super = {.sig = CONTROLLER_SIG_TICK}};
 
 	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_HALT, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
 		return;
 	}
-	controller_evtq_push_front(&ctl->evtq, &evt);
+	controller_evtq_push_front(&ctl->evtq, &evt, &replaced);
+	if (replaced.super.sig != CONTROLLER_SIG_TICK) {
+		controller_log_not_executed(
+			ctl, (enum controller_sig)replaced.super.sig,
+			controller_log_event_axis(&replaced, CONTROLLER_FAULT_NO_AXIS),
+			CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
+	}
 	controller_wakeup();
 }
 
@@ -228,13 +214,19 @@ enum controller_result controller_home_axis(uint8_t axis)
 	struct controller_evt evt = {.super = {.sig = CONTROLLER_SIG_HOME}};
 
 	if (ctl->master == NULL) {
+		controller_log_not_executed(NULL, CONTROLLER_SIG_HOME, axis,
+					    CONTROLLER_NOT_EXECUTED_NOT_INITIALIZED);
 		return CONTROLLER_ERR_PARAM;
 	}
 	if (axis != CONTROLLER_AXIS_ALL && axis >= ctl->axis_count) {
+		controller_log_not_executed(ctl, CONTROLLER_SIG_HOME, axis,
+					    CONTROLLER_NOT_EXECUTED_INVALID_ARGUMENT);
 		return CONTROLLER_ERR_PARAM;
 	}
 	evt.u.home.axis = axis;
 	if (!controller_evtq_push(&ctl->evtq, &evt)) {
+		controller_log_not_executed(ctl, CONTROLLER_SIG_HOME, axis,
+					    CONTROLLER_NOT_EXECUTED_QUEUE_FULL);
 		return CONTROLLER_ERR_BUSY;
 	}
 	controller_wakeup();

@@ -12,6 +12,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 /**
  * st_homing - 处理回零期间的节拍与结论
@@ -29,18 +30,21 @@ sm_ret_t st_homing(struct sm_hsm *const me, const struct sm_event *const e)
 		uint8_t i;
 
 		ctl->axis_done = 0u;
+		ctl->axis_active = 0u;
 		for (i = 0u; i < ctl->axis_count; i++) {
 			if ((ctl->home_mask & (uint8_t)(1u << i)) == 0u) {
 				continue;
 			}
 			if (axis_home(&ctl->axes[i]) != 0) {
 				/*
-				 * 设备忙（上一笔流程还没收尾）：这轴没起来，把它从
-				 * 本次委托里摘掉。不锁故障——没下发就没动作，按未受理
-				 * 处理比按故障处理更安全，重新点一次即可。
+				 * 设备忙：这轴没执行，从本次参与集合中移除并记日志。
+				 * 不写完成位，未执行不是任何意义上的执行结果。
 				 */
 				ctl->home_mask &= (uint8_t) ~(1u << i);
-				ctl->axis_done |= (uint8_t)(1u << i);
+				controller_log_not_executed(ctl, CONTROLLER_SIG_HOME, i,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			} else {
+				ctl->axis_active |= (uint8_t)(1u << i);
 			}
 		}
 		/*
@@ -52,31 +56,22 @@ sm_ret_t st_homing(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_MOVE:
 	case CONTROLLER_SIG_HALT:
-		/*
-		 * 回零期间的暂停与位置指令一律丢弃：回零不能半途停（原点没标定，上层
-		 * 却以为标了）。丢在状态里而不是留在队列里，避免回零结束后被意外执行。
-		 */
+		/* 回零是原子流程；新请求不执行，只说明原因，不生成故障 */
+		controller_log_not_executed(ctl, (enum controller_sig)e->sig,
+					    CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_INVALID_STATE);
 		return SM_HANDLED();
 
 	case CONTROLLER_SIG_TICK: {
 		struct controller_axes_failure failure;
 		enum controller_axes_result result = controller_axes_collect(
-			ctl->axes, ctl->axis_count, &ctl->axis_done, &failure);
+			ctl->axes, ctl->axis_count, &ctl->axis_active, &failure);
 
 		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_fault(ctl, CONTROLLER_STATE_HOMING,
-					     controller_fault_reason_of(failure.first.fail),
-					     failure.first_axis, failure.first.abort_code);
+			controller_set_axes_fault(ctl, CONTROLLER_STATE_HOMING, &failure);
 			return SM_SUPER(&st_root);
 		}
-		/*
-		 * 判据是"参与的轴都置位"，不能用相等：controller_axes_collect()
-		 * 遍历的是全部已装配轴，非参与轴的 DONE 也会进 axis_done（超集），
-		 * 相等判据遇到超集永远不成立，只能干等到 402 层的 30 s 超时。
-		 * home_mask 为 0（一个都没起来）时两边都是 0，同样成立——
-		 * 没下发就没动作，等于没发生。
-		 */
-		if ((ctl->axis_done & ctl->home_mask) == ctl->home_mask) {
+		if (ctl->axis_active == 0u) {
 			return SM_TRAN(&st_holding);
 		}
 		return SM_SUPER(&st_root);

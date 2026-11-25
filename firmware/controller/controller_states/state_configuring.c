@@ -8,6 +8,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 #define CONFIG_TIMEOUT_MS 2000u /* 从进入本状态算起，这么久还没配完就判失败 */
 
@@ -23,13 +24,23 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		/* 先让节点进入运行态（广播所有节点），再写参数。
-		 * NMT 没有应答：对象访问失败或超时由配置流程给出结论。 */
+	case SM_SIG_ENTRY: {
+		uint8_t i;
+
+		/* NMT 无应答；只有实际受理的配置请求才等待结果 */
 		ctl->axis_done = 0u;
+		ctl->axis_active = 0u;
 		(void)master_request_nmt(ctl->master, MASTER_NMT_ALL_NODES, MASTER_NMT_START);
-		(void)controller_config_movemode(ctl->axes, ctl->axis_count, CONTROLLER_AXIS_ALL);
+		for (i = 0u; i < ctl->axis_count; i++) {
+			if (axis_config_movemode(&ctl->axes[i]) == 0) {
+				ctl->axis_active |= (uint8_t)(1u << i);
+			} else {
+				controller_log_not_executed(ctl, CONTROLLER_SIG_TICK, i,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			}
+		}
 		break;
+	}
 
 	case SM_SIG_EXIT:
 		break; /* 失败的那一步已经停下，正常完成时也不再发帧 */
@@ -38,16 +49,16 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
 		struct controller_axes_failure failure;
 		enum controller_axes_result result = controller_axes_collect(
-			ctl->axes, ctl->axis_count, &ctl->axis_done, &failure);
+			ctl->axes, ctl->axis_count, &ctl->axis_active, &failure);
 
-		if (result == CONTROLLER_AXES_DONE) {
-			return SM_TRAN(&st_idle_ctrl); /* 配置完成：停在未使能态等指令 */
-		}
 		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_fault(ctl, CONTROLLER_STATE_CONFIGURING,
-					     controller_fault_reason_of(failure.first.fail),
-					     failure.first_axis, failure.first.abort_code);
-		} else if (elapsed > CONFIG_TIMEOUT_MS) {
+			controller_set_axes_fault(ctl, CONTROLLER_STATE_CONFIGURING, &failure);
+			return SM_SUPER(&st_root);
+		}
+		if (ctl->axis_active == 0u) {
+			return SM_TRAN(&st_idle_ctrl);
+		}
+		if (elapsed > CONFIG_TIMEOUT_MS) {
 			controller_set_fault(ctl, CONTROLLER_STATE_CONFIGURING,
 					     CONTROLLER_FAULT_REASON_BIZ_TIMEOUT,
 					     CONTROLLER_FAULT_NO_AXIS, 0u);

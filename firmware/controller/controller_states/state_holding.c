@@ -7,6 +7,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 /**
  * st_holding - 处理保持状态下的位置、暂停和节拍事件
@@ -36,7 +37,9 @@ sm_ret_t st_holding(struct sm_hsm *const me, const struct sm_event *const e)
 		return SM_TRAN(&st_moving);
 
 	case CONTROLLER_SIG_HALT:
-		return SM_HANDLED(); /* 已经在保持位置，没有可做的事 */
+		controller_log_not_executed(ctl, CONTROLLER_SIG_HALT, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_ALREADY_HOLDING);
+		return SM_HANDLED();
 
 	case CONTROLLER_SIG_HOME: {
 		const uint8_t axis = SM_EVT_CAST(struct controller_evt, e)->u.home.axis;

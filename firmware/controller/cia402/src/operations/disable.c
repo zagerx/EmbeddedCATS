@@ -17,9 +17,8 @@ sm_ret_t st_disable_write(struct sm_hsm *const me, const struct sm_event *const 
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -47,8 +46,7 @@ sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -58,11 +56,11 @@ sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e
 			return SM_TRAN(&st_idle);
 		}
 		if (cia402_parse((uint16_t)r->value) == CIA402_SWITCH_ON_DISABLED) {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+			dev_done(d);
 			return SM_TRAN(&st_idle);
 		}
 		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
+			dev_finish(d, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_TRAN(&st_disable_read);

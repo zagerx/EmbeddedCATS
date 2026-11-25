@@ -57,13 +57,14 @@ struct cia402_operation {
 	uint8_t retarget_valid; /* retarget 里有待生效的目标 */
 	struct {
 		uint8_t failed;    /* 收尾链用：非 0 表示这条回零要报失败 */
+		uint8_t cancelled; /* 取消只清理流程，不交付回零结局 */
 		uint8_t fail_kind; /* enum cia402_fail */
 	} home;
 };
 
 /* 所有字段仅由同一个 CANopen 工作线程访问 */
 struct cia402_device {
-	const struct sdo_access *access; /* 装配后只读 */
+	struct sdo_client *client; /* 装配后只读 */
 
 	/* 单槽命令入口：普通请求忙时拒绝；抢占请求可覆盖待办并取消旧流程 */
 	struct {
@@ -72,8 +73,10 @@ struct cia402_device {
 		uint8_t cancel; /* enum cia402_cancel_reason */
 	} mailbox;
 
-	struct cia402_operation_result outbox; /* 最近一次操作的回执 */
-	uint8_t sdo_rejected; /* 上一步事务没被通道受理，等下一次 poll 收尾 */
+	enum cia402_outcome outbox;         /* 待取走的成功或失败结局 */
+	struct cia402_failure_info failure; /* 最近一次真实执行失败的诊断 */
+	uint8_t sdo_pending;                /* 本设备有一笔已受理且未取走的事务 */
+	uint8_t sdo_unstarted; /* 上一步未受理，下一拍用取消事件退出流程 */
 
 	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，事务状态由通道持有 */
 	struct sm_hsm hsm;

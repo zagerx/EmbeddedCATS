@@ -3,7 +3,7 @@
 ## 构建入口
 
 本目录是**自包含的 CMake 子工程**：`controller/CMakeLists.txt` 定义全部库目标
-（`canopen_node`、`cats_hsm`、`cats_master`、`sdo_access`、`canopen_sdo`、`cia402`、
+（`canopen_node`、`cats_hsm`、`cats_master`、`sdo_transport`、`canopen_sdo`、`cia402`、
 `cats_axis`、`cats_control`），并可被任何工程直接引入，不依赖父工程的 C 标准、警告选项
 或平台配置。
 

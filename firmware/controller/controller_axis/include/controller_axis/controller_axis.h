@@ -28,10 +28,10 @@ enum controller_axes_result {
 	CONTROLLER_AXES_FAILED
 };
 
-/* 集合动作的失败汇总：mask == 0 表示没有轴失败，first 无意义 */
+/* 集合动作只收集真实失败；取消没有操作结局，不进入这里 */
 struct controller_axes_failure {
-	uint8_t mask;              /* 失败轴位图 */
-	uint8_t first_axis;        /* 首个失败轴号 */
+	uint8_t mask;              /* 真正失败的轴位图 */
+	uint8_t first_axis;        /* 本拍首个失败轴号 */
 	struct axis_failure first; /* 首个失败轴的归类与 abort 码 */
 };
 
@@ -50,7 +50,7 @@ int controller_clear_estop_all(struct axis *axes, uint8_t count);
 /* 用同一时刻推进每个轴的设备状态机；时钟由调用方提供 */
 void controller_axes_poll(struct axis *axes, uint8_t count, uint32_t now_ms);
 
-/* 消费全部轴的新回执，将 DONE 保留在 done_mask，失败汇总写入 failure */
+/* 汇总本次等待轴；取消只结束等待，DONE 表示等待集合清空，不表示每轴成功 */
 enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t count,
 						    uint8_t *done_mask,
 						    struct controller_axes_failure *failure);

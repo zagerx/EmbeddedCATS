@@ -31,7 +31,7 @@ void axis_poll(struct axis *a, uint32_t now_ms)
 	if (a == NULL) {
 		return;
 	}
-	cia402_poll(&a->dev, now_ms, NULL);
+	cia402_poll(&a->dev, now_ms);
 }
 
 /**
@@ -107,13 +107,24 @@ int axis_home(struct axis *a)
  */
 uint32_t axis_abort_code(const struct axis *a)
 {
-	struct cia402_operation_result status;
+	struct cia402_failure_info failure;
 
 	if (a == NULL) {
 		return 0U;
 	}
-	cia402_get_result(&a->dev, &status);
-	return status.abort_code;
+	cia402_get_failure(&a->dev, &failure);
+	return failure.abort_code;
+}
+
+/**
+ * axis_is_running - 查询轴是否还有待执行或取消清理的流程
+ * @a: 轴对象；NULL 安全
+ *
+ * Return: 非 0 表示仍在执行；取消结束不产生结局。
+ */
+int axis_is_running(const struct axis *a)
+{
+	return a != NULL && cia402_is_running(&a->dev);
 }
 
 /**
@@ -121,14 +132,12 @@ uint32_t axis_abort_code(const struct axis *a)
  * @a: 轴对象；NULL 安全
  * @failure: 输出失败归类；可为 NULL
  *
- * 取走后 outcome 回 NONE，失败诊断（归类与 abort）仍保留在设备回执里，
- * 因此这里先取结论、再读诊断。
+ * 取走后结局回 NONE；失败诊断仍保留在设备中，失败后再读取。
  *
  * Return: DONE、FAILED 或 NONE；@a 为 NULL 时返回 NONE。
  */
 enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure)
 {
-	struct cia402_operation_result status;
 	enum cia402_outcome result;
 
 	if (a == NULL) {
@@ -136,10 +145,12 @@ enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure)
 	}
 
 	result = cia402_take_result(&a->dev);
-	cia402_get_result(&a->dev, &status);
-	if (failure != NULL) {
-		failure->fail = status.fail;
-		failure->abort_code = status.abort_code;
+	if (result == CIA402_OUTCOME_FAILED && failure != NULL) {
+		struct cia402_failure_info detail;
+
+		cia402_get_failure(&a->dev, &detail);
+		failure->fail = detail.fail;
+		failure->abort_code = detail.abort_code;
 	}
 	if (result == CIA402_OUTCOME_DONE) {
 		return AXIS_MOTION_DONE;

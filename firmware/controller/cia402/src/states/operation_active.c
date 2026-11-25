@@ -32,12 +32,12 @@ sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *con
 
 	case CIA402_SIG_TICK:
 		/*
-		 * 流程总期限看门狗：事务没发起或结果丢失时不会有 SDO 事件，
-		 * 各状态的期限根本检查不到，这里把它兜成一次可诊断的超时。
+		 * 已受理事务的结果未按约交付时，各状态的期限可能检查不到，
+		 * 这里兜住整条流程的业务期限。
 		 */
 		if (d->operation.flow_deadline != 0u &&
 		    (int32_t)(d->now_ms - d->operation.flow_deadline) >= 0) {
-			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_TIMEOUT);
+			dev_finish(d, CIA402_FAIL_TIMEOUT);
 			return SM_TRAN(&st_idle);
 		}
 		return SM_HANDLED();

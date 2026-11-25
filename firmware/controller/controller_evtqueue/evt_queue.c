@@ -58,10 +58,10 @@ bool controller_evtq_push(struct controller_evtq *q, const struct controller_evt
  * controller_evtq_push_front - 将暂停或急停事件插入队头
  * @q: 队列对象；NULL 时直接返回
  * @e: 待拷贝事件；NULL 时直接返回
- *
- * 队列满时替换当前队头，保证新事件优先被取出。
+ * @replaced: 队列满时交还被覆盖的旧事件；可为 NULL
  */
-void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e)
+void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e,
+				struct controller_evt *replaced)
 {
 	if (q == NULL || e == NULL) {
 		return;
@@ -73,10 +73,9 @@ void controller_evtq_push_front(struct controller_evtq *q, const struct controll
 		q->buf[q->head] = *e;
 		q->count++;
 	} else {
-		/*
-		 * 满：head 正好是队头（最旧的那条）。直接替换它 ⇒
-		 * 本事件成为第一个被弹出的，只牺牲了一条最旧的命令。
-		 */
+		if (replaced != NULL) {
+			*replaced = q->buf[q->head];
+		}
 		q->buf[q->head] = *e;
 	}
 	pthread_mutex_unlock(&q->lock);

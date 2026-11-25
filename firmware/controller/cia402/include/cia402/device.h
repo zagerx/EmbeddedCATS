@@ -2,7 +2,7 @@
  * cia402/device.h — 一个 CiA 402 从站的非阻塞控制上下文
  *
  * cia402_request() 只受理命令，cia402_poll() 逐拍推进流程。
- * 对外只交回执（struct cia402_operation_result）；驱动器状态由控制器读取。
+ * 对外只交操作结局与失败诊断；驱动器状态由控制器读取。
  *
  * 一个实例同时最多一个操作流程、一笔对象事务。邮箱只有一个待办槽，
  * 不是请求队列。想同步等待的调用方自己轮询 poll 与操作结论。
@@ -13,7 +13,7 @@
 #ifndef CIA402_DEVICE_H
 #define CIA402_DEVICE_H
 
-#include <transport/sdo_access.h>
+#include <transport/sdo_client.h>
 
 #include <stdint.h>
 
@@ -52,38 +52,26 @@ enum cia402_response {
 	CIA402_INVALID       /* 请求本身不合法（kind、未知参数）*/
 };
 
-/* ---- poll 的输出 ---- */
-
-/* 一次操作的结局；保持到下一次请求被受理 */
+/* 一次操作的结局；取消不交付结局，只记日志 */
 enum cia402_outcome {
-	CIA402_OUTCOME_NONE = 0, /* 还没有结局：流程在跑，或刚装配 */
+	CIA402_OUTCOME_NONE = 0, /* 正在执行，或当前没有可交付的结果 */
 	CIA402_OUTCOME_DONE,
 	CIA402_OUTCOME_FAILED
 };
 
-/* 失败原因：上层据此判断"重试有没有意义" */
+/* 仅用于解释已经发生的执行失败，不用于拒绝或取消 */
 enum cia402_fail {
-	CIA402_FAIL_NONE = 0,
-	CIA402_FAIL_TIMEOUT, /* 步骤超时：驱动器没按期响应 */
-	CIA402_FAIL_DRIVER,  /* 6041 报故障，复位也没成功 */
-	CIA402_FAIL_SDO,     /* 对象访问被 abort（见 abort_code）*/
-	CIA402_FAIL_CHECK    /* 回读值不符（例如模式没设进去）*/
+	CIA402_FAIL_TIMEOUT = 0,
+	CIA402_FAIL_DRIVER,
+	CIA402_FAIL_HOMING,
+	CIA402_FAIL_SDO,
+	CIA402_FAIL_CHECK
 };
 
-/*
- * 一次操作的回执。
- *
- * 当前模式、PDS 状态、位置速度等事实由上层对象读取获得；这里只有主站
- * 自己的操作结果，不等同于驱动器的 Fault 状态。
- */
-struct cia402_operation_result {
-	enum cia402_outcome outcome;
-	enum cia402_fail fail; /* outcome == CIA402_OUTCOME_FAILED 时的主站归类 */
-	/*
-	 * 诊断码：fail == SDO 时是 SDO abort 码；fail == DRIVER 时是出错那一刻的
-	 * 6041 状态字（bit13 回零错误与 bit3 故障靠它区分）；0 = 没有。
-	 */
-	uint32_t abort_code;
+/* 最近一次失败诊断；与操作结果分开，只有 FAILED 后才读取 */
+struct cia402_failure_info {
+	enum cia402_fail fail;
+	uint32_t abort_code; /* fail == SDO 时有效 */
 };
 
 /* 实例存储定义见 device_instance.h；普通调用方只使用不透明指针 */
@@ -91,7 +79,7 @@ struct cia402_device;
 
 /* 对外接口 */
 
-void cia402_init(struct cia402_device *d, const struct sdo_access *access);
+void cia402_init(struct cia402_device *d, struct sdo_client *client);
 
 /*
  * 投递一条请求。立即返回，不阻塞。
@@ -100,16 +88,16 @@ void cia402_init(struct cia402_device *d, const struct sdo_access *access);
  */
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 
-/*
- * 推进一拍；out 非空时在事件分发后拷贝回执，本拍结论立刻可见。
- * 仅 CANopen 工作线程调用。
- */
-void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_operation_result *out);
+/* 推进一拍；只推进，不交付结果。仅 CANopen 工作线程调用。 */
+void cia402_poll(struct cia402_device *d, uint32_t now_ms);
 
-/* 读取最近一次操作的回执（不消费）；跨线程查询应由控制层发布快照。NULL 入参安全。 */
-void cia402_get_result(const struct cia402_device *d, struct cia402_operation_result *out);
+/* 是否还有已受理的流程（含未出邮箱）需要执行或取消清理 */
+int cia402_is_running(const struct cia402_device *d);
 
-/* 取走一次操作回执；取走后 outcome 为 NONE，失败诊断保留。 */
+/* 失败时单独读取诊断；NULL 入参安全。 */
+void cia402_get_failure(const struct cia402_device *d, struct cia402_failure_info *out);
+
+/* 取走一次操作结局；取消不会生成结局。 */
 enum cia402_outcome cia402_take_result(struct cia402_device *d);
 
 #ifdef __cplusplus

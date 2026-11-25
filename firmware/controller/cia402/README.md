@@ -2,9 +2,13 @@
 
 一个 `struct cia402_device` 对应一个从站的非阻塞控制上下文。每个实例独立保存请求、状态机、传输进度和超时，不使用跨设备共享的可写状态。一个实例同时最多一个操作流程、一笔对象事务；一个操作流程可以依次包含多笔事务。
 
-`struct cia402_operation_result` 只放**一次操作的回执**（`outcome` / `fail` / `abort_code`），
-不是驱动器实时状态，也不缓存任何驱动器事实。当前模式、PDS 状态、位置速度都由控制器自己
-读（控制器已按轴缓存 6041/6064/606C/603F），402 只提供对象索引；详见 `边界.md`。
+`enum cia402_outcome` 只表示一次操作的结局：`NONE` / `DONE` / `FAILED`。
+`cia402_take_result()` 取走结局；取消不交付结局。
+`struct cia402_failure_info` 独立保存失败诊断，只在 `FAILED` 后通过
+`cia402_get_failure()` 读取 `fail` 与 `abort_code`。
+
+设备不缓存驱动器实时状态。当前模式、PDS 状态、位置速度由控制器自行读取，
+402 只提供对象索引；详见 `边界.md`。
 
 没有 `mode_confirmed` / `enable_confirmed` 这类标志位：它们只是「上一次 CONFIG/ENABLE
 成功了」的派生值，驱动器掉使能、换模式或掉电后都会与实际不符，判断依据必须来自对象读取。
@@ -52,19 +56,17 @@ cia402/
 ## 对外接口
 
 ```c
-void         cia402_init(struct cia402_device *d, const struct sdo_access *access);
+void         cia402_init(struct cia402_device *d, struct sdo_client *client);
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
-void         cia402_poll(struct cia402_device *d, uint32_t now_ms,
-                         struct cia402_operation_result *out);
-void         cia402_get_result(const struct cia402_device *d,
-                               struct cia402_operation_result *out);
+void         cia402_poll(struct cia402_device *d, uint32_t now_ms);
+void         cia402_get_failure(const struct cia402_device *d,
+                                struct cia402_failure_info *out);
 enum cia402_outcome cia402_take_result(struct cia402_device *d);
 ```
 
 - **request 只说“收不收”**：`ACCEPTED` / `BUSY` / `INVALID`，不阻塞、不承诺成功，也不校验流程前提；
-- **poll 每拍推进一次，并可交出回执**：`out` 非空时拷贝回执三项（最近一次操作的结果），
-  其余内部状态不对外发布；
-- **反馈不属于本模块的公共输出**：控制器通过对象索引自行发起 SDO，并管理读取结果；
+- **poll 只推进流程**：结论由 `cia402_take_result()` 消费，失败时再读取诊断；
+- **反馈不属于本模块的公共输出**：控制器通过 TPDO 读取反馈，不占用 SDO 通道；
 - **等待不是本层的职责**：想同步的调用方自己轮询 `outcome`。
 
 "成功/失败"必须从 poll 出——request 返回的那一刻流程还没跑，它不可能知道结果。
@@ -79,30 +81,35 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 | `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或通道交付超时 | `st_operation_active`：统一退出回 `st_idle` |
 | `CIA402_SIG_TICK` | 每拍一次 | 空闲时消费；本模块不主动读取反馈 |
 
-单笔事务的在途状态和期限由 `sdo_access` 通道持有，本模块不记账：
-`dev_read()` / `dev_write()` 只发起，`cia402_poll()` 用 `poll()` 的三态
-（`DONE` / `WAITING` / `IDLE`）判断有没有在途事务，不会自己判超时。
+单笔事务的在途状态和期限由 `sdo_client` 持有。`dev_read()` / `dev_write()` 直接调用
+`sdo_client_read()` / `sdo_client_write()`，并检查受理结果；`cia402_poll()` 只在本设备
+拥有已受理事务时调用 `sdo_client_poll()`，不会取走其他使用者的结果。
+
+只有 `ACCEPTED` 才设置 `sdo_pending` 并等待结果；`BUSY / INVALID` 在状态 ENTRY 中记录
+`sdo_unstarted`，下一拍由实际活动状态处理取消并回到空闲。HSM 内核不执行 ENTRY 返回的
+二次转移，因此不能直接在 ENTRY 中要求回空闲。未受理不产生 `DONE / FAILED`，也不等待
+虚假通信超时。
+`TIMEOUT` 是已受理事务的真实失败；`CANCELLED` 只用于取消旧事务和继续安全请求，
+不是 402 故障或操作结局。
 
 一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。
 
 `outcome` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
-`fail` 与 `abort_code` 保留用于诊断。轴层不再保存回执副本，而是通过
-`cia402_get_result()` 读取回执、通过 `cia402_take_result()` 消费回执。
+`fail` 与 `abort_code` 保留用于诊断。轴层不保存回执副本。
 
-被打断时结论作废还是报失败，由 `st_idle` 的 ENTRY 按取消原因决定
-（`st_operation_active` 只负责退出，不碰结论文档）。正常收尾流程不进这条路径。
+被抢占的旧流程不交付结局；事务超时属于真实失败，由 `st_idle` 收尾。
+回零被抢占时仍完成停机与模式恢复，但不交付回零成功或失败。
 
 急停是特例：`st_qstop_write` 只写一帧 `6040 = 0x0002`，收到写应答即进终态
 `st_qstop_hold`；写失败只记 abort 码并报失败，**不重读状态字、不重试、不写断使能**。
 驱动器停在哪个状态由它自己的 `605A` 决定（本项目驱动器出厂 6 = quick stop 状态，
 仍保持使能），本层不推断也不跟踪。
 
-终态只接受一种请求：`CIA402_REQ_ESTOP_CLEAR`。`st_qstop_clear` 写一帧 `6040 = 0x0000`
-（断使能，quick stop 状态/已使能/未使能都落到 `Switch on disabled`），然后回 `st_idle`
-恢复受理。复位只把驱动器置为未使能，不替它重新上力矩（复位不得导致重启）。
+终态只接受 `CIA402_REQ_ESTOP_CLEAR`。解除急停不碰驱动器，只把设备流程释放回空闲，
+不写任何控制字。再使能必须由操作员刻意发起，复位不得导致重启。
 
-配置、使能、PP 和停止均不阻塞。状态机通过异步 `sdo_access` 发起对象读写，不使用循环等待或条件变量。
+配置、使能、PP 和停止均不阻塞。状态机通过异步 `sdo_client_*` 函数发起对象读写，不使用循环等待或条件变量。
 
 使能按实际 6041 状态决定路径：
 
@@ -123,18 +130,17 @@ Halt 与 Quick Stop 会抢占当前流程。CANopen 工作线程先取消在途�
 单次 SDO 超时与整个使能步骤、停车、PP 到位的业务期限分别管理。反馈不再占用
 SDO 通道（改由 `canopen/pdo` 收 TPDO），通道由 402 流程独占。
 
-两道兜底，保证流程一定会有结论：
+两道保护，保证已受理事务一定有结果，未受理不会误报执行故障：
 
-- **发起必有结果**：`dev_read` / `dev_write` 检查 `start` 的返回值，通道忙导致事务
-  没发起时记一笔标记，由下一次 poll 按超时收尾（通道空闲时不存在任何在途结果）。
-- **流程总期限**：请求受理时按类型设 `flow_deadline`（比该流程最长的单步期限再留
-  余量），`st_operation_active` 在 TICK 里检查——任何一步静默卡住都会变成一次
-  可诊断的超时故障，而不是永久停在某个状态。
+- **诚实受理**：`dev_read` / `dev_write` 显式检查 `ACCEPTED / BUSY / INVALID`。只有受理才等待结果；
+  未受理立即清理当前流程，保留 `NONE` 结局，不生成虚假失败。
+- **流程总期限**：请求受理时按类型设 `flow_deadline`（比该流程最长的单步期限再留余量），
+  `st_operation_active` 在 TICK 里检查已受理流程是否超出业务期限。
 
 ## 依赖边界
 
 ```text
-cia402/device → sdo_access ← transport/sdo_client → CANopenNode
+cia402/device → sdo_client（显式公共函数） ← transport/sdo_client 实现 → CANopenNode
 cia402/pds    → 无依赖
 ```
 
@@ -148,4 +154,6 @@ cia402/pds    → 无依赖
 - 完整使能状态链；
 - PP 参数、触发和到位；
 - Quick Stop 抢占在途事务；
-- 事务超时与失败发布。
+- 事务超时与失败发布；
+- 未受理后回到空闲并可重新发起；
+- 回零取消清理与旧失败抑制。

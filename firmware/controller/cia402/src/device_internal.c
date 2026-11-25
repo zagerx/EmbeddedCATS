@@ -14,20 +14,25 @@
 
 #include "device_internal.h"
 
+#include <stdio.h>
+
 /**
  * dev_read - 发起一笔读事务
  * @d: 设备对象
  * @index: 对象索引
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * 事务的在途状态与期限都归通道所有：这里只发起，结果统一由 cia402_poll 派发。
- * 发起即使被拒，通道也保证交付一笔结果，状态机不会等不到事件。
+ * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
  */
-void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	if (d->access->start(d->access->ctx, SDO_DIR_READ, index, 0u, 0u, 0u, timeout_ms) != 0) {
-		d->sdo_rejected = 1u; /* 通道忙：这笔没发起，不会有结果，由 poll 统一收尾 */
+	enum sdo_start_result started;
+
+	started = sdo_client_read(d->client, index, 0u, timeout_ms);
+	if (started == SDO_START_ACCEPTED) {
+		d->sdo_pending = 1u;
 	}
+	return started;
 }
 
 /**
@@ -38,34 +43,39 @@ void dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * 写 6040 时先暂存到 pending，事务成功后才落到 confirmed 镜像。
+ * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
  */
-void dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
-	       uint32_t timeout_ms)
+enum sdo_start_result dev_write(struct cia402_device *d, uint16_t index, uint32_t value,
+				uint8_t size, uint32_t timeout_ms)
 {
-	dev_write_sub(d, index, 0u, value, size, timeout_ms);
+	return dev_write_sub(d, index, 0u, value, size, timeout_ms);
 }
 
 /**
  * dev_write_sub - 发起一笔带子索引的写事务
  * @d: 设备对象
  * @index: 对象索引
- * @sub: 子索引；数组类对象（如 6099h）用
+ * @sub: 子索引
  * @value: 待写值
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限，由通道掌握
+ *
+ * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
  */
-void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
-		   uint8_t size, uint32_t timeout_ms)
+enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub,
+				    uint32_t value, uint8_t size, uint32_t timeout_ms)
 {
-	if (index == CIA402_OD_CONTROLWORD) {
-		d->cw.pending = (uint16_t)value;
-		d->cw.pending_valid = 1u;
+	enum sdo_start_result started;
+
+	started = sdo_client_write(d->client, index, sub, value, size, timeout_ms);
+	if (started == SDO_START_ACCEPTED) {
+		d->sdo_pending = 1u;
+		if (index == CIA402_OD_CONTROLWORD) {
+			d->cw.pending = (uint16_t)value;
+			d->cw.pending_valid = 1u;
+		}
 	}
-	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, index, sub, value, size, timeout_ms) !=
-	    0) {
-		d->sdo_rejected = 1u; /* 同上：没发起就不会有结果 */
-	}
+	return started;
 }
 
 /**
@@ -74,45 +84,106 @@ void dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_
  * @value: 控制字值
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * 在线变位 0x103F 是一次性指令：驱动器执行完并不停在该值上。若按 dev_write
- * 记进 cw.confirmed，后续 HALT 就会带着 bit12 发出去。
+ * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
  */
-void dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
-	if (d->access->start(d->access->ctx, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, 0u,
-			     (uint32_t)value, 2u, timeout_ms) != 0) {
-		d->sdo_rejected = 1u; /* 没发起就不会有结果，由 poll 统一收尾 */
+	enum sdo_start_result started;
+
+	started = sdo_client_write(d->client, CIA402_OD_CONTROLWORD, 0u, (uint32_t)value, 2u,
+				   timeout_ms);
+	if (started == SDO_START_ACCEPTED) {
+		d->sdo_pending = 1u;
 	}
+	return started;
 }
 
 /**
- * dev_finish - 结束当前流程并写下回执
+ * dev_not_started - 未受理事务的立即收尾
  * @d: 设备对象
- * @result: DONE 或 FAILED
- * @fail: 失败原因；成功时传 CIA402_FAIL_NONE
+ * @started: 客户端的未受理原因
  *
- * 写回执三项，并清 running 表示流程已自行收尾。
- * 被取消的流程不走这里。
+ * Return: 消费当前 ENTRY；下一拍取消流程且不交付结局。
  */
-void dev_finish(struct cia402_device *d, enum cia402_outcome result, enum cia402_fail fail)
+sm_ret_t dev_not_started(struct cia402_device *d, enum sdo_start_result started)
 {
-	d->outbox.outcome = result;
-	d->outbox.fail = fail;
-	/* 流程自己收尾：running 清零；被打断退出的流程仍有 running = 1。 */
+	fprintf(stderr, "[cia402] 请求未执行: kind=%d, reason=%s\n", (int)d->operation.kind,
+		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
+	d->sdo_unstarted = 1u;
+	d->cw.pending_valid = 0u;
+	return SM_HANDLED();
+}
+
+/**
+ * dev_start_read - 状态入口发起读并处理未受理
+ * @d: 设备对象
+ * @index: 对象索引
+ * @timeout_ms: 本笔事务的期限
+ *
+ * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ */
+sm_ret_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+{
+	enum sdo_start_result started = dev_read(d, index, timeout_ms);
+
+	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+}
+
+/**
+ * dev_start_write - 状态入口发起写并处理未受理
+ * @d: 设备对象
+ * @index: 对象索引
+ * @value: 待写值
+ * @size: 字节数
+ * @timeout_ms: 本笔事务的期限
+ *
+ * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ */
+sm_ret_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+			 uint32_t timeout_ms)
+{
+	enum sdo_start_result started = dev_write(d, index, value, size, timeout_ms);
+
+	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+}
+
+/**
+ * dev_start_pulse - 状态入口发起一次性控制字并处理未受理
+ * @d: 设备对象
+ * @value: 控制字值
+ * @timeout_ms: 本笔事务的期限
+ *
+ * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ */
+sm_ret_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+{
+	enum sdo_start_result started = dev_write_pulse(d, value, timeout_ms);
+
+	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+}
+
+/**
+ * dev_done - 成功结束当前流程
+ * @d: 设备对象
+ */
+void dev_done(struct cia402_device *d)
+{
+	d->outbox = CIA402_OUTCOME_DONE;
 	d->operation.running = 0u;
 	d->cw.pending_valid = 0u;
 }
 
 /**
- * dev_note_code - 记录失败回执里的诊断码
+ * dev_finish - 失败结束并保存诊断
  * @d: 设备对象
- * @code: 诊断码（驱动器故障时是当时的 6041 状态字）
- *
- * dev_finish 只写结论与归类，不动诊断码；上层取回执时一并读走。
+ * @fail: 执行失败诊断
  */
-void dev_note_code(struct cia402_device *d, uint32_t code)
+void dev_finish(struct cia402_device *d, enum cia402_fail fail)
 {
-	d->outbox.abort_code = code;
+	d->outbox = CIA402_OUTCOME_FAILED;
+	d->failure.fail = fail;
+	d->operation.running = 0u;
+	d->cw.pending_valid = 0u;
 }
 
 /**
@@ -125,11 +196,12 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 	enum cia402_fail fail = CIA402_FAIL_SDO;
 
 	if (result == NULL) {
-		fail = CIA402_FAIL_NONE;
-	} else if (result->status == SDO_STATUS_TIMEOUT || result->abort_code == 0u) {
+		return;
+	}
+	d->failure.abort_code = result->abort_code;
+	if (result->status == SDO_STATUS_TIMEOUT || result->abort_code == 0u) {
 		/* 通道判定期限到，或没有 abort 码的失败：驱动器没按期应答 */
 		fail = CIA402_FAIL_TIMEOUT;
 	}
-	d->outbox.abort_code = (result != NULL) ? result->abort_code : 0u;
-	dev_finish(d, CIA402_OUTCOME_FAILED, fail);
+	dev_finish(d, fail);
 }

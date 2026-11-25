@@ -14,10 +14,11 @@
 #include <stdio.h>
 #include <string.h>
 
-struct fake_access {
-	struct sdo_access access;
+sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e);
+
+struct fake_client {
 	uint8_t started;
-	uint8_t refuse; /* start 直接拒绝 */
+	uint8_t refuse; /* 强制发起拒绝 */
 	uint8_t dir;
 	uint8_t size;
 	uint16_t index;
@@ -28,16 +29,16 @@ struct fake_access {
 };
 
 struct fx {
-	struct fake_access fake;
+	struct fake_client fake;
 	struct cia402_device dev;
-	struct cia402_operation_result st;
+	enum cia402_outcome st;
+	struct cia402_failure_info failure;
 	uint32_t t;
 };
 
-static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
-		      uint8_t size, uint32_t timeout_ms);
-static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result);
-static void fake_abort(void *ctx);
+static enum sdo_start_result fake_start(struct fake_client *fake, uint8_t dir, uint16_t index,
+					uint8_t sub, uint32_t value, uint8_t size,
+					uint32_t timeout_ms);
 
 static void fx_init(struct fx *f);
 static void fx_request(struct fx *f, enum cia402_kind kind);
@@ -55,11 +56,15 @@ static void test_enable(void);
 static void test_pp(void);
 static void test_pp_retarget(void);
 static void test_home_bit13(void);
+static void test_home_fault(void);
 static void test_home_cancel(void);
+static void test_home_preempt(void);
+static void test_home_cleanup_preempt(void);
 static void test_quick_stop_preempts(void);
 static void test_quick_stop_write_failure(void);
 static void test_quick_stop_clear(void);
 static void test_start_rejected(void);
+static void test_client_contract(void);
 static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
 static void test_waiting_not_timed_out(void);
@@ -87,43 +92,65 @@ int cia402_device_tests(void)
 	test_pp();
 	test_pp_retarget();
 	test_home_bit13();
+	test_home_fault();
 	test_home_cancel();
+	test_home_preempt();
+	test_home_cleanup_preempt();
 	test_quick_stop_preempts();
 	test_quick_stop_write_failure();
 	test_quick_stop_clear();
 	test_start_rejected();
+	test_client_contract();
 	test_cancel_beats_pending_failure();
 	test_timeout();
 	test_waiting_not_timed_out();
 	return failures;
 }
 
-static int fake_start(void *ctx, uint8_t dir, uint16_t index, uint8_t sub, uint32_t value,
-		      uint8_t size, uint32_t timeout_ms)
+/**
+ * sdo_client_read - 测试用异步读实现
+ * @s: 假客户端对象
+ * @index: 对象索引
+ * @subindex: 子索引
+ * @timeout_ms: 本笔事务的期限
+ *
+ * Return: 仅 ACCEPTED 产生结果；BUSY / INVALID 不占用通道。
+ */
+enum sdo_start_result sdo_client_read(struct sdo_client *s, uint16_t index, uint8_t subindex,
+				      uint32_t timeout_ms)
 {
-	struct fake_access *fake = ctx;
-
-	(void)sub;
 	(void)timeout_ms;
-	if (fake->refuse != 0u || fake->started != 0u) {
-		/* 会话被占用：按契约仍交一笔失败结果，调用方不会等不到事件 */
-		memset(&fake->result, 0, sizeof(fake->result));
-		fake->result.status = SDO_STATUS_FAIL;
-		fake->result_ready = 1u;
-		return -1;
-	}
-	fake->started = 1u;
-	fake->dir = dir;
-	fake->index = index;
-	fake->value = value;
-	fake->size = size;
-	fake->result_ready = 0u;
-	return 0;
+	return fake_start((struct fake_client *)s, SDO_DIR_READ, index, subindex, 0u, 0u, 200u);
 }
 
-static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result)
+/**
+ * sdo_client_write - 测试用异步写实现
+ * @s: 假客户端对象
+ * @index: 对象索引
+ * @subindex: 子索引
+ * @value: 待写值
+ * @size: 字节数
+ * @timeout_ms: 本笔事务的期限
+ *
+ * Return: 仅 ACCEPTED 产生结果；BUSY / INVALID 不占用通道。
+ */
+enum sdo_start_result sdo_client_write(struct sdo_client *s, uint16_t index, uint8_t subindex,
+				       uint32_t value, uint8_t size, uint32_t timeout_ms)
 {
-	struct fake_access *fake = ctx;
+	return fake_start((struct fake_client *)s, SDO_DIR_WRITE, index, subindex, value, size,
+			  timeout_ms);
+}
+
+/**
+ * sdo_client_poll - 取走测试事务结果
+ * @s: 假客户端对象
+ * @result: 结果输出
+ *
+ * Return: DONE 取走结果并释放通道；其他结果不改变输出。
+ */
+enum sdo_poll sdo_client_poll(struct sdo_client *s, struct sdo_result *result)
+{
+	struct fake_client *fake = (struct fake_client *)s;
 
 	if (fake->result_ready != 0u) {
 		*result = fake->result;
@@ -134,21 +161,45 @@ static enum sdo_poll fake_poll(void *ctx, struct sdo_result *result)
 	return (fake->started != 0u) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
 }
 
-static void fake_abort(void *ctx)
+/**
+ * sdo_client_abort - 登记测试事务取消
+ * @s: 假客户端对象
+ */
+void sdo_client_abort(struct sdo_client *s)
 {
-	struct fake_access *fake = ctx;
+	struct fake_client *fake = (struct fake_client *)s;
 
-	fake->aborts++;
+	if (fake->started != 0u) {
+		fake->aborts++;
+	}
+}
+
+static enum sdo_start_result fake_start(struct fake_client *fake, uint8_t dir, uint16_t index,
+					uint8_t sub, uint32_t value, uint8_t size,
+					uint32_t timeout_ms)
+{
+	(void)sub;
+	(void)timeout_ms;
+	if (fake->started != 0u) {
+		return SDO_START_BUSY;
+	}
+	if (fake->refuse != 0u || timeout_ms == 0u ||
+	    (dir == SDO_DIR_WRITE && (size == 0u || size > 4u))) {
+		return SDO_START_INVALID;
+	}
+	fake->started = 1u;
+	fake->dir = dir;
+	fake->index = index;
+	fake->value = value;
+	fake->size = size;
+	fake->result_ready = 0u;
+	return SDO_START_ACCEPTED;
 }
 
 static void fx_init(struct fx *f)
 {
 	memset(f, 0, sizeof(*f));
-	f->fake.access.start = fake_start;
-	f->fake.access.poll = fake_poll;
-	f->fake.access.abort = fake_abort;
-	f->fake.access.ctx = &f->fake;
-	cia402_init(&f->dev, &f->fake.access);
+	cia402_init(&f->dev, (struct sdo_client *)&f->fake);
 }
 
 static void fx_request(struct fx *f, enum cia402_kind kind)
@@ -169,7 +220,11 @@ static void fx_request(struct fx *f, enum cia402_kind kind)
 static void fx_poll_at(struct fx *f, uint32_t t)
 {
 	f->t = t;
-	cia402_poll(&f->dev, t, &f->st);
+	cia402_poll(&f->dev, t);
+	f->st = cia402_take_result(&f->dev);
+	if (f->st == CIA402_OUTCOME_FAILED) {
+		cia402_get_failure(&f->dev, &f->failure);
+	}
 }
 
 static void fx_poll(struct fx *f)
@@ -299,7 +354,7 @@ static void test_enable(void)
 	fx_complete(&f, 0, 0x0027u);
 	fx_poll(&f);
 
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 }
 
 /* PP：写四个参数 → bit4 边沿 → 等到位 */
@@ -337,17 +392,10 @@ static void test_pp(void)
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
-	{
-		struct cia402_operation_result status;
-
-		cia402_get_result(&f.dev, &status);
-		CHECK(status.outcome == CIA402_OUTCOME_DONE);
-		CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_DONE);
-		CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
-	}
+	CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
 }
 
 /* PP 运动中的新目标：走在线变位 0x103F，不停车、不报中间结论 */
@@ -362,7 +410,7 @@ static void test_pp_retarget(void)
 
 	/* 运动中再来一条：受理，不是 BUSY */
 	CHECK(fx_move(&f, 200) == CIA402_ACCEPTED);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 
 	/* 这一笔读到的还是“没到位”：先把参数按新目标重跑一遍 */
 	fx_complete(&f, 0, 0x0027u);
@@ -386,14 +434,14 @@ static void test_pp_retarget(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	/* 0x103F 是一次性指令，不得污染控制字镜像 */
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 
 	/* 新目标优先于到位：这一次读到 bit10 = 1，也不能把后来的指令丢掉 */
 	CHECK(fx_move(&f, 300) == CIA402_ACCEPTED);
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 
 	/* 把最后一段走到位 */
 	fx_complete(&f, 0, 0u);
@@ -411,7 +459,7 @@ static void test_pp_retarget(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
 	/* 只有 PP 在跑时才能改目标：别的流程仍按忙拒 */
@@ -450,11 +498,11 @@ static void fx_home_restore(struct fx *f, uint16_t sw)
 	fx_poll(f);
 }
 
-/* 回零出错：bit13 = 回零错误，回执里要带上当时的 6041，不能只说“驱动器故障” */
+/* 回零出错：bit13 = 回零错误，要与 PDS 故障区分，且不占用 abort 码 */
 static void test_home_bit13(void)
 {
 	struct fx f;
-	struct cia402_operation_result status;
+	struct cia402_failure_info status;
 
 	fx_init(&f);
 	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
@@ -462,12 +510,36 @@ static void test_home_bit13(void)
 	fx_home_run(&f);
 
 	fx_home_restore(&f, 0x2637u); /* bit13：回零错误 */
-	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
-	CHECK(f.st.fail == CIA402_FAIL_DRIVER);
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure.fail == CIA402_FAIL_HOMING);
 
-	cia402_get_result(&f.dev, &status);
-	CHECK(status.abort_code == 0x2637u);
+	cia402_get_failure(&f.dev, &status);
+	CHECK(status.abort_code == 0u);                   /* 回零错误不是 abort 码 */
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP); /* bit4 已落，halt 也清了 */
+}
+
+/* 回零中的真 PDS 故障（bit3）仍报驱动器故障，走停机链 */
+static void test_home_fault(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
+	fx_request(&f, CIA402_REQ_HOME);
+	fx_home_run(&f);
+
+	/* bit3 = 1、bit6 = 0 → cia402_parse 判 FAULT */
+	fx_complete(&f, 0, 0x0008u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+
+	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure.fail == CIA402_FAIL_DRIVER);
 }
 
 /* 单笔事务超时把回零打断：要报超时，不能冒充驱动器故障 */
@@ -490,8 +562,67 @@ static void test_home_cancel(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
-	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
-	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
+}
+
+/* 抢占回零：完成停机与模式恢复，但取消不是回零成功或失败 */
+static void test_home_preempt(void)
+{
+	struct fx f;
+	const struct cia402_request req = {.kind = CIA402_REQ_HALT};
+
+	fx_init(&f);
+	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
+	fx_request(&f, CIA402_REQ_HOME);
+	fx_home_run(&f);
+	CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
+	fx_poll(&f);
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
+	fx_poll(&f);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
+	fx_poll(&f);                           /* 回空闲，取到后继 HALT */
+	CHECK(cia402_is_running(&f.dev) != 0); /* HALT 是独立的新操作 */
+	CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
+}
+
+/* 回零清理链再被抢占：旧失败不得在后继取消之后补交 */
+static void test_home_cleanup_preempt(void)
+{
+	struct fx f;
+
+	fx_init(&f);
+	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
+	fx_request(&f, CIA402_REQ_HOME);
+	fx_home_run(&f);
+	fx_complete(&f, 0, (1u << 3));
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+
+	CHECK(cia402_request(&f.dev, &(const struct cia402_request){.kind = CIA402_REQ_HALT}) ==
+	      CIA402_ACCEPTED);
+	fx_poll(&f);
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
+	fx_poll(&f);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
+		       CIA402_CW_ENABLE_OP | CIA402_CW_HALT);
+	fx_complete(&f, 0, 0u);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
+	fx_home_restore(&f, CIA402_SW_TARGET_REACHED);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 }
 
 /* Quick Stop 抢占在途 PP */
@@ -511,16 +642,16 @@ static void test_quick_stop_preempts(void)
 	}
 	fx_poll(&f);
 	CHECK(f.fake.aborts == 1u);
-	fx_complete(&f, -1, 0u); /* 被 abort 的旧事务 */
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
 	fx_poll(&f);
 	/* 旧流程作废：不能留下失败结论 */
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 
 	/* 写完就停手：急停整条链路只有那一帧 */
 	f.fake.started = 0u;
@@ -544,7 +675,7 @@ static void test_quick_stop_write_failure(void)
 		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
 	}
 	fx_poll(&f);
-	fx_complete(&f, -1, 0u);
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
 	fx_poll(&f);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
@@ -553,8 +684,8 @@ static void test_quick_stop_write_failure(void)
 	fx_poll_at(&f, f.t + 300u);
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
-	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
-	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
 
 	/* 失败也不补发、不补断使能 */
 	f.fake.started = 0u;
@@ -574,7 +705,7 @@ static void test_quick_stop_clear(void)
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 
 	/* 终态期间：普通请求被丢弃，不发帧 */
 	fx_request(&f, CIA402_REQ_ENABLE);
@@ -588,7 +719,7 @@ static void test_quick_stop_clear(void)
 	fx_request(&f, CIA402_REQ_ESTOP_CLEAR);
 	fx_poll(&f); /* 受理请求 → 直接交回执 */
 	CHECK(f.fake.started == 0u);
-	CHECK(f.st.outcome == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OUTCOME_DONE);
 
 	/* 恢复受理：使能请求能被接纳并发起读状态字 */
 	f.fake.started = 0u;
@@ -597,7 +728,7 @@ static void test_quick_stop_clear(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 }
 
-/* 发起被立即拒绝：下一拍给出失败结论 */
+/* 事务根本没发起：取消流程，不产生执行失败或虚假超时 */
 static void test_start_rejected(void)
 {
 	struct fx f;
@@ -608,8 +739,50 @@ static void test_start_rejected(void)
 	f.fake.refuse = 1u; /* 让 fake_start 直接拒绝 */
 	fx_poll(&f);
 	fx_poll(&f);
+	fx_poll(&f); /* 连续空转也不能把未受理变成失败结果 */
 
-	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.dev.operation.running == 0u);
+	CHECK(sm_hsm_state(&f.dev.hsm) == &st_idle);
+
+	f.fake.refuse = 0u;
+	fx_request(&f, CIA402_REQ_MOVE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
+}
+
+/* 显式函数契约：拒绝无结果，已受理必有结果，取消不是402失败 */
+static void test_client_contract(void)
+{
+	struct fx f;
+	struct sdo_client *client = (struct sdo_client *)&f.fake;
+	struct sdo_result result;
+
+	fx_init(&f);
+	fx_complete(&f, SDO_STATUS_FAIL, 0xDEADu);
+	CHECK(sdo_client_write(client, CIA402_OD_CONTROLWORD, 0u, 0u, 0u, 200u) ==
+	      SDO_START_INVALID);
+	CHECK(f.fake.started == 0u);
+	CHECK(f.fake.result.value == 0xDEADu);
+	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE); /* 清理上一笔外部结果 */
+
+	CHECK(sdo_client_read(client, CIA402_OD_STATUSWORD, 0u, 200u) == SDO_START_ACCEPTED);
+	CHECK(sdo_client_read(client, CIA402_OD_STATUSWORD, 0u, 200u) == SDO_START_BUSY);
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
+	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE);
+	CHECK(result.status == SDO_STATUS_CANCELLED);
+	CHECK(sdo_client_poll(client, &result) == SDO_POLL_IDLE);
+
+	fx_request(&f, CIA402_REQ_ENABLE);
+	fx_poll(&f);
+	CHECK(cia402_request(&f.dev, &(const struct cia402_request){.kind = CIA402_REQ_HALT}) ==
+	      CIA402_ACCEPTED);
+	fx_poll(&f);
+	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
+	fx_poll(&f);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
+	fx_poll(&f);
+	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_HALT);
 }
 
 /* 已被抢占的流程，其未分发的失败不能泄漏成结论 */
@@ -621,7 +794,8 @@ static void test_cancel_beats_pending_failure(void)
 	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
 	fx_request(&f, CIA402_REQ_MOVE);
 
-	f.fake.refuse = 1u; /* 第一笔写被拒：通道交一笔失败结果 */
+	/* 第一笔写被拒绝：未受理，没有通道结果，立即退出旧流程 */
+	f.fake.refuse = 1u;
 	fx_poll(&f);
 	f.fake.refuse = 0u;
 
@@ -631,7 +805,7 @@ static void test_cancel_beats_pending_failure(void)
 		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
 	}
 	fx_poll(&f);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE); /* 旧失败作废 */
+	CHECK(f.st == CIA402_OUTCOME_NONE); /* 旧失败作废 */
 
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD,
@@ -649,13 +823,13 @@ static void test_timeout(void)
 	fx_poll_at(&f, 0u);
 	fx_poll_at(&f, 300u); /* 402 不自己计时：由通道判定 */
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 
-	CHECK(f.st.outcome == CIA402_OUTCOME_FAILED);
-	CHECK(f.st.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
 }
 
 /* 通道还在等结果时，402 不得自作主张判超时 */
@@ -671,7 +845,7 @@ static void test_waiting_not_timed_out(void)
 	fx_poll_at(&f, 1000u);
 	fx_poll_at(&f, 5000u);
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st.outcome == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OUTCOME_NONE);
 
 	fx_complete(&f, 0, 0x0040u); /* 通道终于开始并完成传输 */
 	fx_poll_at(&f, 5000u);

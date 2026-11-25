@@ -25,8 +25,7 @@ static void home_fail(struct cia402_device *d, enum cia402_fail fail);
  * @e: 待处理事件
  *
  * 被暂停或急停抢占时不直接退出：先停电机、切回 PP 再收尾，否则驱动器会
- * 带着 bit4 继续找原点。被抢占的中止不算设备故障；但单笔事务超时/被拒
- * 是真的没打通，得按超时上报——两者不能都写成“驱动器故障”。
+ * 带着 bit4 继续找原点。被抢占的中止只取消流程，不产生执行回执。
  */
 sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e)
 {
@@ -34,8 +33,12 @@ sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case CIA402_SIG_CANCEL:
-		home_fail(d, (DEV_CANCEL_REASON(e) == CIA402_CANCEL_TIMEOUT) ? CIA402_FAIL_TIMEOUT
-									     : CIA402_FAIL_NONE);
+		if (DEV_CANCEL_REASON(e) == CIA402_CANCEL_TIMEOUT) {
+			home_fail(d, CIA402_FAIL_TIMEOUT);
+		} else {
+			d->operation.home.cancelled = 1u;
+			d->operation.home.failed = 0u; /* 旧失败属于已取消流程 */
+		}
 		return SM_TRAN(&st_home_halt);
 
 	default:
@@ -54,8 +57,8 @@ sm_ret_t st_home_write_mode(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_MODE, CIA402_MODE_HM, 1u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_HM, 1u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -80,8 +83,7 @@ sm_ret_t st_home_read_mode(struct sm_hsm *const me, const struct sm_event *const
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -113,10 +115,9 @@ sm_ret_t st_home_start(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD,
-			  (uint32_t)(d->cw.confirmed | CIA402_CW_HOMING_START), 2u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       (uint32_t)(d->cw.confirmed | CIA402_CW_HOMING_START), 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -146,8 +147,7 @@ sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -162,12 +162,11 @@ sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_TRAN(&st_home_restore_cw); /* 成功：位置已由驱动器置 0 */
 		}
 		if ((sw & CIA402_SW_HOMING_ERROR) != 0u) {
-			dev_note_code(d, sw); /* 回执带上当时的 6041，区分 bit13 与真故障 */
-			home_fail(d, CIA402_FAIL_DRIVER);
+			/* bit13 是驱动器判的回零错误（开关信号过冲等），不是 PDS 故障 */
+			home_fail(d, CIA402_FAIL_HOMING);
 			return SM_TRAN(&st_home_restore_cw);
 		}
 		if (cia402_parse(sw) == CIA402_FAULT) {
-			dev_note_code(d, sw);
 			home_fail(d, CIA402_FAIL_DRIVER);
 			return SM_TRAN(&st_home_halt);
 		}
@@ -197,10 +196,10 @@ sm_ret_t st_home_halt(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD,
-			  (d->cw.confirmed & (uint16_t)~CIA402_CW_HOMING_START) | CIA402_CW_HALT,
-			  2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       (d->cw.confirmed & (uint16_t)~CIA402_CW_HOMING_START) |
+					       CIA402_CW_HALT,
+				       2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -227,8 +226,7 @@ sm_ret_t st_home_halt_wait(struct sm_hsm *const me, const struct sm_event *const
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -262,10 +260,10 @@ sm_ret_t st_home_restore_cw(struct sm_hsm *const me, const struct sm_event *cons
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD,
-			  d->cw.confirmed & (uint16_t) ~(CIA402_CW_HALT | CIA402_CW_HOMING_START),
-			  2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(
+			d, CIA402_OD_CONTROLWORD,
+			d->cw.confirmed & (uint16_t) ~(CIA402_CW_HALT | CIA402_CW_HOMING_START), 2u,
+			CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -290,8 +288,8 @@ sm_ret_t st_home_restore_mode(struct sm_hsm *const me, const struct sm_event *co
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -299,10 +297,9 @@ sm_ret_t st_home_restore_mode(struct sm_hsm *const me, const struct sm_event *co
 			return SM_TRAN(&st_idle);
 		}
 		if (d->operation.home.failed != 0u) {
-			dev_finish(d, CIA402_OUTCOME_FAILED,
-				   (enum cia402_fail)d->operation.home.fail_kind);
-		} else {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+			dev_finish(d, (enum cia402_fail)d->operation.home.fail_kind);
+		} else if (d->operation.home.cancelled == 0u) {
+			dev_done(d);
 		}
 		return SM_TRAN(&st_idle);
 

@@ -24,8 +24,8 @@ sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *co
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -55,8 +55,7 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE: {
 		const struct sdo_result *r = DEV_SDO_RESULT(e);
@@ -64,9 +63,9 @@ sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *con
 		if (r->status != 0) {
 			dev_fail(d, r);
 		} else if ((r->value & 0xFFu) == CIA402_MODE_PP) {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+			dev_done(d);
 		} else {
-			dev_finish(d, CIA402_OUTCOME_FAILED, CIA402_FAIL_CHECK); /* 模式没设进去 */
+			dev_finish(d, CIA402_FAIL_CHECK); /* 模式没设进去 */
 		}
 		return SM_TRAN(&st_idle);
 	}

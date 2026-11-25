@@ -45,6 +45,38 @@ add_executable(cia402_selftest
 target_link_libraries(cia402_selftest PRIVATE cia402)
 target_compile_options(cia402_selftest PRIVATE -Wall -Wextra)
 
+# 真实 SDO 客户端 + 测试专用 CANopenNode 协议桩：不创建 CAN 接口
+add_executable(sdo_client_selftest
+	apps/tools/sdo_client_selftest/main.c
+	controller/canopen/transport/src/sdo_client.c)
+target_include_directories(sdo_client_selftest PRIVATE
+	apps/tools/sdo_client_selftest/include)
+target_link_libraries(sdo_client_selftest PRIVATE sdo_transport)
+target_compile_options(sdo_client_selftest PRIVATE -Wall -Wextra)
+
+# 控制层纯逻辑回归：不创建 CAN 接口，也不驱动任何电机
+add_executable(controller_fault_selftest
+	apps/tools/controller_fault_selftest/main.c
+	apps/tools/controller_fault_selftest/sdo_client_fake.c
+	controller/controller_axis/axis/axis.c
+	controller/controller_axis/controller_axis.c
+	controller/controller_log.c
+	controller/controller_fault.c
+	controller/controller_evtqueue/evt_queue.c)
+target_include_directories(controller_fault_selftest PRIVATE
+	controller
+	controller/include
+	controller/config
+	controller/controller_evtqueue
+	controller/controller_axis/include
+	controller/cia402/include
+	controller/canopen/master/include
+	controller/canopen/pdo/include
+	controller/canopen/transport/include
+	controller/hsm/include)
+target_link_libraries(controller_fault_selftest PRIVATE cia402 cats_hsm canopen_node Threads::Threads)
+target_compile_options(controller_fault_selftest PRIVATE -Wall -Wextra)
+
 # 工具：主线程直接运行 CANopen epoll 循环，用于无界面端到端验证
 add_executable(master_probe apps/tools/master_probe/main.c)
 target_include_directories(master_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/controller/config)

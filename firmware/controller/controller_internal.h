@@ -40,7 +40,8 @@ struct controller {
 
 	struct controller_move_cmd move;
 	uint8_t move_done;
-	uint8_t axis_done; /* 位图：当前集合动作（配置/使能）已确认成功的轴 */
+	uint8_t axis_done;      /* 解除急停时等待的设备位图 */
+	uint8_t axis_active;    /* 本状态已受理、仍在等待的轴位图 */
 	uint8_t estop_clearing; /* 非 0：已发出解除急停请求，等回执齐了再迁 IDLE */
 	uint8_t node_ready;     /* 非 0：驱动器已重启完毕，允许发起对象访问 */
 	uint8_t home_mask;      /* 位图：本次回零涉及哪些轴 */
@@ -80,6 +81,9 @@ struct controller *control_ctx(void);
  */
 void controller_set_fault(struct controller *ctl, enum controller_state stage,
 			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code);
+/* 一次集合动作可能同拍失败多轴：完整保留失败位图，主快照仍由首个故障决定 */
+void controller_set_axes_fault(struct controller *ctl, enum controller_state stage,
+			       const struct controller_axes_failure *failure);
 
 /* 把 cia402 的失败归类映射为业务故障原因 */
 enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail);

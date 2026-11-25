@@ -27,15 +27,14 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		dev_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP, 2u,
-			  CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return SM_HANDLED();
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
 			dev_fail(d, DEV_SDO_RESULT(e)); /* 只记 abort 码，不重发 */
 		} else {
-			dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+			dev_done(d);
 		}
 		return SM_TRAN(&st_qstop_hold);
 
@@ -66,7 +65,7 @@ sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e)
 			return SM_HANDLED(); /* 急停中：其他请求一律丢弃 */
 		}
 		/* 断电已在急停那一帧完成，这里只交回执并退出终态 */
-		dev_finish(d, CIA402_OUTCOME_DONE, CIA402_FAIL_NONE);
+		dev_done(d);
 		return SM_TRAN(&st_idle);
 	}
 

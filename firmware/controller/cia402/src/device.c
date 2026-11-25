@@ -4,8 +4,8 @@
  * 本文件与 device.h 一一对应，只实现对外接口：
  *   cia402_init()     装配
  *   cia402_request()  投递（只回答收不收）
- *   cia402_poll()     推进一拍并交出回执
- *   cia402_get_result() / cia402_take_result() 读取回执 / 消费回执
+ *   cia402_poll()     推进协议流程
+ *   cia402_get_failure() / cia402_take_result() 读诊断 / 消费结局
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
  * 状态骨架在 states/，操作流程在 operations/。本文件只负责把「邮箱、事务结果、取消」
@@ -20,6 +20,7 @@
 #include "device_internal.h"
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 static int admit(struct cia402_device *d, const struct cia402_request *req);
@@ -30,19 +31,18 @@ static uint32_t cia402_flow_timeout_ms(enum cia402_kind kind);
 static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
 			    const struct sdo_result *result);
 static void dispatch_tick(struct cia402_device *d);
-static void snapshot(const struct cia402_device *d, struct cia402_operation_result *out);
 
 /**
  * cia402_init - 装配一台设备
  * @d: 设备对象
- * @access: 对象事务通道，由上层注入
+ * @client: 对象事务客户端，由上层注入
  *
  * 装配后设备处于空闲；hsm 只保留初始转移。
  */
-void cia402_init(struct cia402_device *d, const struct sdo_access *access)
+void cia402_init(struct cia402_device *d, struct sdo_client *client)
 {
 	memset(d, 0, sizeof(*d));
-	d->access = access;
+	d->client = client;
 	sm_hsm_init(&d->hsm, &device_initial);
 }
 
@@ -72,92 +72,104 @@ enum cia402_response cia402_request(struct cia402_device *d, const struct cia402
 }
 
 /**
- * cia402_poll - 推进一拍并交出回执
+ * cia402_poll - 推进一拍
  * @d: 设备对象
  * @now_ms: 当前单调毫秒时刻
- * @out: 回执输出；可为 NULL（只推进）
  *
- * 仅工作线程调用。out 在事件分发之后填，所以本拍刚产生的结论立刻可见。
+ * 仅工作线程调用；成功或失败通过 cia402_take_result() 取走。
  */
-void cia402_poll(struct cia402_device *d, uint32_t now_ms, struct cia402_operation_result *out)
+void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 {
 	struct sdo_result result;
 	struct cia402_request req;
 	enum sdo_poll state;
 	uint8_t cancel;
 
-	if (d == NULL || d->access == NULL) {
-		if (out != NULL) {
-			memset(out, 0, sizeof(*out));
-		}
+	if (d == NULL || d->client == NULL) {
 		return;
 	}
 	d->now_ms = now_ms;
-
-	/* 读取本轮取消原因，后续事件分发统一使用这个副本 */
 	cancel = d->mailbox.cancel;
 
-	/* 抢占：先打断在途事务，结论由取消事件统一给出 */
-	if (cancel != CIA402_CANCEL_NONE) {
-		d->access->abort(d->access->ctx);
+	if (d->sdo_unstarted != 0u) {
+		/* ENTRY 内不能再转移：现在从实际状态处理取消，保证真正回到空闲 */
+		d->sdo_unstarted = 0u;
+		dispatch_cancel(d, cancel != CIA402_CANCEL_NONE ? cancel : CIA402_CANCEL_REQUEST,
+				NULL);
+		return;
 	}
 
-	state = d->access->poll(d->access->ctx, &result);
-	if (state == SDO_POLL_DONE) {
+	if (d->sdo_pending != 0u) {
 		if (cancel != CIA402_CANCEL_NONE) {
-			dispatch_cancel(d, cancel, &result); /* 结论作废，abort 码留着 */
-		} else if (result.status == SDO_STATUS_TIMEOUT) {
-			dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, &result);
-		} else {
-			dispatch_sdo_done(d, &result);
+			sdo_client_abort(d->client);
 		}
-		goto done;
-	}
-	if (state == SDO_POLL_WAITING) {
-		/* 有在途事务（含抢占后等 abort 结果）：本拍不推进流程 */
-		goto done;
+		state = sdo_client_poll(d->client, &result);
+		if (state == SDO_POLL_WAITING) {
+			return;
+		}
+		if (state != SDO_POLL_DONE) {
+			/* 已受理事务不能无声丢失：这是实现错误，不是驱动器超时 */
+			fprintf(stderr, "[cia402] 已受理事务丢失: kind=%d\n",
+				(int)d->operation.kind);
+			d->operation.running = 0u;
+			d->mailbox.pending = 0u;
+			d->mailbox.cancel = CIA402_CANCEL_NONE;
+			d->cw.pending_valid = 0u;
+			d->sdo_pending = 0u;
+			d->sdo_unstarted = 0u;
+			return;
+		}
+		d->sdo_pending = 0u;
+		if (cancel != CIA402_CANCEL_NONE) {
+			dispatch_cancel(d, cancel, &result);
+			return;
+		}
+		if (result.status == SDO_STATUS_CANCELLED) {
+			/* 未请求取消却收到取消结果，不能冒充新操作的失败 */
+			d->cw.pending_valid = 0u;
+			return;
+		}
+		if (result.status == SDO_STATUS_TIMEOUT) {
+			dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, &result);
+			return;
+		}
+		dispatch_sdo_done(d, &result);
+		return;
 	}
 
-	/* 通道空闲：先把取消结清，再受理新请求，最后才走一拍空转 */
 	if (cancel != CIA402_CANCEL_NONE) {
 		dispatch_cancel(d, cancel, NULL);
-		goto done;
+		return;
 	}
-
-	if (d->sdo_rejected != 0u) {
-		/* 通道忙使上一步根本没发起，不会有结果；按超时收尾，不让流程干等 */
-		d->sdo_rejected = 0u;
-		d->cw.pending_valid = 0u;
-		dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, NULL);
-		goto done;
-	}
-
 	if (pop_request(d, &req) != 0) {
 		dispatch_request(d, &req);
-		goto done;
+		return;
 	}
-
 	dispatch_tick(d);
-
-done:
-	if (out != NULL) {
-		snapshot(d, out);
-	}
 }
 
 /**
- * cia402_get_result - 读取最近一次操作的回执
- * @d: 设备对象；NULL 安全
- * @out: 输出回执；NULL 时直接返回
- *
- * 仅 CANopen 工作线程调用；跨线程查询使用控制层发布快照。
+ * cia402_is_running - 查询是否还有待执行或取消清理的流程
+ * @d: 设备对象
+ * Return: 非 0 表示已受理未出邮箱，或仍在执行；NULL 为空闲。
  */
-void cia402_get_result(const struct cia402_device *d, struct cia402_operation_result *out)
+int cia402_is_running(const struct cia402_device *d)
 {
-	if (d == NULL || out == NULL) {
-		return;
+	/* 有明确流程身份才属于正在等待；后继安全请求不延长被取消的原流程 */
+	return d != NULL && (d->operation.running != 0u ||
+			     (d->mailbox.pending != 0u && d->mailbox.cancel == CIA402_CANCEL_NONE));
+}
+
+/**
+ * cia402_get_failure - 读取最近一次执行失败的诊断
+ * @d: 设备对象；NULL 安全
+ * @out: 诊断输出；NULL 时直接返回
+ */
+void cia402_get_failure(const struct cia402_device *d, struct cia402_failure_info *out)
+{
+	if (d != NULL && out != NULL) {
+		*out = d->failure;
 	}
-	snapshot(d, out);
 }
 
 /**
@@ -175,8 +187,8 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d)
 	if (d == NULL) {
 		return CIA402_OUTCOME_NONE;
 	}
-	result = d->outbox.outcome;
-	d->outbox.outcome = CIA402_OUTCOME_NONE;
+	result = d->outbox;
+	d->outbox = CIA402_OUTCOME_NONE;
 	return result;
 }
 
@@ -234,10 +246,9 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 
 	d->mailbox.req = *req;
 	d->mailbox.pending = 1u;
-	/* 新流程开始：清空上一条的回执与遗留标记 */
-	d->outbox.outcome = CIA402_OUTCOME_NONE;
-	d->outbox.fail = CIA402_FAIL_NONE;
-	d->sdo_rejected = 0u;
+	/* 新流程只清掉未取的旧结局；取消不生成任何新结局 */
+	d->outbox = CIA402_OUTCOME_NONE;
+	d->failure.abort_code = 0u;
 	/* 整条流程的总期限：任何一步静默卡住都由父状态看门狗在此兜底 */
 	d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
 	if (urgent) {
@@ -271,7 +282,6 @@ static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *
 {
 	struct sdo_done_evt evt;
 
-	d->sdo_rejected = 0u; /* 真有结果了，未受理标记作废 */
 	/* 控制字镜像只在事务成功后落地：所有写 6040 的状态共用这一处 */
 	if (d->cw.pending_valid != 0u) {
 		if (result->status == 0) {
@@ -306,12 +316,4 @@ static void dispatch_tick(struct cia402_device *d)
 	static const struct sm_event evt_tick = {CIA402_SIG_TICK};
 
 	sm_hsm_dispatch(&d->hsm, &evt_tick);
-}
-
-/* 只拷贝回执三项 */
-static void snapshot(const struct cia402_device *d, struct cia402_operation_result *out)
-{
-	out->outcome = d->outbox.outcome;
-	out->fail = d->outbox.fail;
-	out->abort_code = d->outbox.abort_code;
 }

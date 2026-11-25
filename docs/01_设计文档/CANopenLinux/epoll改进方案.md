@@ -18,7 +18,7 @@ controller：整机状态机、命令队列、状态发布
     │
     ▼
 axis + CiA 402：单位换算、设备流程、对象访问请求
-    │ sdo_access
+    │ sdo_client（显式函数）
     ▼
 极薄的 SDO 后端适配
     │
@@ -228,12 +228,13 @@ SDO 步进使用 epoll 提供的真实时间差，不再假定每次调用恰好
 
 ### 7.1 保留的边界
 
-保留 `sdo_access` 所表达的异步对象访问语义：
+保留 `sdo_client` 所表达的异步对象访问语义：
 
-- 请求发起后立即返回；
-- 通信完成后可取得结果；
+- `sdo_client_read()` / `sdo_client_write()` 直接发起后立即返回；
+- 只有 `ACCEPTED` 才有后续结果，`BUSY / INVALID` 不生成结果；
+- 通信完成后用 `sdo_client_poll()` 取结果；
 - CiA 402 不依赖 CANopenNode 类型；
-- 每笔请求独立记录成功、失败和 abort code。
+- 每笔已受理请求独立记录成功、失败、取消和 abort code。
 
 该边界隔离的是 CiA 402 与对象访问协议，不是为 1 ms 轮询而存在。
 
@@ -254,11 +255,13 @@ SDO 后端只在 CANopen 工作线程内执行：
 接收访问请求 → 调用上游 Initiate / BufWrite
 每轮推进     → 调用上游 Upload / Download
 事务完成     → 保存结果，交由同线程 CiA 402 消费
-取消         → 按上游 Close / abort 语义结束本次事务
+取消         → 先尝试协议 abort；发送持续阻塞时有界本地 Close 收尾
 ```
 
-`transport` 不再负责线程调度。若最终只剩少量同线程适配代码，应合并到所属 CANopen 后端，
-不为保留旧目录而保留空壳；`sdo_access` 作为 CiA 402 依赖的契约仍可独立保留。
+本地 Close 回退只释放本地通道，不代表协议 abort 帧已成功发送。
+
+`transport` 不再负责线程调度。公共接口是显式 `sdo_client_*` 函数，不保留函数指针表。
+普通调用方只包含 `sdo_client.h`；实例所有者包含专用 instance 头，提供静态存储。
 
 ## 8. 对外命令与状态发布
 
@@ -285,7 +288,7 @@ NMT 请求不再经过跨线程待发槽，由工作线程中的整机状态机�
 | `third_party/CMakeLists.txt` | 新增 CANopenLinux 构建入口，集中管理第三方源码和宏 |
 | `canopen/master/` | 持有上游 CANopen/epoll 对象，负责初始化、事件处理、节点与资源释放 |
 | `canopen/driver/` | 删除被上游替代的自写 SocketCAN 驱动和 `co_driver_cats` 接口 |
-| `canopen/transport/` | 移除跨线程调度，只保留必要的异步 SDO 适配与访问契约 |
+| `canopen/transport/` | 移除跨线程调度，提供显式异步 SDO 函数与实例存储头 |
 | `cia402/` | 改为同线程请求与结果处理，保留设备状态机和流程语义 |
 | `controller/` | 初始化参数改为接口名，统一工作线程内的轴与整机推进，增加退出清理 |
 | `apps/qt/` | 不再打开或关闭 CAN；只创建一个工作线程，保留 UI 与状态显示 |
@@ -297,7 +300,7 @@ NMT 请求不再经过跨线程待发槽，由工作线程中的整机状态机�
 改进后仍保持：
 
 ```text
-宿主 → controller → axis → CiA 402 → sdo_access
+宿主 → controller → axis → CiA 402 → sdo_client
                               │
                               ▼
                        SDO 后端 → CANopenNode

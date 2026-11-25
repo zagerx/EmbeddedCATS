@@ -10,9 +10,10 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
-/* 把本批请求逐轴下发；有轴被拒就返回 -1，并通过 first_axis 带回轴号 */
-static int issue_move(struct controller *ctl, uint8_t *first_axis);
+/* 把本批请求逐轴下发；未受理的轴只记日志，不进入完成判据 */
+static void issue_move(struct controller *ctl);
 /* 这个轴在不在这批请求里 */
 static int batch_has(const struct controller_move_cmd *batch, uint8_t axis);
 
@@ -29,46 +30,38 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY: {
-		uint8_t axis = CONTROLLER_FAULT_NO_AXIS;
-
+	case SM_SIG_ENTRY:
 		ctl->move_done = 0u;
-		if (issue_move(ctl, &axis) < 0) {
-			/* 设备没受理（忙或轴号不合法）：本批没有启动任何轴 */
-			controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-					     CONTROLLER_FAULT_REASON_REFUSED, axis, 0u);
-		}
+		issue_move(ctl);
 		break;
-	}
 
 	case CONTROLLER_SIG_MOVE: {
 		const struct controller_move_cmd *next =
 			&SM_EVT_CAST(struct controller_evt, e)->u.move;
-		uint8_t axis = CONTROLLER_FAULT_NO_AXIS;
 		uint8_t i;
 
-		/*
-		 * 旧结论先取走：已经到位的轴若留着 DONE，新批次会在它还没走到新目标
-		 * 时就误判为整批完成。
-		 */
+		/* 先收旧结论：真实失败必须锁存，不能因新目标到达而丢失。 */
 		for (i = 0u; i < ctl->axis_count; i++) {
-			(void)axis_take_motion(&ctl->axes[i], NULL);
+			struct axis_failure failure;
+
+			if (axis_take_motion(&ctl->axes[i], &failure) == AXIS_MOTION_FAILED) {
+				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
+						     controller_fault_reason_of(failure.fail), i,
+						     failure.abort_code);
+			}
 		}
 		/* 新批次里撤掉的轴：减速停、保持使能，不能让它留在那儿自己跑 */
 		for (i = 0u; i < ctl->move.count; i++) {
 			const uint8_t a = ctl->move.axis[i].axis;
 
 			if (batch_has(next, a) == 0 && axis_halt(&ctl->axes[a]) != 0) {
-				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-						     CONTROLLER_FAULT_REASON_REFUSED, a, 0u);
+				controller_log_not_executed(ctl, CONTROLLER_SIG_HALT, a,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
 			}
 		}
 		ctl->move = *next;
 		ctl->move_done = 0u;
-		if (issue_move(ctl, &axis) < 0) {
-			controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-					     CONTROLLER_FAULT_REASON_REFUSED, axis, 0u);
-		}
+		issue_move(ctl);
 		return SM_HANDLED();
 	}
 
@@ -91,11 +84,15 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
 						     controller_fault_reason_of(failure.fail), axis,
 						     failure.abort_code);
-				return SM_SUPER(&st_root);
+				ctl->move_done |= (uint8_t)(1u << i);
+				break;
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);
 				break;
 			default:
+				if (!axis_is_running(&ctl->axes[axis])) {
+					ctl->move_done |= (uint8_t)(1u << i);
+				}
 				break;
 			}
 		}
@@ -128,26 +125,27 @@ static int batch_has(const struct controller_move_cmd *batch, uint8_t axis)
 	return 0;
 }
 
-static int issue_move(struct controller *ctl, uint8_t *first_axis)
+static void issue_move(struct controller *ctl)
 {
 	uint8_t i;
 
+	ctl->axis_active = 0u;
 	if (ctl->move.count == 0u || ctl->move.count > CONTROLLER_AXIS_COUNT) {
-		return -1;
+		controller_log_not_executed(ctl, CONTROLLER_SIG_MOVE, CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_INVALID_ARGUMENT);
+		return;
 	}
 	for (i = 0u; i < ctl->move.count; i++) {
 		const struct controller_move_req *m = &ctl->move.axis[i];
 
-		if (m->axis >= ctl->axis_count) {
-			return -1;
-		}
-		/* 非 0（拒绝或忙）都算失败：一批要么一起启动，要么整体报错 */
-		if (axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2) != 0) {
-			if (first_axis != NULL) {
-				*first_axis = m->axis;
-			}
-			return -1;
+		if (m->axis >= ctl->axis_count ||
+		    axis_move_to(&ctl->axes[m->axis], m->mm, m->mm_s, m->mm_s2) != 0) {
+			controller_log_not_executed(ctl, CONTROLLER_SIG_MOVE, m->axis,
+						    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			/* 仅表示“无需等待”；实际未执行的身份留在 axis_active */
+			ctl->move_done |= (uint8_t)(1u << i);
+		} else {
+			ctl->axis_active |= (uint8_t)(1u << i);
 		}
 	}
-	return 0;
 }

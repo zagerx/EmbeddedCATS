@@ -7,6 +7,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 #define ENABLE_TIMEOUT_MS 3000u /* 从进入本状态算起，这么久还没全部使能上就判失败 */
 
@@ -22,14 +23,22 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		/* 节点已在 CONFIGURING 里进入运行态，这里只下发使能请求 */
+	case SM_SIG_ENTRY: {
+		uint8_t i;
+
+		/* 受理事实按轴保留：未执行不能靠后续超时变成执行故障 */
 		ctl->axis_done = 0u;
-		if (controller_enable_all(ctl->axes, ctl->axis_count) != 0) {
-			/* 有轴没受理（多为一笔在途事务占着通道）：退回空闲，由上层重发 */
-			return SM_TRAN(&st_idle_ctrl);
+		ctl->axis_active = 0u;
+		for (i = 0u; i < ctl->axis_count; i++) {
+			if (axis_enable(&ctl->axes[i]) == 0) {
+				ctl->axis_active |= (uint8_t)(1u << i);
+			} else {
+				controller_log_not_executed(ctl, CONTROLLER_SIG_ENABLE, i,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			}
 		}
 		break;
+	}
 
 	case SM_SIG_EXIT:
 		break; /* 失败的那一步已经停下，正常完成时也不再发帧 */
@@ -38,16 +47,16 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 		uint32_t elapsed = controller_now_ms(ctl) - ctl->state_since_ms;
 		struct controller_axes_failure failure;
 		enum controller_axes_result result = controller_axes_collect(
-			ctl->axes, ctl->axis_count, &ctl->axis_done, &failure);
+			ctl->axes, ctl->axis_count, &ctl->axis_active, &failure);
 
-		if (result == CONTROLLER_AXES_DONE) {
+		if (result == CONTROLLER_AXES_FAILED) {
+			controller_set_axes_fault(ctl, CONTROLLER_STATE_ENABLING, &failure);
+			return SM_SUPER(&st_root);
+		}
+		if (ctl->axis_active == 0u) {
 			return SM_TRAN(&st_holding);
 		}
-		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_fault(ctl, CONTROLLER_STATE_ENABLING,
-					     controller_fault_reason_of(failure.first.fail),
-					     failure.first_axis, failure.first.abort_code);
-		} else if (elapsed > ENABLE_TIMEOUT_MS) {
+		if (elapsed > ENABLE_TIMEOUT_MS) {
 			controller_set_fault(ctl, CONTROLLER_STATE_ENABLING,
 					     CONTROLLER_FAULT_REASON_BIZ_TIMEOUT,
 					     CONTROLLER_FAULT_NO_AXIS, 0u);

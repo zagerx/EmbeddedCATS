@@ -62,8 +62,7 @@ enum controller_fault_reason {
 	CONTROLLER_FAULT_REASON_DRIVER = 3,      /* 驱动器进入故障态 */
 	CONTROLLER_FAULT_REASON_SDO = 4,         /* 对象访问被 abort */
 	CONTROLLER_FAULT_REASON_CHECK = 5,       /* 回读值不符 */
-	CONTROLLER_FAULT_REASON_REFUSED = 6,     /* 设备拒绝受理（忙或不合法） */
-	CONTROLLER_FAULT_REASON_ABORT = 7,       /* 流程被中止，设备侧没有原因 */
+	CONTROLLER_FAULT_REASON_HOMING = 8,      /* 驱动器判回零错误（6041 bit13） */
 	CONTROLLER_FAULT_REASON_COUNT
 };
 
@@ -72,15 +71,14 @@ enum controller_fault_reason {
 
 /*
  * 首个故障的快照：进入 FAULT 时确定，之后只有 axis_mask 继续累积。
- * abort_code 只在 reason == SDO 时是 abort 码；reason == DRIVER 时放的是当时
- * 的 6041 状态字（bit13 回零错误 / bit3 故障靠它区分）；0 = 没有。
+ * abort_code 只在 reason == SDO 时是 abort 码，其余原因下无意义。
  */
 struct controller_fault {
 	enum controller_state stage;         /* 失败时所处状态 */
 	enum controller_fault_reason reason; /* 失败原因 */
 	uint8_t first_axis;                  /* 首个失败轴；NO_AXIS = 未定位 */
 	uint8_t axis_mask;                   /* 全部失败轴位图 */
-	uint32_t abort_code;                 /* 诊断码：abort 或 6041，0 = 没有 */
+	uint32_t abort_code;                 /* SDO abort 码；0 = 没有 */
 };
 
 #ifdef __cplusplus

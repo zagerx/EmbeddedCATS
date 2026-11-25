@@ -74,10 +74,8 @@ QString reason_text(enum controller_fault_reason r)
 		return QStringLiteral("传输失败");
 	case CONTROLLER_FAULT_REASON_CHECK:
 		return QStringLiteral("回读不符");
-	case CONTROLLER_FAULT_REASON_REFUSED:
-		return QStringLiteral("请求被拒");
-	case CONTROLLER_FAULT_REASON_ABORT:
-		return QStringLiteral("中止");
+	case CONTROLLER_FAULT_REASON_HOMING:
+		return QStringLiteral("回零错误");
 	case CONTROLLER_FAULT_REASON_COUNT:
 		break;
 	}
@@ -108,12 +106,10 @@ QString axis_text(const struct controller_fault &fault)
 	return text;
 }
 
-/* 诊断码：传输失败时是 abort 码，驱动器故障时是当时的 6041 状态字 */
+/* abort 码只在传输失败时才有意义，其他原因显示破折号 */
 QString abort_text(const struct controller_fault &fault)
 {
-	if ((fault.reason != CONTROLLER_FAULT_REASON_SDO &&
-	     fault.reason != CONTROLLER_FAULT_REASON_DRIVER) ||
-	    fault.abort_code == 0U) {
+	if (fault.reason != CONTROLLER_FAULT_REASON_SDO || fault.abort_code == 0U) {
 		return QStringLiteral("—");
 	}
 	return QStringLiteral("0x") +

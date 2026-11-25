@@ -40,6 +40,7 @@ void controller_stm_init(struct controller *ctl)
 	ctl->move = (struct controller_move_cmd){0};
 	ctl->move_done = 0u;
 	ctl->axis_done = 0u;
+	ctl->axis_active = 0u;
 	ctl->estop_clearing = 0u;
 	ctl->node_ready = 0u;
 	pthread_mutex_lock(&ctl->info_lock);

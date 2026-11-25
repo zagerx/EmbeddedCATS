@@ -86,7 +86,7 @@ enum controller_result controller_init(const char *can_ifname)
 			return controller_init_fail(ctl);
 		}
 		sdo_client_init(&ctl->axes[i].sdo, sdo);
-		cia402_init(&ctl->axes[i].dev, sdo_client_access(&ctl->axes[i].sdo));
+		cia402_init(&ctl->axes[i].dev, &ctl->axes[i].sdo);
 	}
 	if (controller_tpdo_attach(ctl) != 0) {
 		return controller_init_fail(ctl); /* 占不到接收槽：不可能有反馈 */

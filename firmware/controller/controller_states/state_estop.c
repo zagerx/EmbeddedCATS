@@ -12,6 +12,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 /**
  * st_estop - 处理急停入口、运行命令和节拍
@@ -25,22 +26,39 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 	struct controller *ctl = container_of(me, struct controller, hsm);
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY:
+	case SM_SIG_ENTRY: {
+		uint8_t i;
+
 		ctl->axis_done = 0u;
 		ctl->estop_clearing = 0u;
-		(void)controller_quick_stop_all(ctl->axes, ctl->axis_count);
-		/* 进终态：丢掉还没处理的命令 */
-		controller_evtq_clear(&ctl->evtq);
+		for (i = 0u; i < ctl->axis_count; i++) {
+			if (axis_quick_stop(&ctl->axes[i]) == 0) {
+				ctl->axis_done |= (uint8_t)(1u << i);
+			} else {
+				controller_log_not_executed(ctl, CONTROLLER_SIG_ESTOP, i,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			}
+		}
+		/* 急停覆盖旧的普通命令；日志只记未执行，不新增故障 */
+		controller_log_queue_cleared(ctl);
 		break;
+	}
 
 	case SM_SIG_EXIT:
 		break;
 
 	case CONTROLLER_SIG_MOVE:
 	case CONTROLLER_SIG_HALT:
-		return SM_HANDLED(); /* 终态：命令直接丢弃 */
+	case CONTROLLER_SIG_ENABLE:
+	case CONTROLLER_SIG_HOME:
+		controller_log_not_executed(ctl, (enum controller_sig)e->sig,
+					    CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_TERMINAL);
+		return SM_HANDLED();
 
-	case CONTROLLER_SIG_ESTOP_CLEAR:
+	case CONTROLLER_SIG_ESTOP_CLEAR: {
+		uint8_t i;
+
 		/*
 		 * 解除急停：断使能与抱闸已在急停那一帧由驱动器完成，这里不写任何控制字，
 		 * 只释放流程。故障快照不碰：急停只解除覆盖层，底下压着的故障仍然锁存。
@@ -48,10 +66,18 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 		 */
 		ctl->move = (struct controller_move_cmd){0};
 		ctl->move_done = 0u;
-		ctl->axis_done = 0u; /* 重新开始收：“解除那一笔”的回执 */
+		ctl->axis_done = 0u;
 		ctl->estop_clearing = 1u;
-		(void)controller_clear_estop_all(ctl->axes, ctl->axis_count);
+		for (i = 0u; i < ctl->axis_count; i++) {
+			if (axis_clear_estop(&ctl->axes[i]) == 0) {
+				ctl->axis_done |= (uint8_t)(1u << i);
+			} else {
+				controller_log_not_executed(ctl, CONTROLLER_SIG_ESTOP_CLEAR, i,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+			}
+		}
 		return SM_HANDLED();
+	}
 
 	case CONTROLLER_SIG_TICK:
 		/*
@@ -59,19 +85,16 @@ sm_ret_t st_estop(struct sm_hsm *const me, const struct sm_event *const e)
 		 * （进入急停前可能已经锁存过故障）。
 		 * 回执在这里收：急停那一笔只用于上报，解除那一笔收齐后才迁 IDLE。
 		 */
-		if (ctl->axis_done != controller_axis_mask(ctl->axis_count)) {
+		if (ctl->axis_done != 0u) {
 			struct controller_axes_failure failure;
 
 			if (controller_axes_collect(ctl->axes, ctl->axis_count, &ctl->axis_done,
 						    &failure) == CONTROLLER_AXES_FAILED) {
-				controller_set_fault(ctl, CONTROLLER_STATE_ESTOP,
-						     controller_fault_reason_of(failure.first.fail),
-						     failure.first_axis, failure.first.abort_code);
+				controller_set_axes_fault(ctl, CONTROLLER_STATE_ESTOP, &failure);
 				ctl->axis_done = controller_axis_mask(ctl->axis_count);
 			}
 		}
-		if (ctl->estop_clearing != 0u &&
-		    ctl->axis_done == controller_axis_mask(ctl->axis_count)) {
+		if (ctl->estop_clearing != 0u && ctl->axis_done == 0u) {
 			ctl->estop_clearing = 0u;
 			return SM_TRAN(&st_idle_ctrl);
 		}

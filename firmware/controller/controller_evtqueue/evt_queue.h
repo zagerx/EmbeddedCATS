@@ -64,8 +64,9 @@ void controller_evtq_init(struct controller_evtq *q);
 /* 尾部入队（普通命令）。false = 队列满，本事件被丢弃 */
 bool controller_evtq_push(struct controller_evtq *q, const struct controller_evt *e);
 
-/* 头部入队（暂停/急停）：插到队头；满时替换队头那条最旧的。永不失败 */
-void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e);
+/* 头部入队；满时替换队头，并通过 replaced 交还那条未执行的旧命令 */
+void controller_evtq_push_front(struct controller_evtq *q, const struct controller_evt *e,
+				struct controller_evt *replaced);
 
 /* 取一个事件。false = 空 */
 bool controller_evtq_pop(struct controller_evtq *q, struct controller_evt *out);

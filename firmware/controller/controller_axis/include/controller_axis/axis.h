@@ -8,7 +8,7 @@
 
 #include <cia402/device_instance.h>
 #include <pdo/tpdo.h>
-#include <transport/sdo_client.h>
+#include <transport/sdo_client_instance.h>
 
 #include <stdint.h>
 
@@ -33,9 +33,9 @@ enum axis_motion {
 	AXIS_MOTION_FAILED /* 超时 / abort / 驱动器故障 */
 };
 
-/* 一次失败的主站归类，来自 cia402 回执；仅 AXIS_MOTION_FAILED 时有意义 */
+/* 一次失败的主站归类；仅在 AXIS_MOTION_FAILED 时读取 */
 struct axis_failure {
-	enum cia402_fail fail; /* 超时 / 驱动器故障 / abort / 回读不符 */
+	enum cia402_fail fail; /* 超时 / 驱动器故障 / 回零错误 / abort / 回读不符 */
 	uint32_t abort_code;   /* 仅 fail == CIA402_FAIL_SDO 时有效；0 = 没有 */
 };
 
@@ -52,6 +52,9 @@ int axis_halt(struct axis *a);
 
 /* 回原点（原点开关法，方法号与速度见 cats_mech.h）。0 = 已受理；1 = 设备忙；-1 = 不允许 */
 int axis_home(struct axis *a);
+
+/* 设备是否还在执行或取消清理；取消完成不生成成功结局 */
+int axis_is_running(const struct axis *a);
 
 /* 取上一段动作的结论（取走后回 NONE）；failure 可为 NULL，失败时带回原因 */
 enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure);

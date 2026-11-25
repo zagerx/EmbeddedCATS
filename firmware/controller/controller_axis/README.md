@@ -25,7 +25,7 @@ controller_axis/
 ## 边界
 
 ```text
-states → controller_axis → axis → cia402 → sdo_access
+states → controller_axis → axis → cia402 → sdo_client（公共函数）
 ```
 
 轴模块不解释控制字、状态字或对象号，不直接访问 CAN，也不创建线程。整机轴集合只

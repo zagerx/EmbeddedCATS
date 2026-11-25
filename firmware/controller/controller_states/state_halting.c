@@ -7,6 +7,7 @@
  */
 
 #include "states.h"
+#include "controller_log.h"
 
 /**
  * st_halting - 处理暂停发起与暂停结论
@@ -24,13 +25,17 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 		uint8_t i;
 
 		ctl->move_done = 0u;
+		ctl->axis_active = 0u;
 		for (i = 0u; i < ctl->move.count; i++) {
 			const uint8_t axis = ctl->move.axis[i].axis;
 
-			/* ENTRY 里不迁移，失败交给 ROOT */
+			/* 未受理就没有暂停动作，不参与停稳等待 */
 			if (axis_halt(&ctl->axes[axis]) != 0) {
-				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
-						     CONTROLLER_FAULT_REASON_REFUSED, axis, 0u);
+				controller_log_not_executed(ctl, CONTROLLER_SIG_HALT, axis,
+							    CONTROLLER_NOT_EXECUTED_DEVICE_BUSY);
+				ctl->move_done |= (uint8_t)(1u << i);
+			} else {
+				ctl->axis_active |= (uint8_t)(1u << i);
 			}
 		}
 		break;
@@ -38,7 +43,9 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 
 	case CONTROLLER_SIG_MOVE:
 	case CONTROLLER_SIG_HALT:
-		/* 暂停期间的新指令一律丢弃（否则会留在队列里，停稳后被意外执行） */
+		controller_log_not_executed(ctl, (enum controller_sig)e->sig,
+					    CONTROLLER_FAULT_NO_AXIS,
+					    CONTROLLER_NOT_EXECUTED_INVALID_STATE);
 		return SM_HANDLED();
 
 	case CONTROLLER_SIG_TICK: {
@@ -58,7 +65,8 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
 						     controller_fault_reason_of(failure.fail), axis,
 						     failure.abort_code);
-			} else if (m == AXIS_MOTION_DONE) {
+				ctl->move_done |= (uint8_t)(1u << i);
+			} else if (m == AXIS_MOTION_DONE || !axis_is_running(&ctl->axes[axis])) {
 				ctl->move_done |= (uint8_t)(1u << i);
 			}
 		}
