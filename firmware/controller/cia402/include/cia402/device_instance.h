@@ -38,7 +38,8 @@ struct cia402_operation {
 	enum cia402_kind kind;
 	uint8_t running;   /* 流程在跑；自己收尾时清零，被打断退出时仍为 1 */
 	uint8_t cancel;    /* enum cia402_cancel_reason，交给 st_idle 决定要不要报失败 */
-	uint32_t deadline; /* 当前步骤的期限，由各状态自行解释 */
+	uint8_t stage;     /* 当前步骤号；枚举由各 operations 文件自己定义 */
+	uint32_t deadline; /* 当前步骤的期限，由各操作按自己的阶段解释 */
 	uint32_t flow_deadline; /* 整条流程的总期限，公共父状态看门狗用 */
 	struct {
 		int32_t target;
@@ -56,9 +57,13 @@ struct cia402_operation {
 	} retarget;
 	uint8_t retarget_valid; /* retarget 里有待生效的目标 */
 	struct {
-		uint8_t failed;    /* 收尾链用：非 0 表示这条回零要报失败 */
-		uint8_t cancelled; /* 取消只清理流程，不交付回零结局 */
-		uint8_t fail_kind; /* enum cia402_fail */
+		/*
+		 * 回零的结局要等收尾链（落 bit4、切回 PP）走完才交付，
+		 * 所以先记在这里，由收尾链最后一步发布。
+		 * pending 取 enum cia402_outcome：NONE 表示被抢占，不交付结局。
+		 */
+		uint8_t pending;
+		uint8_t fail_kind; /* enum cia402_fail，仅 pending == FAILED 时有效 */
 	} home;
 };
 

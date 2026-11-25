@@ -27,8 +27,9 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP, 2u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
+		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP, 2u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return SM_HANDLED();
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {

@@ -3,100 +3,95 @@
  *
  * 清 bit8 是为了保持使能（有保持力矩），停稳后可以立刻接下一句运动。
  *
+ * 三步顺序推进：置 halt → 读 6041 等 bit10（或期限到）→ 清 halt。
+ *
  * Author: zager
  */
 
 #include "../states/states.h"
 
+enum halt_stage {
+	HALT_WRITE = 0,
+	HALT_READ,
+	HALT_CLEAR,
+};
+
+static sm_state_t halt_step(struct cia402_device *d, const struct sdo_result *result);
+
 /**
- * st_halt_write - 置 6040 bit8（Halt）
+ * st_halt - 减速停并保持使能
  * @me: 状态机内核对象
  * @e: 待处理事件
  */
-sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_halt(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
+	sm_state_t next;
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_HALT,
-				       2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		d->operation.stage = HALT_WRITE;
+		next = halt_step(d, NULL);
+		break;
 
 	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		d->operation.deadline = d->now_ms + CIA402_DEVICE_HALT_TIMEOUT_MS;
-		return SM_TRAN(&st_halt_read);
+		next = halt_step(d, DEV_SDO_RESULT(e));
+		break;
 
 	default:
 		return SM_SUPER(&st_operation_active);
 	}
+	return (next != NULL) ? SM_TRAN(next) : SM_HANDLED();
 }
 
 /**
- * st_halt_read - 等停稳（bit10）
- * @me: 状态机内核对象
- * @e: 待处理事件
+ * halt_step - 判上一步结果并推进一步
+ * @d: 设备对象
+ * @result: 上一步的事务结果；NULL 表示刚进入流程
  *
- * Return: 停稳迁 st_halt_clear；故障或超时判失败。
+ * Return: 要迁移到的状态；NULL 表示已发起下一步。
  */
-sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e)
+static sm_state_t halt_step(struct cia402_device *d, const struct sdo_result *result)
 {
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-
-		if (r->status != 0) {
-			dev_fail(d, r);
-			return SM_TRAN(&st_idle);
+	if (result != NULL) {
+		if (result->status != 0) {
+			dev_fail(d, result);
+			return &st_idle;
 		}
-		if ((r->value & CIA402_SW_TARGET_REACHED) != 0u) {
-			return SM_TRAN(&st_halt_clear);
-		}
-		if (cia402_parse((uint16_t)r->value) == CIA402_FAULT ||
-		    (int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_FAIL_DRIVER);
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_halt_read);
-	}
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_halt_clear - 清 6040 bit8，保持使能
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_CONTROLWORD,
-				       d->cw.confirmed & (uint16_t)~CIA402_CW_HALT, 2u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-		} else {
+		switch (d->operation.stage) {
+		case HALT_WRITE:
+			d->operation.stage = HALT_READ;
+			d->operation.deadline = d->now_ms + CIA402_DEVICE_HALT_TIMEOUT_MS;
+			break;
+		case HALT_READ:
+			if ((result->value & CIA402_SW_TARGET_REACHED) != 0u) {
+				d->operation.stage = HALT_CLEAR;
+				break;
+			}
+			if (cia402_parse((uint16_t)result->value) == CIA402_FAULT ||
+			    (int32_t)(d->now_ms - d->operation.deadline) >= 0) {
+				dev_finish(d, CIA402_FAIL_DRIVER);
+				return &st_idle;
+			}
+			break; /* 还没停稳：再读一次 */
+		default:       /* HALT_CLEAR */
 			dev_done(d);
+			return &st_idle;
 		}
-		return SM_TRAN(&st_idle);
+	}
 
-	default:
-		return SM_SUPER(&st_operation_active);
+	switch (d->operation.stage) {
+	case HALT_WRITE:
+		dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_HALT, 2u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return NULL;
+	case HALT_READ:
+		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return NULL;
+	default: /* HALT_CLEAR */
+		dev_start_write(d, CIA402_OD_CONTROLWORD,
+				d->cw.confirmed & (uint16_t)~CIA402_CW_HALT, 2u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return NULL;
 	}
 }

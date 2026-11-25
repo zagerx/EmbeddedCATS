@@ -35,23 +35,35 @@ cia402/
     │   ├── states.c     顶层初始转移
     │   ├── idle.c       无流程与流程收尾
     │   └── operation_active.c  操作进行中的公共父状态（取消在此统一退出）
-    └── operations/      各操作的一串状态实现
-        ├── config.c     写 6060 并回读 6061
-        ├── enable.c     使能链（10 个状态）
-        ├── disable.c    断使能
-        ├── move.c       PP 参数、触发、到位
-        ├── halt.c       减速停
-        ├── homing.c     回零（HM 模式，9 个状态）
+    └── operations/      每个操作一个状态，内部按步骤号顺序推进
+        ├── config.c     写 6060 并回读 6061（2 步）
+        ├── enable.c     使能链（10 步）
+        ├── disable.c    断使能（2 步）
+        ├── move.c       PP 参数、触发、到位（7 步）
+        ├── halt.c       减速停（3 步）
+        ├── homing.c     回零主流程 4 步 + 中止链 4 步
         └── quick_stop.c 快速停
 ```
 
-层次只有三层：`sm_top → st_operation_active → 具体操作状态链`。`st_idle`
+层次只有两层：`sm_top → st_operation_active → 具体操作`。`st_idle`
 直接挂在 `sm_top` 下，不属于任何操作，因此不继承 `st_operation_active` 的"被抢占"语义。
 
-回零多一层：`sm_top → st_operation_active → st_home_active → st_home_*`。
-`st_home_active` 拦下 `CIA402_SIG_CANCEL` 改走中止链（停电机 → 落 bit4 →
-切回 PP），而不是像其他操作那样直接被抢占到 `st_idle`——否则驱动器会带着
-`6040` bit4 继续找原点。
+**每个操作只占一个状态**，内部用 `operation.stage` 顺序推进一串事务：
+`SM_SIG_ENTRY` 发起第一步，`CIA402_SIG_SDO_DONE` 判结果并推进下一步，
+步骤枚举只存在于各自的 `operations` 文件里。为此每个操作只需要：
+
+| 函数 | 职责 |
+|---|---|
+| `st_xxx` | 状态处理函数：转发 ENTRY / SDO_DONE 给 `xxx_step` |
+| `xxx_step` | 判上一步结果：收尾返回目标状态，否则发起下一步并返回 NULL |
+| `xxx_issue` | 按 stage 发起当前那笔事务 |
+| `xxx_advance` / `xxx_judge` | 写成功后的下一步 / 读到值后的分叉判定 |
+
+取消、超时看门狗、流程收尾仍由状态层次处理（顺序编程做不到"另一条控制流插进来"）。
+
+回零是两个状态：`st_home` 跑主流程，`st_home_abort` 跑中止链（停电机 → 落 bit4 →
+切回 PP）。`st_home` 自己拦下 `CIA402_SIG_CANCEL` 改道中止链，而不是像其他操作那样
+直接被抢占到 `st_idle`——否则驱动器会带着 `6040` bit4 继续找原点。
 
 ## 对外接口
 
@@ -117,7 +129,7 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 Switch on disabled → 0x06 → Ready
 Ready              → 0x07 → Switched on
 Switched on        → 0x0F → Operation enabled
-Fault              → 故障复位状态链
+Fault              → 故障复位链（同一状态内的步骤）
 ```
 
 PP 依次写速度、加速度、减速度和目标位置，以 6040 bit4 边沿触发，再通过 6041 bit10 判断到位——到位只信驱动器的状态字，不再拿 6064 与目标比对。
@@ -151,7 +163,7 @@ cia402/pds    → 无依赖
 `apps/tools/cia402_selftest` 不需要 CAN 硬件，覆盖：
 
 - PDS 状态字解析；
-- 完整使能状态链；
+- 完整使能链；
 - PP 参数、触发和到位；
 - Quick Stop 抢占在途事务；
 - 事务超时与失败发布；

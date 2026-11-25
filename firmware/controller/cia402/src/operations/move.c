@@ -11,236 +11,195 @@
  * 运动中的新目标走在线变位：重写四个参数后写一帧 6040 = 0x103F，驱动器按新
  * 目标立即重规划，不停车也不重复起步，所以不需要 bit4 的边沿。
  *
- * 每笔事务分轮推进：工作线程可以在等待期间处理其它设备。
+ * 七个步骤在 operation.stage 里顺序推进；每笔事务分轮执行，工作线程可以在
+ * 等待期间处理其它设备。
  *
  * Author: zager
  */
 
 #include "../states/states.h"
 
+/* 一步一笔事务，顺序即流程本身 */
+enum move_stage {
+	MOVE_WRITE_VELOCITY = 0,
+	MOVE_WRITE_ACCEL,
+	MOVE_WRITE_DECEL,
+	MOVE_WRITE_TARGET,
+	MOVE_TRIGGER_HIGH, /* 普通定位写 bit4 = 1；在线变位写 0x103F */
+	MOVE_TRIGGER_LOW,  /* 仅普通定位，在线变位跳过这一步 */
+	MOVE_WAIT_ARRIVE,
+};
+
+static sm_state_t move_step(struct cia402_device *d, const struct sdo_result *result);
+static sm_state_t move_arrived(struct cia402_device *d, uint16_t sw);
+static void move_advance(struct cia402_device *d);
+static void move_issue(struct cia402_device *d);
 static void arm_arrive(struct cia402_device *d);
 static void take_retarget(struct cia402_device *d);
 
 /**
- * st_pp_write_velocity - 写 6081 轮廓速度
+ * st_move - PP 绝对位置运动
  * @me: 状态机内核对象
  * @e: 待处理事件
  */
-sm_ret_t st_pp_write_velocity(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_move(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
+	sm_state_t next;
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_PROFILE_VELOCITY,
-				       (uint32_t)d->operation.pp.velocity, 4u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
+		d->operation.stage = MOVE_WRITE_VELOCITY;
+		next = move_step(d, NULL);
+		break;
 
 	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_write_accel);
+		next = move_step(d, DEV_SDO_RESULT(e));
+		break;
 
 	default:
 		return SM_SUPER(&st_operation_active);
 	}
+	return (next != NULL) ? SM_TRAN(next) : SM_HANDLED();
 }
 
 /**
- * st_pp_write_accel - 写 6083 轮廓加速度
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_pp_write_accel(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->operation.pp.accel,
-				       4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_write_decel);
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_write_decel - 写 6084 轮廓减速度
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->operation.pp.decel,
-				       4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_write_target);
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_write_target - 写 607A 目标位置
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_TARGET_POSITION,
-				       (uint32_t)d->operation.pp.target, 4u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_trigger_high);
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_trigger_high - 触发运动：普通定位用 bit4 上升沿，在线变位用 0x103F
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		if (d->operation.pp.online != 0u) {
-			/* 在线变位：单帧指令，写完直接等到位，没有落沿这一步 */
-			return dev_start_pulse(d, CIA402_CW_ONLINE_SETPOINT,
-					       CIA402_DEVICE_SDO_TIMEOUT_MS);
-		}
-		return dev_start_write(d, CIA402_OD_CONTROLWORD,
-				       d->cw.confirmed | CIA402_CW_NEW_SETPOINT, 2u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		if (d->operation.pp.online != 0u) {
-			arm_arrive(d);
-			return SM_TRAN(&st_pp_read_status);
-		}
-		return SM_TRAN(&st_pp_trigger_low);
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_trigger_low - 6040 bit4 落沿（DS 402 要求边沿而非电平）
- * @me: 状态机内核对象
- * @e: 待处理事件
- */
-sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const e)
-{
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_CONTROLWORD,
-				       d->cw.confirmed & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE:
-		if (DEV_SDO_RESULT(e)->status != 0) {
-			dev_fail(d, DEV_SDO_RESULT(e));
-			return SM_TRAN(&st_idle);
-		}
-		arm_arrive(d);
-		return SM_TRAN(&st_pp_read_status);
-
-	default:
-		return SM_SUPER(&st_operation_active);
-	}
-}
-
-/**
- * st_pp_read_status - 读 6041 等驱动器报到位
- * @me: 状态机内核对象
- * @e: 待处理事件
+ * move_step - 判上一步结果并推进
+ * @d: 设备对象
+ * @result: 上一步的事务结果；NULL 表示刚进入流程
  *
- * 到位只信状态字 bit10：驱动器说到了就是到了，不再拿 6064 与目标比对。
+ * Return: 要迁移到的状态；NULL 表示已发起下一步。
+ */
+static sm_state_t move_step(struct cia402_device *d, const struct sdo_result *result)
+{
+	if (result != NULL) {
+		if (result->status != 0) {
+			dev_fail(d, result);
+			return &st_idle;
+		}
+		if (d->operation.stage == MOVE_WAIT_ARRIVE) {
+			sm_state_t end = move_arrived(d, (uint16_t)result->value);
+
+			if (end != NULL) {
+				return end;
+			}
+		} else {
+			move_advance(d);
+		}
+	}
+	move_issue(d);
+	return NULL;
+}
+
+/**
+ * move_arrived - 判到位
+ * @d: 设备对象
+ * @sw: 6041 原始值
  *
  * 在途改目标优先于到位：新目标到了就重跑参数链，不能因为旧目标刚好报到位
  * 就把用户后来的指令丢掉。
  *
- * Return: bit10 = 1 迁回 st_idle 报成功；有在途新目标则重新规划；故障或超时报失败。
+ * Return: 要迁移到的状态；NULL 表示还没到位（再读一次）或已改好 stage。
  */
-sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const e)
+static sm_state_t move_arrived(struct cia402_device *d, uint16_t sw)
 {
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-		uint16_t sw;
-
-		if (r->status != 0) {
-			dev_fail(d, r);
-			return SM_TRAN(&st_idle);
-		}
-		if (d->operation.retarget_valid != 0u) {
-			take_retarget(d);
-			return SM_TRAN(&st_pp_write_velocity);
-		}
-		sw = (uint16_t)r->value;
-		if (cia402_parse(sw) == CIA402_FAULT) {
-			dev_finish(d, CIA402_FAIL_DRIVER);
-			return SM_TRAN(&st_idle);
-		}
-		if ((sw & CIA402_SW_TARGET_REACHED) != 0u) {
-			dev_done(d);
-			return SM_TRAN(&st_idle);
-		}
-		if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
-			dev_finish(d, CIA402_FAIL_TIMEOUT);
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_pp_read_status);
+	if (d->operation.retarget_valid != 0u) {
+		take_retarget(d);
+		return NULL;
 	}
+	if (cia402_parse(sw) == CIA402_FAULT) {
+		dev_finish(d, CIA402_FAIL_DRIVER);
+		return &st_idle;
+	}
+	if ((sw & CIA402_SW_TARGET_REACHED) != 0u) {
+		dev_done(d);
+		return &st_idle;
+	}
+	if ((int32_t)(d->now_ms - d->operation.deadline) >= 0) {
+		dev_finish(d, CIA402_FAIL_TIMEOUT);
+		return &st_idle;
+	}
+	return NULL; /* 还没到位：再读一次 */
+}
 
-	default:
-		return SM_SUPER(&st_operation_active);
+/**
+ * move_advance - 一笔写成功后进入下一步
+ * @d: 设备对象
+ *
+ * 到位等待由 move_arrived 判定，这里不推进。
+ */
+static void move_advance(struct cia402_device *d)
+{
+	switch (d->operation.stage) {
+	case MOVE_WRITE_VELOCITY:
+		d->operation.stage = MOVE_WRITE_ACCEL;
+		break;
+	case MOVE_WRITE_ACCEL:
+		d->operation.stage = MOVE_WRITE_DECEL;
+		break;
+	case MOVE_WRITE_DECEL:
+		d->operation.stage = MOVE_WRITE_TARGET;
+		break;
+	case MOVE_WRITE_TARGET:
+		d->operation.stage = MOVE_TRIGGER_HIGH;
+		break;
+	case MOVE_TRIGGER_HIGH:
+		if (d->operation.pp.online != 0u) {
+			/* 在线变位：单帧指令，写完直接等到位，没有落沿这一步 */
+			arm_arrive(d);
+			d->operation.stage = MOVE_WAIT_ARRIVE;
+		} else {
+			d->operation.stage = MOVE_TRIGGER_LOW;
+		}
+		break;
+	case MOVE_TRIGGER_LOW:
+		arm_arrive(d);
+		d->operation.stage = MOVE_WAIT_ARRIVE;
+		break;
+	default: /* MOVE_WAIT_ARRIVE */
+		break;
+	}
+}
+
+/**
+ * move_issue - 发起当前步骤的那笔事务
+ * @d: 设备对象
+ */
+static void move_issue(struct cia402_device *d)
+{
+	switch (d->operation.stage) {
+	case MOVE_WRITE_VELOCITY:
+		dev_start_write(d, CIA402_OD_PROFILE_VELOCITY, (uint32_t)d->operation.pp.velocity,
+				4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case MOVE_WRITE_ACCEL:
+		dev_start_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->operation.pp.accel, 4u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case MOVE_WRITE_DECEL:
+		dev_start_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->operation.pp.decel, 4u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case MOVE_WRITE_TARGET:
+		dev_start_write(d, CIA402_OD_TARGET_POSITION, (uint32_t)d->operation.pp.target, 4u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case MOVE_TRIGGER_HIGH:
+		if (d->operation.pp.online != 0u) {
+			dev_start_pulse(d, CIA402_CW_ONLINE_SETPOINT, CIA402_DEVICE_SDO_TIMEOUT_MS);
+			break;
+		}
+		dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_NEW_SETPOINT,
+				2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	case MOVE_TRIGGER_LOW:
+		dev_start_write(d, CIA402_OD_CONTROLWORD,
+				d->cw.confirmed & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
+	default: /* MOVE_WAIT_ARRIVE */
+		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
 	}
 }
 
@@ -249,6 +208,7 @@ static void arm_arrive(struct cia402_device *d)
 	d->operation.deadline = d->now_ms + CIA402_DEVICE_PP_ARRIVE_TIMEOUT_MS;
 }
 
+/* 新目标生效：整段参数按新值重跑，触发改用在线变位 */
 static void take_retarget(struct cia402_device *d)
 {
 	d->operation.retarget_valid = 0u;
@@ -256,5 +216,6 @@ static void take_retarget(struct cia402_device *d)
 	d->operation.pp.velocity = d->operation.retarget.velocity;
 	d->operation.pp.accel = d->operation.retarget.accel;
 	d->operation.pp.decel = d->operation.retarget.decel;
-	d->operation.pp.online = 1u; /* 这一段用在线变位触发 */
+	d->operation.pp.online = 1u;
+	d->operation.stage = MOVE_WRITE_VELOCITY;
 }

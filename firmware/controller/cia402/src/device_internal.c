@@ -122,63 +122,68 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
  * @d: 设备对象
  * @started: 客户端的未受理原因
  *
- * Return: 消费当前 ENTRY；下一拍取消流程且不交付结局。
+ * 只登记取消请求，下一拍由实际活动状态退出流程且不交付结局。
  */
-sm_ret_t dev_not_started(struct cia402_device *d, enum sdo_start_result started)
+void dev_not_started(struct cia402_device *d, enum sdo_start_result started)
 {
 	fprintf(stderr, "[cia402] 请求未执行: kind=%d, reason=%s\n", (int)d->operation.kind,
 		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
 	d->sdo_unstarted = 1u;
 	d->cw.pending_valid = 0u;
-	return SM_HANDLED();
 }
 
 /**
- * dev_start_read - 状态入口发起读并处理未受理
+ * dev_start_read - 发起读事务并处理未受理
  * @d: 设备对象
  * @index: 对象索引
  * @timeout_ms: 本笔事务的期限
  *
- * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
  */
-sm_ret_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+void dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_read(d, index, timeout_ms);
 
-	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+	if (started != SDO_START_ACCEPTED) {
+		dev_not_started(d, started);
+	}
 }
 
 /**
- * dev_start_write - 状态入口发起写并处理未受理
+ * dev_start_write - 发起写事务并处理未受理
  * @d: 设备对象
  * @index: 对象索引
  * @value: 待写值
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限
  *
- * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
  */
-sm_ret_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
-			 uint32_t timeout_ms)
+void dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+		     uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_write(d, index, value, size, timeout_ms);
 
-	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+	if (started != SDO_START_ACCEPTED) {
+		dev_not_started(d, started);
+	}
 }
 
 /**
- * dev_start_pulse - 状态入口发起一次性控制字并处理未受理
+ * dev_start_pulse - 发起一次性控制字写并处理未受理
  * @d: 设备对象
  * @value: 控制字值
  * @timeout_ms: 本笔事务的期限
  *
- * Return: 已受理则消费事件，未受理则留待下一拍取消流程。
+ * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
  */
-sm_ret_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+void dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_write_pulse(d, value, timeout_ms);
 
-	return (started == SDO_START_ACCEPTED) ? SM_HANDLED() : dev_not_started(d, started);
+	if (started != SDO_START_ACCEPTED) {
+		dev_not_started(d, started);
+	}
 }
 
 /**

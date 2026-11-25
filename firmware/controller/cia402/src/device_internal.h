@@ -1,12 +1,16 @@
 /*
  * device_internal.h — cia402 状态机的内部契约
  *
- * 设备层是一个 hsm 状态机：states/ 提供骨架，operations/ 按操作实现状态链。
+ * 设备层是一个 hsm 状态机：states/ 提供骨架，operations/ 每个操作只占一个
+ * 状态，内部用 operation.stage 顺序推进一串事务。
  * 本头给出四样东西：
  *   1. 业务事件（派生自 struct sm_event）；
  *   2. 超时常量；
- *   3. states/ 里共用的原语：dev_read / dev_write / dev_finish / dev_fail；
+ *   3. states/ 与 operations/ 里共用的原语：dev_read / dev_write / dev_finish / dev_fail；
  *   4. 全部状态函数的声明。
+ *
+ * 状态层次只有两层：sm_top → st_operation_active → 具体操作。
+ * st_idle 直接挂在 sm_top 下，不继承「被抢占」语义。
  *
  * Author: zager
  */
@@ -66,13 +70,13 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 				    uint32_t value, uint8_t size, uint32_t timeout_ms);
 /* 写不进控制字镜像的一次性 6040 指令，例如在线变位 0x103F */
 enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
-/* 未受理事务的立即收尾；返回状态迁移，不产生操作结局 */
-sm_ret_t dev_not_started(struct cia402_device *d, enum sdo_start_result started);
-/* 状态 ENTRY 使用的读写包装；未受理时直接退出流程 */
-sm_ret_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
-sm_ret_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
-			 uint32_t timeout_ms);
-sm_ret_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
+/* 未受理事务的立即收尾；只登记取消请求，不产生操作结局 */
+void dev_not_started(struct cia402_device *d, enum sdo_start_result started);
+/* 发起读写；未受理时登记取消请求，返回值恒为「事件已消费」故不返回 */
+void dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
+void dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+		     uint32_t timeout_ms);
+void dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
 /* 成功结束；失败结束并保存诊断；被取消的流程不交付结局 */
 void dev_done(struct cia402_device *d);
 void dev_finish(struct cia402_device *d, enum cia402_fail fail);
@@ -83,49 +87,25 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result);
 
 sm_ret_t device_initial(struct sm_hsm *const me, const struct sm_event *const e);
 
+/* 骨架：无流程、流程进行中的公共规则 */
 sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_operation_active(struct sm_hsm *const me, const struct sm_event *const e);
 
-sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *const e);
+/*
+ * 每个操作一个状态，内部按 operation.stage 顺序推进；
+ * 具体步骤枚举只存在于各自的 operations 文件里。
+ */
+sm_ret_t st_config(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_enable(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_disable(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_move(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_halt(struct sm_hsm *const me, const struct sm_event *const e);
+sm_ret_t st_home(struct sm_hsm *const me, const struct sm_event *const e);
+/* 回零中止链：被抢占或失败后先停电机、落 bit4、切回 PP，与主流程分离 */
+sm_ret_t st_home_abort(struct sm_hsm *const me, const struct sm_event *const e);
 
-sm_ret_t st_enable_read_pds(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_reset_low(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_reset_high(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_read_reset(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_write_shutdown(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_read_ready(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_write_switch_on(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_read_switched_on(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_write_enable_op(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_enable_read_enabled(struct sm_hsm *const me, const struct sm_event *const e);
-
-sm_ret_t st_disable_write(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_disable_read(struct sm_hsm *const me, const struct sm_event *const e);
-
-sm_ret_t st_pp_write_velocity(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_write_accel(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_write_decel(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_write_target(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_trigger_high(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_trigger_low(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_pp_read_status(struct sm_hsm *const me, const struct sm_event *const e);
-
-sm_ret_t st_halt_write(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_halt_read(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_halt_clear(struct sm_hsm *const me, const struct sm_event *const e);
-
+/* 急停：写一帧即进终态，没有顺序推进可言，保持两个状态 */
 sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e);
 sm_ret_t st_qstop_hold(struct sm_hsm *const me, const struct sm_event *const e);
-
-sm_ret_t st_home_active(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_write_mode(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_read_mode(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_start(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_wait(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_halt(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_halt_wait(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_restore_cw(struct sm_hsm *const me, const struct sm_event *const e);
-sm_ret_t st_home_restore_mode(struct sm_hsm *const me, const struct sm_event *const e);
 
 #endif /* CIA402_DEVICE_INTERNAL_H */

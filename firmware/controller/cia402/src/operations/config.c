@@ -4,73 +4,77 @@
  * 模式设不进去就等于后面所有 PP 都跑错，所以这一步必须回读比对；
  * 回读值不等于请求值即判失败，重试由上层决定。
  *
+ * 两步顺序推进：步骤号在 operation.stage，读到值才决定成功还是失败。
+ *
  * Author: zager
  */
 
 #include "../states/states.h"
 
-/* 写 6060 与读 6061 之间没有额外等待 */
+enum config_stage {
+	CONFIG_WRITE_MODE = 0,
+	CONFIG_READ_MODE,
+};
+
+static sm_state_t config_step(struct cia402_device *d, const struct sdo_result *result);
 
 /**
- * st_config_write_mode - 写目标模式
+ * st_config - 写模式并回读确认
  * @me: 状态机内核对象
  * @e: 待处理事件
- *
- * Return: 事务完成后迁 st_config_read_mode。
  */
-sm_ret_t st_config_write_mode(struct sm_hsm *const me, const struct sm_event *const e)
+sm_ret_t st_config(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
+	sm_state_t next;
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
-		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
-				       CIA402_DEVICE_SDO_TIMEOUT_MS);
+		d->operation.stage = CONFIG_WRITE_MODE;
+		next = config_step(d, NULL);
+		break;
 
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-
-		if (r->status != 0) {
-			dev_fail(d, r);
-			return SM_TRAN(&st_idle);
-		}
-		return SM_TRAN(&st_config_read_mode);
-	}
+	case CIA402_SIG_SDO_DONE:
+		next = config_step(d, DEV_SDO_RESULT(e));
+		break;
 
 	default:
 		return SM_SUPER(&st_operation_active);
 	}
+	return (next != NULL) ? SM_TRAN(next) : SM_HANDLED();
 }
 
 /**
- * st_config_read_mode - 回读模式并比对
- * @me: 状态机内核对象
- * @e: 待处理事件
+ * config_step - 判上一步结果并推进
+ * @d: 设备对象
+ * @result: 上一步的事务结果；NULL 表示刚进入流程
  *
- * Return: 匹配迁回 st_idle 并报成功，否则报失败。
+ * Return: 要迁移到的状态；NULL 表示已发起下一步。
  */
-sm_ret_t st_config_read_mode(struct sm_hsm *const me, const struct sm_event *const e)
+static sm_state_t config_step(struct cia402_device *d, const struct sdo_result *result)
 {
-	struct cia402_device *d = DEV_OF(me);
-
-	switch (e->sig) {
-	case SM_SIG_ENTRY:
-		return dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
-
-	case CIA402_SIG_SDO_DONE: {
-		const struct sdo_result *r = DEV_SDO_RESULT(e);
-
-		if (r->status != 0) {
-			dev_fail(d, r);
-		} else if ((r->value & 0xFFu) == CIA402_MODE_PP) {
-			dev_done(d);
-		} else {
-			dev_finish(d, CIA402_FAIL_CHECK); /* 模式没设进去 */
+	if (result != NULL) {
+		if (result->status != 0) {
+			dev_fail(d, result);
+			return &st_idle;
 		}
-		return SM_TRAN(&st_idle);
+		if (d->operation.stage == CONFIG_READ_MODE) {
+			/* 回读值必须等于请求值，否则模式没设进去 */
+			if ((result->value & 0xFFu) == CIA402_MODE_PP) {
+				dev_done(d);
+			} else {
+				dev_finish(d, CIA402_FAIL_CHECK);
+			}
+			return &st_idle;
+		}
+		d->operation.stage = CONFIG_READ_MODE; /* 写成功：去回读 */
 	}
 
-	default:
-		return SM_SUPER(&st_operation_active);
+	if (d->operation.stage == CONFIG_WRITE_MODE) {
+		dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
+				CIA402_DEVICE_SDO_TIMEOUT_MS);
+	} else {
+		dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
+	return NULL;
 }

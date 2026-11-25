@@ -56,25 +56,24 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		d->operation.pp.accel = ev->req.pp.accel;
 		d->operation.pp.decel = ev->req.pp.decel;
 		d->operation.pp.online = 0u; /* 新流程一律用普通触发 */
-		d->operation.home.failed = 0u;
-		d->operation.home.cancelled = 0u;
+		d->operation.home.pending = CIA402_OUTCOME_NONE;
 		d->operation.home.fail_kind = 0u;
 
 		switch (ev->req.kind) {
 		case CIA402_REQ_CONFIG:
-			return SM_TRAN(&st_config_write_mode);
+			return SM_TRAN(&st_config);
 		case CIA402_REQ_ENABLE:
-			return SM_TRAN(&st_enable_read_pds);
+			return SM_TRAN(&st_enable);
 		case CIA402_REQ_DISABLE:
-			return SM_TRAN(&st_disable_write);
+			return SM_TRAN(&st_disable);
 		case CIA402_REQ_MOVE:
-			return SM_TRAN(&st_pp_write_velocity);
+			return SM_TRAN(&st_move);
 		case CIA402_REQ_HALT:
-			return SM_TRAN(&st_halt_write);
+			return SM_TRAN(&st_halt);
 		case CIA402_REQ_QUICK_STOP:
 			return SM_TRAN(&st_qstop_write);
 		case CIA402_REQ_HOME:
-			return SM_TRAN(&st_home_write_mode);
+			return SM_TRAN(&st_home);
 		default:
 			return SM_HANDLED();
 		}
