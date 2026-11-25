@@ -21,7 +21,7 @@ PDS_FILES=(
 	"$SRC/cia402/include/cia402/od.h"
 	"$SRC/cia402/include/cia402/pds.h"
 )
-out=$(grep -nE 'canopen|ds301|0x600|0x580|<transport/|pthread|clock_' "${PDS_FILES[@]}" 2>/dev/null || true)
+out=$(grep -nE 'canopen|ds301|0x600|0x580|<sdo/|pthread|clock_' "${PDS_FILES[@]}" 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R2  宿主不接触 CANopen 驱动与协议类型"
@@ -39,7 +39,7 @@ while IFS= read -r f; do
 	controller/third_party/*) continue ;;
 	controller/canopen/master/*) continue ;;
 	controller/canopen/pdo/*) continue ;;
-	controller/canopen/transport/*) continue ;;
+	controller/canopen/sdo/*) continue ;;
 	controller/config/canopen_node/*) continue ;;
 	esac
 	viol+="$f"$'\n'
@@ -47,7 +47,7 @@ done <<<"$inc_list"
 if [ -z "$viol" ]; then ok; else bad "$viol"; fi
 
 section "R4  命令与业务状态机无阻塞调用"
-out=$(grep -rnE 'cia402_device_service|sdo_client_write|sdo_client_read|nanosleep|usleep|pthread_cond_wait|epoll_wait' \
+out=$(grep -rnE 'cia402_device_service|sdo_client_start|nanosleep|usleep|pthread_cond_wait|epoll_wait' \
 	"$SRC/control_api.c" "$SRC/controller_states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
@@ -59,12 +59,12 @@ done
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R6  整机状态机不访问协议栈私有头与传输层"
-out=$(grep -rnE '<canopen/|<cia402/|<transport/|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
+out=$(grep -rnE '<canopen/|<cia402/|<sdo/|\bcia402_[a-z_]*\(|0x60(40|41|60|61|7A|64|6C|3F)' \
 	"$SRC/controller_states" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R7  HSM 不认识业务类型"
-out=$(grep -rnE '\bcontroller_|struct controller|<axis/|<cia402/|<transport/|<states/' \
+out=$(grep -rnE '\bcontroller_|struct controller|<axis/|<cia402/|<sdo/|<states/' \
 	"$SRC/hsm" $INC 2>/dev/null || true)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
@@ -78,7 +78,7 @@ out=$(git -C "$SRC/third_party/CANopenLinux" diff --quiet -- . ':!CANopenNode' 2
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 
 section "R10  主站与 PDO 接收不认识 402 与业务"
-out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcontroller_|\baxis_|<cia402/|<transport/|<states/' \
+out=$(grep -rnE '0x60(40|41|60|61|7A|64|6C|3F)|ds402|cia402|\bcontroller_|\baxis_|<cia402/|<sdo/|<states/' \
 	"$SRC/canopen/master" "$SRC/canopen/pdo" $INC 2>/dev/null | code_only)
 if [ -z "$out" ]; then ok; else bad "$out"; fi
 

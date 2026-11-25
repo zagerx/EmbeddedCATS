@@ -8,10 +8,10 @@
  * Author: zager
  */
 
-#ifndef TRANSPORT_SDO_CLIENT_H
-#define TRANSPORT_SDO_CLIENT_H
+#ifndef SDO_SDO_CLIENT_H
+#define SDO_SDO_CLIENT_H
 
-#include <transport/sdo_types.h>
+#include <sdo/sdo_types.h>
 
 #include <stdint.h>
 
@@ -21,10 +21,8 @@ extern "C" {
 
 struct sdo_client;
 
-enum sdo_start_result sdo_client_read(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				      uint32_t timeout_ms);
-enum sdo_start_result sdo_client_write(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				       uint32_t value, uint8_t size, uint32_t timeout_ms);
+/* 启动一笔事务：ACCEPTED 后必须 poll 到 DONE；BUSY / INVALID 不生成结果 */
+enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req);
 enum sdo_poll sdo_client_poll(struct sdo_client *s, struct sdo_result *result);
 void sdo_client_abort(struct sdo_client *s);
 void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_us);
@@ -33,4 +31,4 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 }
 #endif
 
-#endif /* TRANSPORT_SDO_CLIENT_H */
+#endif /* SDO_SDO_CLIENT_H */

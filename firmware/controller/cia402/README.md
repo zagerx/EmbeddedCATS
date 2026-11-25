@@ -82,7 +82,7 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 | `CIA402_SIG_TICK` | 每拍一次 | 空闲时消费；本模块不主动读取反馈 |
 
 单笔事务的在途状态和期限由 `sdo_client` 持有。`dev_read()` / `dev_write()` 直接调用
-`sdo_client_read()` / `sdo_client_write()`，并检查受理结果；`cia402_poll()` 只在本设备
+`sdo_client_start()`，并检查受理结果；`cia402_poll()` 只在本设备
 拥有已受理事务时调用 `sdo_client_poll()`，不会取走其他使用者的结果。
 
 只有 `ACCEPTED` 才设置 `sdo_pending` 并等待结果；`BUSY / INVALID` 在状态 ENTRY 中记录
@@ -140,7 +140,7 @@ SDO 通道（改由 `canopen/pdo` 收 TPDO），通道由 402 流程独占。
 ## 依赖边界
 
 ```text
-cia402/device → sdo_client（显式公共函数） ← transport/sdo_client 实现 → CANopenNode
+cia402/device → sdo_client（显式公共函数） ← canopen/sdo 实现 → CANopenNode
 cia402/pds    → 无依赖
 ```
 

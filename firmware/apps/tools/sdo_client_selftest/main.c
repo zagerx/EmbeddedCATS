@@ -6,7 +6,7 @@
  * Author: zager
  */
 
-#include <transport/sdo_client_instance.h>
+#include <sdo/sdo_client_instance.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +15,11 @@ static int failures;
 
 /* 取走并核对一笔事务结果 */
 static void finish(struct sdo_client *client, int status);
+
+/* 测试内部：读 / 写请求的简写 */
+static enum sdo_start_result start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms);
+static enum sdo_start_result start_write(struct sdo_client *c, uint16_t index, uint32_t value,
+					 uint8_t size, uint32_t timeout_ms);
 
 #define CHECK(cond)                                                                                \
 	do {                                                                                       \
@@ -35,18 +40,18 @@ int main(void)
 	co.initiate = CO_SDO_RT_waitingResponse;
 
 	/* 非法参数与底层拒绝均不生成结果 */
-	CHECK(sdo_client_write(&client, 0x6040u, 0u, 0x0Fu, 0u, 100u) == SDO_START_INVALID);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 0u, 100u) == SDO_START_INVALID);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_IDLE);
 	co.initiate = CO_SDO_RT_abort;
-	CHECK(sdo_client_read(&client, 0x6041u, 0u, 100u) == SDO_START_INVALID);
+	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_INVALID);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_IDLE);
 	co.initiate = CO_SDO_RT_waitingResponse;
 
 	/* 正常读完成：小端值解码，取走结果后才释放通道 */
 	co.next = CO_SDO_RT_ok_communicationEnd;
 	co.read_value = 0x12345678u;
-	CHECK(sdo_client_read(&client, 0x6041u, 0u, 100u) == SDO_START_ACCEPTED);
-	CHECK(sdo_client_write(&client, 0x6040u, 0u, 0x0Fu, 2u, 100u) == SDO_START_BUSY);
+	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_ACCEPTED);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 100u) == SDO_START_BUSY);
 	sdo_client_step(&client, 1000u, NULL);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_DONE);
 	CHECK(result.status == SDO_STATUS_OK);
@@ -56,7 +61,7 @@ int main(void)
 	/* 取消与正常完成同拍发生：尊重已完成事务，不倒改为取消 */
 	co.next = CO_SDO_RT_ok_communicationEnd;
 	co.read_value = 0x89ABCDEFu;
-	CHECK(sdo_client_read(&client, 0x6041u, 0u, 100u) == SDO_START_ACCEPTED);
+	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_ACCEPTED);
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_DONE);
@@ -67,7 +72,7 @@ int main(void)
 	co.next = CO_SDO_RT_waitingResponse;
 	co.abort_code = CO_SDO_AB_TIMEOUT;
 	co.closes = 0u;
-	CHECK(sdo_client_write(&client, 0x6040u, 0u, 0x0Fu, 2u, 100u) == SDO_START_ACCEPTED);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 100u) == SDO_START_ACCEPTED);
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_WAITING);
@@ -79,7 +84,7 @@ int main(void)
 	/* 自身期限：即使发送缓冲一直满，也有界结束为 TIMEOUT */
 	co.next = CO_SDO_RT_transmittBufferFull;
 	co.closes = 0u;
-	CHECK(sdo_client_read(&client, 0x6041u, 0u, 2u) == SDO_START_ACCEPTED);
+	CHECK(start_read(&client, 0x6041u, 2u) == SDO_START_ACCEPTED);
 	sdo_client_step(&client, 1000u, NULL);
 	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_WAITING);
 	sdo_client_step(&client, 1000u, NULL);
@@ -91,7 +96,7 @@ int main(void)
 	/* 主动取消后发送缓冲一直满：本地 Close 释放通道，不宣称协议 abort 成功 */
 	co.next = CO_SDO_RT_transmittBufferFull;
 	co.closes = 0u;
-	CHECK(sdo_client_write(&client, 0x6040u, 0u, 0x0Fu, 2u, 3u) == SDO_START_ACCEPTED);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 3u) == SDO_START_ACCEPTED);
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
 	sdo_client_step(&client, 1000u, NULL);
@@ -104,6 +109,31 @@ int main(void)
 		puts("sdo_client_selftest: 全部通过");
 	}
 	return failures == 0 ? 0 : 1;
+}
+
+static enum sdo_start_result start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms)
+{
+	const struct sdo_request req = {
+		.dir = SDO_DIR_READ,
+		.index = index,
+		.timeout_ms = timeout_ms,
+	};
+
+	return sdo_client_start(c, &req);
+}
+
+static enum sdo_start_result start_write(struct sdo_client *c, uint16_t index, uint32_t value,
+					 uint8_t size, uint32_t timeout_ms)
+{
+	const struct sdo_request req = {
+		.dir = SDO_DIR_WRITE,
+		.index = index,
+		.size = size,
+		.value = value,
+		.timeout_ms = timeout_ms,
+	};
+
+	return sdo_client_start(c, &req);
 }
 
 /** CO_SDOclientDownloadInitiate - 返回测试设定的写发起结果 */

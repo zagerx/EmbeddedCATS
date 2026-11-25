@@ -7,8 +7,8 @@
  * Author: zager
  */
 
-#ifndef TRANSPORT_SDO_TYPES_H
-#define TRANSPORT_SDO_TYPES_H
+#ifndef SDO_SDO_TYPES_H
+#define SDO_SDO_TYPES_H
 
 #include <stdint.h>
 
@@ -46,8 +46,21 @@ enum sdo_poll {
 	SDO_POLL_IDLE      /* 没有事务或可取结果 */
 };
 
+/*
+ * 一次对象访问请求。
+ * dir == SDO_DIR_READ 时 size / value 被忽略，读取固定 4 字节。
+ */
+struct sdo_request {
+	enum sdo_dir dir;
+	uint16_t index;
+	uint8_t subindex;
+	uint8_t size;   /* 写：1～4 字节 */
+	uint32_t value; /* 写：待写值 */
+	uint32_t timeout_ms;
+};
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* TRANSPORT_SDO_TYPES_H */
+#endif /* SDO_SDO_TYPES_H */

@@ -7,37 +7,17 @@
  * Author: zager
  */
 
-#include <transport/sdo_client.h>
+#include <sdo/sdo_client.h>
 
 /**
- * sdo_client_read - 拒绝测试中的意外读请求
+ * sdo_client_start - 拒绝测试中的意外事务
  *
  * Return: INVALID；不生成事务结果。
  */
-enum sdo_start_result sdo_client_read(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				      uint32_t timeout_ms)
+enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 {
 	(void)s;
-	(void)index;
-	(void)subindex;
-	(void)timeout_ms;
-	return SDO_START_INVALID;
-}
-
-/**
- * sdo_client_write - 拒绝测试中的意外写请求
- *
- * Return: INVALID；不生成事务结果。
- */
-enum sdo_start_result sdo_client_write(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				       uint32_t value, uint8_t size, uint32_t timeout_ms)
-{
-	(void)s;
-	(void)index;
-	(void)subindex;
-	(void)value;
-	(void)size;
-	(void)timeout_ms;
+	(void)req;
 	return SDO_START_INVALID;
 }
 

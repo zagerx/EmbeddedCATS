@@ -5,7 +5,7 @@
 - 语言：**C++ / Qt6 Widgets**
 - 与 `apps/lyos_node/` **同级、二选一**：两个壳业务上都只依赖 `control/control.h`
 - 业务头只允许出现在 `bindings/`；`shell/`、`ui/`、`theme/` 不 include 任何
-  `control` / `states` / `axis` / `cia402` / `transport` / `canopen` / `bus` 的头
+  `control` / `states` / `axis` / `cia402` / `sdo` / `canopen` / `bus` 的头
 
 ## 目录
 

@@ -26,9 +26,14 @@
  */
 enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
+	const struct sdo_request req = {
+		.dir = SDO_DIR_READ,
+		.index = index,
+		.timeout_ms = timeout_ms,
+	};
 	enum sdo_start_result started;
 
-	started = sdo_client_read(d->client, index, 0u, timeout_ms);
+	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
 	}
@@ -65,9 +70,17 @@ enum sdo_start_result dev_write(struct cia402_device *d, uint16_t index, uint32_
 enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub,
 				    uint32_t value, uint8_t size, uint32_t timeout_ms)
 {
+	const struct sdo_request req = {
+		.dir = SDO_DIR_WRITE,
+		.index = index,
+		.subindex = sub,
+		.size = size,
+		.value = value,
+		.timeout_ms = timeout_ms,
+	};
 	enum sdo_start_result started;
 
-	started = sdo_client_write(d->client, index, sub, value, size, timeout_ms);
+	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
 		if (index == CIA402_OD_CONTROLWORD) {
@@ -88,10 +101,16 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
  */
 enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
+	const struct sdo_request req = {
+		.dir = SDO_DIR_WRITE,
+		.index = CIA402_OD_CONTROLWORD,
+		.size = 2u,
+		.value = (uint32_t)value,
+		.timeout_ms = timeout_ms,
+	};
 	enum sdo_start_result started;
 
-	started = sdo_client_write(d->client, CIA402_OD_CONTROLWORD, 0u, (uint32_t)value, 2u,
-				   timeout_ms);
+	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
 	}

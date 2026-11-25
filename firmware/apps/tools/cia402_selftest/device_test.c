@@ -69,6 +69,10 @@ static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
 static void test_waiting_not_timed_out(void);
 
+static enum sdo_start_result fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms);
+static enum sdo_start_result fake_write(struct sdo_client *s, uint16_t index, uint32_t value,
+					uint8_t size, uint32_t timeout_ms);
+
 static int failures;
 
 #define CHECK(cond)                                                                                \
@@ -108,37 +112,45 @@ int cia402_device_tests(void)
 }
 
 /**
- * sdo_client_read - 测试用异步读实现
+ * sdo_client_start - 测试用异步事务实现
  * @s: 假客户端对象
- * @index: 对象索引
- * @subindex: 子索引
- * @timeout_ms: 本笔事务的期限
+ * @req: 请求描述
  *
  * Return: 仅 ACCEPTED 产生结果；BUSY / INVALID 不占用通道。
  */
-enum sdo_start_result sdo_client_read(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				      uint32_t timeout_ms)
+enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 {
-	(void)timeout_ms;
-	return fake_start((struct fake_client *)s, SDO_DIR_READ, index, subindex, 0u, 0u, 200u);
+	if (req == NULL) {
+		return SDO_START_INVALID;
+	}
+	return fake_start((struct fake_client *)s, (uint8_t)req->dir, req->index, req->subindex,
+			  req->value, req->size, req->timeout_ms);
 }
 
-/**
- * sdo_client_write - 测试用异步写实现
- * @s: 假客户端对象
- * @index: 对象索引
- * @subindex: 子索引
- * @value: 待写值
- * @size: 字节数
- * @timeout_ms: 本笔事务的期限
- *
- * Return: 仅 ACCEPTED 产生结果；BUSY / INVALID 不占用通道。
- */
-enum sdo_start_result sdo_client_write(struct sdo_client *s, uint16_t index, uint8_t subindex,
-				       uint32_t value, uint8_t size, uint32_t timeout_ms)
+/* 测试内部：读 / 写请求的简写 */
+static enum sdo_start_result fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms)
 {
-	return fake_start((struct fake_client *)s, SDO_DIR_WRITE, index, subindex, value, size,
-			  timeout_ms);
+	const struct sdo_request req = {
+		.dir = SDO_DIR_READ,
+		.index = index,
+		.timeout_ms = timeout_ms,
+	};
+
+	return sdo_client_start(s, &req);
+}
+
+static enum sdo_start_result fake_write(struct sdo_client *s, uint16_t index, uint32_t value,
+					uint8_t size, uint32_t timeout_ms)
+{
+	const struct sdo_request req = {
+		.dir = SDO_DIR_WRITE,
+		.index = index,
+		.size = size,
+		.value = value,
+		.timeout_ms = timeout_ms,
+	};
+
+	return sdo_client_start(s, &req);
 }
 
 /**
@@ -760,14 +772,13 @@ static void test_client_contract(void)
 
 	fx_init(&f);
 	fx_complete(&f, SDO_STATUS_FAIL, 0xDEADu);
-	CHECK(sdo_client_write(client, CIA402_OD_CONTROLWORD, 0u, 0u, 0u, 200u) ==
-	      SDO_START_INVALID);
+	CHECK(fake_write(client, CIA402_OD_CONTROLWORD, 0u, 0u, 200u) == SDO_START_INVALID);
 	CHECK(f.fake.started == 0u);
 	CHECK(f.fake.result.value == 0xDEADu);
 	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE); /* 清理上一笔外部结果 */
 
-	CHECK(sdo_client_read(client, CIA402_OD_STATUSWORD, 0u, 200u) == SDO_START_ACCEPTED);
-	CHECK(sdo_client_read(client, CIA402_OD_STATUSWORD, 0u, 200u) == SDO_START_BUSY);
+	CHECK(fake_read(client, CIA402_OD_STATUSWORD, 200u) == SDO_START_ACCEPTED);
+	CHECK(fake_read(client, CIA402_OD_STATUSWORD, 200u) == SDO_START_BUSY);
 	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
 	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE);
 	CHECK(result.status == SDO_STATUS_CANCELLED);

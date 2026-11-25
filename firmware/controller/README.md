@@ -3,7 +3,7 @@
 ## 构建入口
 
 本目录是**自包含的 CMake 子工程**：`controller/CMakeLists.txt` 定义全部库目标
-（`canopen_node`、`cats_hsm`、`cats_master`、`sdo_transport`、`canopen_sdo`、`cia402`、
+（`canopen_node`、`cats_hsm`、`cats_master`、`sdo_iface`、`canopen_sdo`、`cia402`、
 `cats_axis`、`cats_control`），并可被任何工程直接引入，不依赖父工程的 C 标准、警告选项
 或平台配置。
 
@@ -23,7 +23,7 @@ controller/
 ├── canopen/
 │   ├── master/     主站生命周期、节点表、NMT 与通信复位
 │   ├── pdo/        在空置接收槽上接住从站 TPDO 并解包
-│   └── transport/  对象访问契约与同线程 CANopen SDO 后端
+│   └── sdo/        对象访问契约与同线程 CANopen SDO 后端
 ├── cia402/         DS402 纯知识与单从站运行控制
 ├── third_party/    CANopenLinux 与 CANopenNode，只读
 ├── controller_axis/ 单轴请求、单位换算与整机轴集合

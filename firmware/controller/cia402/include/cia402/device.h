@@ -13,7 +13,7 @@
 #ifndef CIA402_DEVICE_H
 #define CIA402_DEVICE_H
 
-#include <transport/sdo_client.h>
+#include <sdo/sdo_client.h>
 
 #include <stdint.h>
 

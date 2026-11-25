@@ -8,7 +8,7 @@
 
 #include <cia402/device_instance.h>
 #include <pdo/tpdo.h>
-#include <transport/sdo_client_instance.h>
+#include <sdo/sdo_client_instance.h>
 
 #include <stdint.h>
 

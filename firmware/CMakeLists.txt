@@ -48,10 +48,10 @@ target_compile_options(cia402_selftest PRIVATE -Wall -Wextra)
 # 真实 SDO 客户端 + 测试专用 CANopenNode 协议桩：不创建 CAN 接口
 add_executable(sdo_client_selftest
 	apps/tools/sdo_client_selftest/main.c
-	controller/canopen/transport/src/sdo_client.c)
+	controller/canopen/sdo/src/sdo_client.c)
 target_include_directories(sdo_client_selftest PRIVATE
 	apps/tools/sdo_client_selftest/include)
-target_link_libraries(sdo_client_selftest PRIVATE sdo_transport)
+target_link_libraries(sdo_client_selftest PRIVATE sdo_iface)
 target_compile_options(sdo_client_selftest PRIVATE -Wall -Wextra)
 
 # 控制层纯逻辑回归：不创建 CAN 接口，也不驱动任何电机
@@ -72,7 +72,7 @@ target_include_directories(controller_fault_selftest PRIVATE
 	controller/cia402/include
 	controller/canopen/master/include
 	controller/canopen/pdo/include
-	controller/canopen/transport/include
+	controller/canopen/sdo/include
 	controller/hsm/include)
 target_link_libraries(controller_fault_selftest PRIVATE cia402 cats_hsm canopen_node Threads::Threads)
 target_compile_options(controller_fault_selftest PRIVATE -Wall -Wextra)

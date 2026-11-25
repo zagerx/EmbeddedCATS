@@ -15,7 +15,7 @@
 
 #include <master/master.h>
 #include <controller_axis/controller_axis.h>
-#include <transport/sdo_client.h>
+#include <sdo/sdo_client.h>
 
 #include "evt_queue.h"
 

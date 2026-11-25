@@ -5,7 +5,7 @@
 #     target_link_libraries(自己的目标 PRIVATE cats_control)
 # 就能编进整条控制栈，不需要知道下面分了哪几层。
 #
-# 依赖只向下：cats_control → cats_axis → cia402 → sdo_transport ← canopen_sdo ← canopen_node。
+# 依赖只向下：cats_control → cats_axis → cia402 → sdo_iface ← canopen_sdo ← canopen_node。
 # 对外只暴露 include/（control/control.h）；其余各层的 include 都是本目录内部的事。
 # 本文件不假设父工程设过语言标准或警告选项，全部按目标自己声明。
 
@@ -34,15 +34,15 @@ target_compile_definitions(cats_master PRIVATE _DEFAULT_SOURCE)
 cats_c_target(cats_master)
 
 # 对象访问接口与公共事务类型：不认识具体协议
-add_library(sdo_transport INTERFACE)
-target_include_directories(sdo_transport INTERFACE
-	${CMAKE_CURRENT_SOURCE_DIR}/canopen/transport/include)
+add_library(sdo_iface INTERFACE)
+target_include_directories(sdo_iface INTERFACE
+	${CMAKE_CURRENT_SOURCE_DIR}/canopen/sdo/include)
 
 # SDO 后端：事务推进，不实现 DS402 语义。通道由 402 独占，不再仲裁。
-add_library(canopen_sdo STATIC canopen/transport/src/sdo_client.c)
+add_library(canopen_sdo STATIC canopen/sdo/src/sdo_client.c)
 target_include_directories(canopen_sdo PUBLIC
-	${CMAKE_CURRENT_SOURCE_DIR}/canopen/transport/include)
-target_link_libraries(canopen_sdo PUBLIC sdo_transport canopen_node)
+	${CMAKE_CURRENT_SOURCE_DIR}/canopen/sdo/include)
+target_link_libraries(canopen_sdo PUBLIC sdo_iface canopen_node)
 target_compile_definitions(canopen_sdo PRIVATE _POSIX_C_SOURCE=200809L)
 cats_c_target(canopen_sdo)
 
@@ -55,7 +55,7 @@ target_link_libraries(canopen_pdo PUBLIC cats_master)
 cats_c_target(canopen_pdo)
 
 # CiA 402：pds.c 为纯标准知识；device.c 为装配与推进；states/ 一状态一文件。
-# 本模块只依赖 sdo_transport 公共接口与 hsm 机制，不依赖 CANopenNode。
+# 本模块只依赖 sdo_iface 公共接口与 hsm 机制，不依赖 CANopenNode。
 add_library(cia402 STATIC
 	cia402/src/pds.c
 	cia402/src/device.c
@@ -72,7 +72,7 @@ add_library(cia402 STATIC
 	cia402/src/operations/quick_stop.c)
 target_include_directories(cia402 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/cia402/include)
 target_include_directories(cia402 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cia402/src)
-target_link_libraries(cia402 PUBLIC sdo_transport cats_hsm)
+target_link_libraries(cia402 PUBLIC sdo_iface cats_hsm)
 cats_c_target(cia402)
 
 # 轴模块：单轴单位换算与请求，整机轴集合动作与结果汇总
