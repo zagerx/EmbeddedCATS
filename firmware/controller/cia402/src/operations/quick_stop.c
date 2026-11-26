@@ -24,14 +24,18 @@
 sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 {
 	struct cia402_device *d = DEV_OF(me);
+	sm_state_t next;
 
 	switch (e->sig) {
-	case SM_SIG_ENTRY: {
-		sm_state_t next = dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP,
-						  2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
+	case SM_SIG_ENTRY:
+		/* 首帧由 TICK 发起：ENTRY 里发起的事务失败无法转移 */
+		return SM_HANDLED();
 
-		return (next != NULL) ? SM_TRAN(next) : SM_HANDLED();
-	}
+	case CIA402_SIG_TICK:
+		/* poll 只在通道空闲时送 TICK，正是可以发起事务的时刻 */
+		next = dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
+		break;
 
 	case CIA402_SIG_SDO_DONE:
 		if (DEV_SDO_RESULT(e)->status != 0) {
@@ -44,6 +48,7 @@ sm_ret_t st_qstop_write(struct sm_hsm *const me, const struct sm_event *const e)
 	default:
 		return SM_SUPER(&st_operation_active);
 	}
+	return (next != NULL) ? SM_TRAN(next) : SM_HANDLED();
 }
 
 /**

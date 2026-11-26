@@ -30,7 +30,12 @@ sm_ret_t st_config(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
+		/* 只记步骤：本事件里发起的事务失败无法转移（内核丢弃 ENTRY 返回值） */
 		d->operation.stage = CONFIG_WRITE_MODE;
+		return SM_HANDLED();
+
+	case CIA402_SIG_TICK:
+		/* poll 只在通道空闲时送 TICK，正是可以发起事务的时刻 */
 		next = config_step(d, NULL);
 		break;
 

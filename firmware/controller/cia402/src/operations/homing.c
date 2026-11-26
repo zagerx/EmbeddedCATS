@@ -65,9 +65,14 @@ sm_ret_t st_home(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
+		/* 只记步骤：本事件里发起的事务失败无法转移（内核丢弃 ENTRY 返回值） */
 		d->operation.home.pending = CIA402_OUTCOME_NONE;
 		d->operation.home.fail_kind = 0u;
 		d->operation.stage = HOME_WRITE_MODE;
+		return SM_HANDLED();
+
+	case CIA402_SIG_TICK:
+		/* poll 只在通道空闲时送 TICK，正是可以发起事务的时刻 */
 		next = home_step(d, NULL);
 		break;
 
@@ -101,6 +106,10 @@ sm_ret_t st_home_abort(struct sm_hsm *const me, const struct sm_event *const e)
 
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
+		/* 起点由调用方设好；首笔事务由 TICK 发起 */
+		return SM_HANDLED();
+
+	case CIA402_SIG_TICK:
 		next = home_abort_step(d, NULL);
 		break;
 
@@ -112,7 +121,7 @@ sm_ret_t st_home_abort(struct sm_hsm *const me, const struct sm_event *const e)
 		/* 清理链又被抢占：从头重来，旧失败不再补交 */
 		home_note_cancel(d, DEV_CANCEL_REASON(e));
 		d->operation.stage = HOME_ABORT_HALT;
-		return SM_TRAN(&st_home_abort); /* 自迁移：重跑 EXIT/ENTRY，由 ENTRY 重新发帧 */
+		return SM_TRAN(&st_home_abort); /* 自迁移：重跑 ENTRY，再由 TICK 重新发帧 */
 
 	default:
 		return SM_SUPER(&st_operation_active);

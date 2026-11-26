@@ -127,21 +127,19 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
 }
 
 /**
- * dev_start_failed - 事务没被受理：当场判失败，并登记下一拍退出
+ * dev_start_failed - 事务没被受理：当场判失败
  * @d: 设备对象
  * @started: 客户端的未受理原因（BUSY / INVALID）
  *
- * 没发起就没有结果事件，不能留在流程里等。这里当场把流程判失败（回执立刻
- * 可读），同时登记标志：ENTRY 里返回的转移会被内核丢弃，所以还需要下一拍用
- * 取消事件把状态机从实际子状态带出去。
+ * 没发起就没有结果事件，不能留在流程里等。发起事务发生在 TICK / SDO_DONE
+ * 上下文里（不在 ENTRY），返回值能被内核接受，所以这里只判失败、由调用方迁移。
  *
- * Return: 要迁移到的状态（st_idle）；SDO_DONE 路径直接用它，ENTRY 路径靠标志。
+ * Return: 要迁移到的状态（st_idle）。
  */
 static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started)
 {
 	fprintf(stderr, "[cia402] 事务未发起: kind=%d, reason=%s\n", (int)d->operation.kind,
 		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
-	d->sdo_unstarted = 1u;
 	dev_finish(d, CIA402_FAIL_SDO);
 	return &st_idle;
 }

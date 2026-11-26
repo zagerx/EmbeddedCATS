@@ -51,12 +51,14 @@ cia402/
 直接挂在 `sm_top` 下，不属于任何操作，因此不继承 `st_operation_active` 的"被抢占"语义。
 
 **每个操作只占一个状态**，内部用 `operation.stage` 顺序推进一串事务：
-`SM_SIG_ENTRY` 发起第一步，`CIA402_SIG_SDO_DONE` 判结果并推进下一步，
-步骤枚举只存在于各自的 `operations` 文件里。为此每个操作只需要：
+`SM_SIG_ENTRY` 只记下第一步的 stage（不发起事务），`CIA402_SIG_TICK` 发起当前那一步，
+`CIA402_SIG_SDO_DONE` 判结果并推进下一步，步骤枚举只存在于各自的 `operations` 文件里。
+ENTRY 里发起事务是不行的：内核把 ENTRY 的返回值丢掉，发起失败时无法迁移。
+为此每个操作只需要：
 
 | 函数 | 职责 |
 |---|---|
-| `st_xxx` | 状态处理函数：转发 ENTRY / SDO_DONE 给 `xxx_step` |
+| `st_xxx` | 状态处理函数：转发 TICK / SDO_DONE 给 `xxx_step` |
 | `xxx_step` | 判上一步结果：收尾返回目标状态，否则发起下一步并返回 NULL |
 | `xxx_issue` | 按 stage 发起当前那笔事务 |
 | `xxx_advance` / `xxx_judge` | 写成功后的下一步 / 读到值后的分叉判定 |
@@ -73,8 +75,7 @@ cia402/
 void         cia402_init(struct cia402_device *d, struct sdo_client *client);
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 void         cia402_poll(struct cia402_device *d, uint32_t now_ms);
-void         cia402_get_failure(const struct cia402_device *d,
-                                struct cia402_failure_info *out);
+void         cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out);
 enum cia402_outcome cia402_take_result(struct cia402_device *d);
 ```
 
@@ -93,18 +94,21 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 | `CIA402_SIG_REQUEST` | 邮箱里取出新请求（载荷是 `struct cia402_request`）| `st_idle`：按 kind 迁到该流程的第一个状态 |
 | `CIA402_SIG_SDO_DONE` | 一笔事务有了结果 | 当前状态：判结果、决定下一步或收尾 |
 | `CIA402_SIG_CANCEL` | 被 HALT / QUICK STOP 抢占，或通道交付超时 | `st_operation_active`：统一退出回 `st_idle` |
-| `CIA402_SIG_TICK` | 每拍一次 | 空闲时消费；本模块不主动读取反馈 |
+| `CIA402_SIG_TICK` | 每拍一次 | 当前状态：发起当前步骤的事务（`poll` 只在通道空闲、没有取消、没有待受理请求时送 TICK） |
 
 单笔事务的在途状态和期限由 `sdo_client` 持有。`dev_read()` / `dev_write()` 直接调用
 `sdo_client_start()`，并检查受理结果；`cia402_poll()` 只在本设备
 拥有已受理事务时调用 `sdo_client_poll()`，不会取走其他使用者的结果。
 
-只有 `ACCEPTED` 才设置 `sdo_pending` 并等待结果；`BUSY / INVALID` 在状态 ENTRY 中记录
-`sdo_unstarted`，下一拍由实际活动状态处理取消并回到空闲。HSM 内核不执行 ENTRY 返回的
-二次转移，因此不能直接在 ENTRY 中要求回空闲。未受理不产生 `DONE / FAILED`，也不等待
-虚假通信超时。
+只有 `ACCEPTED` 才设置 `sdo_pending` 并等待结果；`BUSY / INVALID` 在发起的那一时刻就当场判
+失败：`TICK` 的返回值内核接受，可以直接迁回 `st_idle` 并交出一个真实结局，不需要额外的
+待处理标志，也不会等一个并不存在的通信超时。
 `TIMEOUT` 是已受理事务的真实失败；`CANCELLED` 只用于取消旧事务和继续安全请求，
 不是 402 故障或操作结局。
+
+`cia402_poll()` 只在本设备没有在跑流程时才从邮箱取新请求：跑着的时候取出来也没有
+状态会受理，只会把已经接受的 HALT / 急停悄悄丢掉。抢占靠 `CANCEL` 实现，请求留在
+邮箱里，等流程真的回到空闲再取。
 
 一次 `poll` 最多发起一笔对象事务，因此CANopen 工作线程能在多个设备之间公平轮转，
 一个设备在等应答不会占住循环。

@@ -91,14 +91,6 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 	d->now_ms = now_ms;
 	cancel = d->mailbox.cancel;
 
-	if (d->sdo_unstarted != 0u) {
-		/* 未受理已在发起时判过失败；这里只把状态机从实际子状态带出去 */
-		d->sdo_unstarted = 0u;
-		dispatch_cancel(d, cancel != CIA402_CANCEL_NONE ? cancel : CIA402_CANCEL_REQUEST,
-				NULL);
-		return;
-	}
-
 	if (d->sdo_pending != 0u) {
 		if (cancel != CIA402_CANCEL_NONE) {
 			sdo_client_abort(d->client);
@@ -140,7 +132,8 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 		dispatch_cancel(d, cancel, NULL);
 		return;
 	}
-	if (pop_request(d, &req) != 0) {
+	/* 邮箱只在没有在跑流程时开箱：跑着的时候取出来也没人受理，只会丢请求 */
+	if (d->operation.running == 0u && pop_request(d, &req) != 0) {
 		dispatch_request(d, &req);
 		return;
 	}
