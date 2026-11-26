@@ -20,7 +20,6 @@
 #include "device_internal.h"
 
 #include <stddef.h>
-#include <stdio.h>
 #include <string.h>
 
 static int admit(struct cia402_device *d, const struct cia402_request *req);
@@ -91,26 +90,18 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 	d->now_ms = now_ms;
 	cancel = d->mailbox.cancel;
 
-	if (d->sdo_pending != 0u) {
+	/*
+	 * 通道自己就是唯一的事实来源：DONE 有结果，WAITING 在途，IDLE 空闲。
+	 * 每拍都问一次，本层不另外记账。
+	 */
+	state = sdo_client_poll(d->client, &result);
+	if (state == SDO_POLL_WAITING) {
 		if (cancel != CIA402_CANCEL_NONE) {
-			sdo_client_abort(d->client);
+			sdo_client_abort(d->client); /* 登记取消，通道收尾后仍交 CANCELLED */
 		}
-		state = sdo_client_poll(d->client, &result);
-		if (state == SDO_POLL_WAITING) {
-			return;
-		}
-		if (state != SDO_POLL_DONE) {
-			/* 已受理事务不能无声丢失：这是实现错误，不是驱动器超时 */
-			fprintf(stderr, "[cia402] 已受理事务丢失: kind=%d\n",
-				(int)d->operation.kind);
-			d->operation.running = 0u;
-			d->mailbox.pending = 0u;
-			d->mailbox.cancel = CIA402_CANCEL_NONE;
-			d->cw.pending_valid = 0u;
-			d->sdo_pending = 0u;
-			return;
-		}
-		d->sdo_pending = 0u;
+		return;
+	}
+	if (state == SDO_POLL_DONE) {
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result);
 			return;
@@ -128,6 +119,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 		return;
 	}
 
+	/* 通道空闲：才能谈取消、取新请求或推进流程 */
 	if (cancel != CIA402_CANCEL_NONE) {
 		dispatch_cancel(d, cancel, NULL);
 		return;

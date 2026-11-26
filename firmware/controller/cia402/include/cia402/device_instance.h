@@ -86,7 +86,6 @@ struct cia402_device {
 		uint8_t subindex;
 		uint8_t dir; /* enum sdo_dir */
 	} txn;
-	uint8_t sdo_pending; /* 本设备有一笔已受理且未取走的事务 */
 
 	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，事务状态由通道持有 */
 	struct sm_hsm hsm;

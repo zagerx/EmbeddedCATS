@@ -35,7 +35,6 @@ enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t
 
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
-		d->sdo_pending = 1u;
 		d->txn.index = index;
 		d->txn.subindex = 0u;
 		d->txn.dir = (uint8_t)SDO_DIR_READ;
@@ -85,7 +84,6 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
-		d->sdo_pending = 1u;
 		d->txn.index = index;
 		d->txn.subindex = sub;
 		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
@@ -118,7 +116,6 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
 
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
-		d->sdo_pending = 1u;
 		d->txn.index = CIA402_OD_CONTROLWORD;
 		d->txn.subindex = 0u;
 		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
