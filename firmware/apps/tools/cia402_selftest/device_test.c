@@ -31,7 +31,7 @@ struct fake_client {
 struct fx {
 	struct fake_client fake;
 	struct cia402_device dev;
-	enum cia402_outcome st;
+	enum cia402_operation_result st;
 	enum cia402_fail failure;
 	uint32_t t;
 };
@@ -244,7 +244,7 @@ static void fx_poll_at(struct fx *f, uint32_t t)
 	f->t = t;
 	cia402_poll(&f->dev, t);
 	f->st = cia402_take_result(&f->dev);
-	if (f->st == CIA402_OUTCOME_FAILED) {
+	if (f->st == CIA402_OP_RESULT_FAILED) {
 		cia402_failure_of(&f->dev, &f->failure);
 	}
 }
@@ -378,7 +378,7 @@ static void test_enable(void)
 	fx_complete(&f, 0, 0x0027u);
 	fx_poll(&f);
 
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 }
 
 /* PP：写四个参数 → bit4 边沿 → 等到位 */
@@ -417,10 +417,10 @@ static void test_pp(void)
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
-	CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
+	CHECK(cia402_take_result(&f.dev) == CIA402_OP_RESULT_NONE);
 }
 
 /* PP 运动中的新目标：走在线变位 0x103F，不停车、不报中间结论 */
@@ -435,7 +435,7 @@ static void test_pp_retarget(void)
 
 	/* 运动中再来一条：受理，不是 BUSY */
 	CHECK(fx_move(&f, 200) == CIA402_ACCEPTED);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	/* 这一笔读到的还是“没到位”：先把参数按新目标重跑一遍 */
 	fx_complete(&f, 0, 0x0027u);
@@ -459,14 +459,14 @@ static void test_pp_retarget(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	/* 0x103F 是一次性指令，不得污染控制字镜像 */
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	/* 新目标优先于到位：这一次读到 bit10 = 1，也不能把后来的指令丢掉 */
 	CHECK(fx_move(&f, 300) == CIA402_ACCEPTED);
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_PROFILE_VELOCITY, 10u);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	/* 把最后一段走到位 */
 	fx_complete(&f, 0, 0u);
@@ -484,7 +484,7 @@ static void test_pp_retarget(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	fx_complete(&f, 0, 0x0027u | CIA402_SW_TARGET_REACHED);
 	fx_poll(&f);
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP);
 
 	/* 只有 PP 在跑时才能改目标：别的流程仍按忙拒 */
@@ -536,7 +536,7 @@ static void test_home_bit13(void)
 	fx_home_run(&f);
 
 	fx_home_restore(&f, 0x2637u); /* bit13：回零错误 */
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
 	CHECK(f.failure == CIA402_FAIL_HOMING);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP); /* bit4 已落，halt 也清了 */
 }
@@ -562,7 +562,7 @@ static void test_home_fault(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
 	CHECK(f.failure == CIA402_FAIL_DRIVER);
 }
 
@@ -587,7 +587,7 @@ static void test_home_cancel(void)
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
 	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 }
 
@@ -612,10 +612,10 @@ static void test_home_preempt(void)
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 	fx_poll(&f);                           /* 回空闲，取到后继 HALT */
 	CHECK(cia402_is_running(&f.dev) != 0); /* HALT 是独立的新操作 */
-	CHECK(cia402_take_result(&f.dev) == CIA402_OUTCOME_NONE);
+	CHECK(cia402_take_result(&f.dev) == CIA402_OP_RESULT_NONE);
 }
 
 /* 回零清理链再被抢占：旧失败不得在后继取消之后补交 */
@@ -648,7 +648,7 @@ static void test_home_cleanup_preempt(void)
 	fx_poll(&f);
 	expect_started(&f, SDO_DIR_READ, CIA402_OD_STATUSWORD, 0u);
 	fx_home_restore(&f, CIA402_SW_TARGET_REACHED);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 }
 
 /* Quick Stop 抢占在途 PP */
@@ -672,14 +672,14 @@ static void test_quick_stop_preempts(void)
 	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
 	fx_poll(&f);
 	/* 旧流程作废：不能留下失败结论 */
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 	fx_poll(&f); /* 受理急停：只设步骤 */
 	fx_poll(&f); /* TICK：写控制字 */
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 
 	/* 写完就停手：急停整条链路只有那一帧 */
 	f.fake.started = 0u;
@@ -714,7 +714,7 @@ static void test_quick_stop_write_failure(void)
 	fx_poll_at(&f, f.t + 300u);
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
 	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 
 	/* 失败也不补发、不补断使能 */
@@ -736,7 +736,7 @@ static void test_quick_stop_clear(void)
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_QUICK_STOP);
 	fx_complete(&f, 0, 0u);
 	fx_poll(&f);
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 
 	/* 终态期间：普通请求被丢弃，不发帧 */
 	fx_request(&f, CIA402_REQ_ENABLE);
@@ -750,7 +750,7 @@ static void test_quick_stop_clear(void)
 	fx_request(&f, CIA402_REQ_ESTOP_CLEAR);
 	fx_poll(&f); /* 受理请求 → 直接交回执 */
 	CHECK(f.fake.started == 0u);
-	CHECK(f.st == CIA402_OUTCOME_DONE);
+	CHECK(f.st == CIA402_OP_RESULT_DONE);
 
 	/* 恢复受理：使能请求能被接纳并发起读状态字 */
 	f.fake.started = 0u;
@@ -770,11 +770,11 @@ static void test_start_rejected(void)
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	fx_poll(&f); /* REQUEST：只设步骤，还没有事务 */
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	fx_poll(&f); /* TICK：发起失败 → 当场判失败并回到空闲 */
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure == CIA402_FAIL_SDO);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
+	CHECK(f.failure == CIA402_FAIL_NOT_STARTED);
 	CHECK(f.dev.operation.running == 0u);
 	CHECK(sm_hsm_state(&f.dev.hsm) == &st_idle);
 
@@ -814,7 +814,7 @@ static void test_client_contract(void)
 	fx_poll(&f);
 	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
 	fx_poll(&f);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 	fx_poll(&f); /* 受理 HALT：只设步骤 */
 	fx_poll(&f); /* TICK：写控制字 */
 	expect_started(&f, SDO_DIR_WRITE, CIA402_OD_CONTROLWORD, CIA402_CW_HALT);
@@ -839,8 +839,8 @@ static void test_cancel_beats_pending_failure(void)
 
 		CHECK(cia402_request(&f.dev, &req) == CIA402_ACCEPTED);
 	}
-	fx_poll(&f);                        /* 取结果 → 走取消，不产生结局 */
-	CHECK(f.st == CIA402_OUTCOME_NONE); /* 旧失败作废 */
+	fx_poll(&f);                          /* 取结果 → 走取消，不产生结局 */
+	CHECK(f.st == CIA402_OP_RESULT_NONE); /* 旧失败作废 */
 
 	fx_poll(&f); /* 受理 HALT：只设步骤 */
 	fx_poll(&f); /* TICK：写控制字 */
@@ -859,12 +859,12 @@ static void test_timeout(void)
 	fx_poll_at(&f, 0u);
 	fx_poll_at(&f, 300u); /* 402 不自己计时：由通道判定 */
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 
-	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.st == CIA402_OP_RESULT_FAILED);
 	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 }
 
@@ -882,7 +882,7 @@ static void test_waiting_not_timed_out(void)
 	fx_poll_at(&f, 1000u);
 	fx_poll_at(&f, 5000u);
 	CHECK(f.fake.aborts == 0u);
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	CHECK(f.st == CIA402_OP_RESULT_NONE);
 
 	fx_complete(&f, 0, 0x0040u); /* 通道终于开始并完成传输 */
 	fx_poll_at(&f, 5000u);

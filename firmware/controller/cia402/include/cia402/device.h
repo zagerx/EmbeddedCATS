@@ -52,20 +52,22 @@ enum cia402_response {
 	CIA402_INVALID       /* 请求本身不合法（kind、未知参数）*/
 };
 
-/* 一次操作的结局；取消不交付结局，只记日志 */
-enum cia402_outcome {
-	CIA402_OUTCOME_NONE = 0, /* 正在执行，或当前没有可交付的结果 */
-	CIA402_OUTCOME_DONE,
-	CIA402_OUTCOME_FAILED
+/* 一次操作的结果；取消不交付结果，只记日志 */
+enum cia402_operation_result {
+	CIA402_OP_RESULT_NONE = 0, /* 正在执行，或当前没有可交付的结果 */
+	CIA402_OP_RESULT_DONE,
+	CIA402_OP_RESULT_FAILED
 };
 
-/* 仅用于解释已经发生的执行失败，不用于拒绝或取消 */
+/* 失败归类：NONE = 未失败；只有 DRIVER 属于设备故障，其余是本次操作没成功 */
 enum cia402_fail {
-	CIA402_FAIL_TIMEOUT = 0,
-	CIA402_FAIL_DRIVER,
-	CIA402_FAIL_HOMING,
-	CIA402_FAIL_SDO,
-	CIA402_FAIL_CHECK
+	CIA402_FAIL_NONE = 0,   /* 未发生失败 */
+	CIA402_FAIL_TIMEOUT,    /* 期限内没等到预期结果 */
+	CIA402_FAIL_DRIVER,     /* 驱动器报 PDS FAULT */
+	CIA402_FAIL_HOMING,     /* 回零自身报错（6041 bit13） */
+	CIA402_FAIL_SDO,        /* 已受理事务以对端 abort 或协议错误结束 */
+	CIA402_FAIL_CHECK,      /* 回读值与请求不符 */
+	CIA402_FAIL_NOT_STARTED /* 流程内事务未受理：这一步没执行 */
 };
 
 /* 实例存储定义见 device_instance.h；普通调用方只使用不透明指针 */
@@ -92,7 +94,7 @@ int cia402_is_running(const struct cia402_device *d);
 void cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out);
 
 /* 取走一次操作结局；取消不会生成结局。 */
-enum cia402_outcome cia402_take_result(struct cia402_device *d);
+enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 
 #ifdef __cplusplus
 }

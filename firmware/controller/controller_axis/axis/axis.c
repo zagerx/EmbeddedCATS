@@ -121,20 +121,20 @@ int axis_is_running(const struct axis *a)
  */
 enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure)
 {
-	enum cia402_outcome result;
+	enum cia402_operation_result result;
 
 	if (a == NULL) {
 		return AXIS_MOTION_NONE;
 	}
 
 	result = cia402_take_result(&a->dev);
-	if (result == CIA402_OUTCOME_FAILED && failure != NULL) {
+	if (result == CIA402_OP_RESULT_FAILED && failure != NULL) {
 		cia402_failure_of(&a->dev, &failure->fail);
 	}
-	if (result == CIA402_OUTCOME_DONE) {
+	if (result == CIA402_OP_RESULT_DONE) {
 		return AXIS_MOTION_DONE;
 	}
-	if (result == CIA402_OUTCOME_FAILED) {
+	if (result == CIA402_OP_RESULT_FAILED) {
 		return AXIS_MOTION_FAILED;
 	}
 	return AXIS_MOTION_NONE;

@@ -68,8 +68,11 @@ sm_ret_t st_homing(struct sm_hsm *const me, const struct sm_event *const e)
 			ctl->axes, ctl->axis_count, &ctl->axis_active, &failure);
 
 		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_axes_fault(ctl, CONTROLLER_STATE_HOMING, &failure);
-			return SM_SUPER(&st_root);
+			if (controller_set_axes_fault(ctl, CONTROLLER_STATE_HOMING, &failure) !=
+			    0) {
+				return SM_SUPER(&st_root);
+			}
+			return SM_TRAN(&st_holding); /* 回零没成功：轴仍按使能处理 */
 		}
 		if (ctl->axis_active == 0u) {
 			return SM_TRAN(&st_holding);

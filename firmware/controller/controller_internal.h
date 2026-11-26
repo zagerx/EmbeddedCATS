@@ -81,9 +81,13 @@ struct controller *control_ctx(void);
  */
 void controller_set_fault(struct controller *ctl, enum controller_state stage,
 			  enum controller_fault_reason reason, uint8_t axis);
-/* 一次集合动作可能同拍失败多轴：完整保留失败位图，主快照仍由首个故障决定 */
-void controller_set_axes_fault(struct controller *ctl, enum controller_state stage,
-			       const struct controller_axes_failure *failure);
+/* 一次集合动作可能同拍失败多轴：完整保留失败位图，主快照仍由首个故障决定。
+ * 返回非 0 表示已锁存设备故障；返回 0 表示只记录了操作失败日志。 */
+int controller_set_axes_fault(struct controller *ctl, enum controller_state stage,
+			      const struct controller_axes_failure *failure);
+
+/* 只有驱动器故障需要锁存并进入 FAULT；其余归类只表示本次操作没成功 */
+int controller_fault_is_fatal(enum cia402_fail fail);
 
 /* 把 cia402 的失败归类映射为业务故障原因 */
 enum controller_fault_reason controller_fault_reason_of(enum cia402_fail fail);

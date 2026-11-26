@@ -164,15 +164,15 @@ void cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out)
  *
  * Return: DONE、FAILED 或 NONE；@d 为 NULL 时返回 NONE。
  */
-enum cia402_outcome cia402_take_result(struct cia402_device *d)
+enum cia402_operation_result cia402_take_result(struct cia402_device *d)
 {
-	enum cia402_outcome result;
+	enum cia402_operation_result result;
 
 	if (d == NULL) {
-		return CIA402_OUTCOME_NONE;
+		return CIA402_OP_RESULT_NONE;
 	}
 	result = d->outbox;
-	d->outbox = CIA402_OUTCOME_NONE;
+	d->outbox = CIA402_OP_RESULT_NONE;
 	return result;
 }
 
@@ -231,7 +231,7 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	d->mailbox.req = *req;
 	d->mailbox.pending = 1u;
 	/* 新流程只清掉未取的旧结局；取消不生成任何新结局 */
-	d->outbox = CIA402_OUTCOME_NONE;
+	d->outbox = CIA402_OP_RESULT_NONE;
 	/* 整条流程的总期限：任何一步静默卡住都由父状态看门狗在此兜底 */
 	d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
 	if (urgent) {

@@ -16,6 +16,9 @@
 
 #include <stdio.h>
 
+/* 事务没被受理：当场收尾，并回传要迁移到的状态 */
+static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started);
+
 /**
  * dev_read - 发起一笔读事务
  * @d: 设备对象
@@ -124,24 +127,6 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
 }
 
 /**
- * dev_start_failed - 事务没被受理：当场判失败
- * @d: 设备对象
- * @started: 客户端的未受理原因（BUSY / INVALID）
- *
- * 没发起就没有结果事件，不能留在流程里等。发起事务发生在 TICK / SDO_DONE
- * 上下文里（不在 ENTRY），返回值能被内核接受，所以这里只判失败、由调用方迁移。
- *
- * Return: 要迁移到的状态（st_idle）。
- */
-static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started)
-{
-	fprintf(stderr, "[cia402] 事务未发起: kind=%d, reason=%s\n", (int)d->operation.kind,
-		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
-	dev_finish(d, CIA402_FAIL_SDO);
-	return &st_idle;
-}
-
-/**
  * dev_start_read - 发起读事务
  * @d: 设备对象
  * @index: 对象索引
@@ -195,7 +180,7 @@ sm_state_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t tim
  */
 void dev_done(struct cia402_device *d)
 {
-	d->outbox = CIA402_OUTCOME_DONE;
+	d->outbox = CIA402_OP_RESULT_DONE;
 	d->operation.running = 0u;
 	d->cw.pending_valid = 0u;
 }
@@ -207,32 +192,42 @@ void dev_done(struct cia402_device *d)
  */
 void dev_finish(struct cia402_device *d, enum cia402_fail fail)
 {
-	d->outbox = CIA402_OUTCOME_FAILED;
+	d->outbox = CIA402_OP_RESULT_FAILED;
 	d->failure = fail;
 	d->operation.running = 0u;
 	d->cw.pending_valid = 0u;
 }
 
 /**
- * dev_fail - 事务失败时的统一收尾
+ * dev_fail - 已受理事务失败时的统一收尾
  * @d: 设备对象
  * @result: 失败的那笔结果（取 abort 码）
+ *
+ * 超时统一走取消路径在 st_idle 落账，这里只区分“对端拒绝”与“无原因失败”。
  */
 void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 {
-	enum cia402_fail fail = CIA402_FAIL_SDO;
-
 	if (result == NULL) {
 		return;
 	}
-	if (result->status == SDO_STATUS_TIMEOUT || result->abort_code == 0u) {
-		/* 通道判定期限到，或没有 abort 码的失败：驱动器没按期应答 */
-		fail = CIA402_FAIL_TIMEOUT;
-	} else {
+	if (result->abort_code != 0u) {
 		/* abort 码是 CiA 301 的协议知识，只在本层用掉，不往上层传 */
 		fprintf(stderr, "[cia402] %s %04Xh:%02X 被对端拒绝 abort=0x%08X\n",
 			d->txn.dir == SDO_DIR_WRITE ? "写" : "读", d->txn.index,
 			(unsigned)d->txn.subindex, (unsigned)result->abort_code);
+	} else {
+		fprintf(stderr, "[cia402] %s %04Xh:%02X 失败，无 abort 码\n",
+			d->txn.dir == SDO_DIR_WRITE ? "写" : "读", d->txn.index,
+			(unsigned)d->txn.subindex);
 	}
-	dev_finish(d, fail);
+	dev_finish(d, CIA402_FAIL_SDO);
+}
+
+/* 没发起就没有结果事件，不能留在流程里等；这里只收尾，迁移由调用方执行 */
+static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started)
+{
+	fprintf(stderr, "[cia402] 事务未发起: kind=%d, reason=%s\n", (int)d->operation.kind,
+		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
+	dev_finish(d, CIA402_FAIL_NOT_STARTED);
+	return &st_idle;
 }

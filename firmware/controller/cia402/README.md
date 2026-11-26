@@ -2,7 +2,7 @@
 
 一个 `struct cia402_device` 对应一个从站的非阻塞控制上下文。每个实例独立保存请求、状态机、传输进度和超时，不使用跨设备共享的可写状态。一个实例同时最多一个操作流程、一笔对象事务；一个操作流程可以依次包含多笔事务。
 
-`enum cia402_outcome` 只表示一次操作的结局：`NONE` / `DONE` / `FAILED`。
+`enum cia402_operation_result` 只表示一次操作的结果：`NONE` / `DONE` / `FAILED`。
 `cia402_take_result()` 取走结局；取消不交付结局。
 `cia402_failure_of()` 在 `FAILED` 后单独读取失败归类。
 
@@ -76,7 +76,7 @@ void         cia402_init(struct cia402_device *d, struct sdo_client *client);
 enum cia402_response cia402_request(struct cia402_device *d, const struct cia402_request *req);
 void         cia402_poll(struct cia402_device *d, uint32_t now_ms);
 void         cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out);
-enum cia402_outcome cia402_take_result(struct cia402_device *d);
+enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 ```
 
 - **request 只说“收不收”**：`ACCEPTED` / `BUSY` / `INVALID`，不阻塞、不承诺成功，也不校验流程前提；
@@ -159,9 +159,23 @@ SDO 通道（改由 `canopen/pdo` 收 TPDO），通道由 402 流程独占。
 两道保护，保证已受理事务一定有结果，未受理不会误报执行故障：
 
 - **诚实受理**：`dev_read` / `dev_write` 显式检查 `ACCEPTED / BUSY / INVALID`。只有受理才等待结果；
-  未受理立即清理当前流程，保留 `NONE` 结局，不生成虚假失败。
+  未受理当场收尾，归类为 `CIA402_FAIL_NOT_STARTED`，不冒充超时或 SDO 失败。
 - **流程总期限**：请求受理时按类型设 `flow_deadline`（比该流程最长的单步期限再留余量），
   `st_operation_active` 在 TICK 里检查已受理流程是否超出业务期限。
+
+失败归类只回答“这次为什么没成”，不等于“设备故障”：
+
+| 归类 | 含义 |
+|---|---|
+| `CIA402_FAIL_NONE` | 未发生失败（零值，不冒充任何原因） |
+| `CIA402_FAIL_TIMEOUT` | 期限内没等到预期结果 |
+| `CIA402_FAIL_DRIVER` | 驱动器报 PDS FAULT——唯一的设备故障 |
+| `CIA402_FAIL_HOMING` | 回零自身报错（6041 bit13） |
+| `CIA402_FAIL_SDO` | 已受理事务以对端 abort 或协议错误结束 |
+| `CIA402_FAIL_CHECK` | 回读值与请求不符 |
+| `CIA402_FAIL_NOT_STARTED` | 流程内事务未受理：这一步没执行 |
+
+是否锁存成整机故障由 controller 决定，402 不判等级。
 
 ## 依赖边界
 

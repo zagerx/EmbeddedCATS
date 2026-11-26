@@ -45,8 +45,15 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			struct axis_failure failure;
 
 			if (axis_take_motion(&ctl->axes[i], &failure) == AXIS_MOTION_FAILED) {
-				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-						     controller_fault_reason_of(failure.fail), i);
+				const enum controller_fault_reason reason =
+					controller_fault_reason_of(failure.fail);
+
+				if (controller_fault_is_fatal(failure.fail) != 0) {
+					controller_set_fault(ctl, CONTROLLER_STATE_MOVING, reason,
+							     i);
+				} else {
+					controller_log_fault(CONTROLLER_STATE_MOVING, reason, i);
+				}
 			}
 		}
 		/* 新批次里撤掉的轴：减速停、保持使能，不能让它留在那儿自己跑 */
@@ -80,11 +87,18 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			switch (axis_take_motion(&ctl->axes[axis], &failure)) {
 			case AXIS_MOTION_FAILED:
-				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
+				ctl->move_done |= (uint8_t)(1u << i);
+				if (controller_fault_is_fatal(failure.fail) != 0) {
+					controller_set_fault(
+						ctl, CONTROLLER_STATE_MOVING,
+						controller_fault_reason_of(failure.fail), axis);
+					break;
+				}
+				/* 操作没成功：先停车，再由 HALTING 收尾到 HOLDING */
+				controller_log_fault(CONTROLLER_STATE_MOVING,
 						     controller_fault_reason_of(failure.fail),
 						     axis);
-				ctl->move_done |= (uint8_t)(1u << i);
-				break;
+				return SM_TRAN(&st_halting);
 			case AXIS_MOTION_DONE:
 				ctl->move_done |= (uint8_t)(1u << i);
 				break;

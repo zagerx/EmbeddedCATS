@@ -66,7 +66,7 @@ sm_ret_t st_home(struct sm_hsm *const me, const struct sm_event *const e)
 	switch (e->sig) {
 	case SM_SIG_ENTRY:
 		/* 只记步骤：本事件里发起的事务失败无法转移（内核丢弃 ENTRY 返回值） */
-		d->operation.home.pending = CIA402_OUTCOME_NONE;
+		d->operation.home.pending = CIA402_OP_RESULT_NONE;
 		d->operation.home.fail_kind = 0u;
 		d->operation.stage = HOME_WRITE_MODE;
 		return SM_HANDLED();
@@ -332,7 +332,7 @@ static sm_state_t home_abort_issue(struct cia402_device *d)
 /* 记下"回零成功"，并把中止链起点设好 */
 static sm_state_t home_settle_done(struct cia402_device *d, enum home_abort_stage first)
 {
-	d->operation.home.pending = CIA402_OUTCOME_DONE;
+	d->operation.home.pending = CIA402_OP_RESULT_DONE;
 	d->operation.stage = (uint8_t)first;
 	return &st_home_abort;
 }
@@ -341,7 +341,7 @@ static sm_state_t home_settle_done(struct cia402_device *d, enum home_abort_stag
 static sm_state_t home_settle_fail(struct cia402_device *d, enum cia402_fail fail,
 				   enum home_abort_stage first)
 {
-	d->operation.home.pending = CIA402_OUTCOME_FAILED;
+	d->operation.home.pending = CIA402_OP_RESULT_FAILED;
 	d->operation.home.fail_kind = (uint8_t)fail;
 	d->operation.stage = (uint8_t)first;
 	return &st_home_abort;
@@ -351,25 +351,25 @@ static sm_state_t home_settle_fail(struct cia402_device *d, enum cia402_fail fai
 static void home_note_cancel(struct cia402_device *d, uint8_t reason)
 {
 	if (reason == CIA402_CANCEL_TIMEOUT) {
-		d->operation.home.pending = CIA402_OUTCOME_FAILED;
+		d->operation.home.pending = CIA402_OP_RESULT_FAILED;
 		d->operation.home.fail_kind = (uint8_t)CIA402_FAIL_TIMEOUT;
 		return;
 	}
-	d->operation.home.pending = CIA402_OUTCOME_NONE; /* 旧失败属于已取消流程 */
+	d->operation.home.pending = CIA402_OP_RESULT_NONE; /* 旧失败属于已取消流程 */
 }
 
 /* 中止链走完：按登记的结论交付回执 */
 static void home_publish(struct cia402_device *d)
 {
 	switch (d->operation.home.pending) {
-	case CIA402_OUTCOME_DONE:
+	case CIA402_OP_RESULT_DONE:
 		dev_done(d);
 		break;
-	case CIA402_OUTCOME_FAILED:
+	case CIA402_OP_RESULT_FAILED:
 		dev_finish(d, (enum cia402_fail)d->operation.home.fail_kind);
 		break;
 	default:
 		break; /* 被抢占：这条回零不交付结局 */
 	}
-	d->operation.home.pending = CIA402_OUTCOME_NONE;
+	d->operation.home.pending = CIA402_OP_RESULT_NONE;
 }

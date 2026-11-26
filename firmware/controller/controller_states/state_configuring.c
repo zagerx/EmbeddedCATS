@@ -52,8 +52,11 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 			ctl->axes, ctl->axis_count, &ctl->axis_active, &failure);
 
 		if (result == CONTROLLER_AXES_FAILED) {
-			controller_set_axes_fault(ctl, CONTROLLER_STATE_CONFIGURING, &failure);
-			return SM_SUPER(&st_root);
+			if (controller_set_axes_fault(ctl, CONTROLLER_STATE_CONFIGURING,
+						      &failure) != 0) {
+				return SM_SUPER(&st_root);
+			}
+			return SM_TRAN(&st_idle_ctrl); /* 配置没成功：不进 FAULT，回空闲重试 */
 		}
 		if (ctl->axis_active == 0u) {
 			return SM_TRAN(&st_idle_ctrl);

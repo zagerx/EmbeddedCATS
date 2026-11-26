@@ -57,12 +57,13 @@ enum controller_state {
  */
 enum controller_fault_reason {
 	CONTROLLER_FAULT_REASON_NONE = 0,
-	CONTROLLER_FAULT_REASON_BIZ_TIMEOUT = 1, /* 状态机计时超时 */
-	CONTROLLER_FAULT_REASON_DEV_TIMEOUT = 2, /* 事务或步骤超时 */
-	CONTROLLER_FAULT_REASON_DRIVER = 3,      /* 驱动器进入故障态 */
-	CONTROLLER_FAULT_REASON_SDO = 4,         /* 对象访问被 abort */
-	CONTROLLER_FAULT_REASON_CHECK = 5,       /* 回读值不符 */
-	CONTROLLER_FAULT_REASON_HOMING = 8,      /* 驱动器判回零错误（6041 bit13） */
+	CONTROLLER_FAULT_REASON_BIZ_TIMEOUT = 1,  /* 状态机计时超时 */
+	CONTROLLER_FAULT_REASON_DEV_TIMEOUT = 2,  /* 事务或步骤超时 */
+	CONTROLLER_FAULT_REASON_DRIVER = 3,       /* 驱动器进入故障态 */
+	CONTROLLER_FAULT_REASON_SDO = 4,          /* 对象访问被 abort */
+	CONTROLLER_FAULT_REASON_CHECK = 5,        /* 回读值不符 */
+	CONTROLLER_FAULT_REASON_NOT_EXECUTED = 6, /* 流程内事务未受理：这一步没执行 */
+	CONTROLLER_FAULT_REASON_HOMING = 8,       /* 驱动器判回零错误（6041 bit13） */
 	CONTROLLER_FAULT_REASON_COUNT
 };
 

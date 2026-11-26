@@ -74,6 +74,8 @@ QString reason_text(enum controller_fault_reason r)
 		return QStringLiteral("传输失败");
 	case CONTROLLER_FAULT_REASON_CHECK:
 		return QStringLiteral("回读不符");
+	case CONTROLLER_FAULT_REASON_NOT_EXECUTED:
+		return QStringLiteral("未执行");
 	case CONTROLLER_FAULT_REASON_HOMING:
 		return QStringLiteral("回零错误");
 	case CONTROLLER_FAULT_REASON_COUNT:

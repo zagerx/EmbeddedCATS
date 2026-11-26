@@ -62,6 +62,7 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 			}
 			m = axis_take_motion(&ctl->axes[axis], &failure);
 			if (m == AXIS_MOTION_FAILED) {
+				/* 停不下来属安全事件：不区分归类，一律锁存并进 FAULT */
 				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
 						     controller_fault_reason_of(failure.fail),
 						     axis);

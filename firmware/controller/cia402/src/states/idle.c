@@ -55,7 +55,7 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 		d->operation.pp.accel = ev->req.pp.accel;
 		d->operation.pp.decel = ev->req.pp.decel;
 		d->operation.pp.online = 0u; /* 新流程一律用普通触发 */
-		d->operation.home.pending = CIA402_OUTCOME_NONE;
+		d->operation.home.pending = CIA402_OP_RESULT_NONE;
 		d->operation.home.fail_kind = 0u;
 
 		switch (ev->req.kind) {

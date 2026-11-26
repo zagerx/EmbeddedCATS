@@ -60,7 +60,7 @@ struct cia402_operation {
 		/*
 		 * 回零的结局要等收尾链（落 bit4、切回 PP）走完才交付，
 		 * 所以先记在这里，由收尾链最后一步发布。
-		 * pending 取 enum cia402_outcome：NONE 表示被抢占，不交付结局。
+		 * pending 取 enum cia402_operation_result：NONE 表示被抢占，不交付结果。
 		 */
 		uint8_t pending;
 		uint8_t fail_kind; /* enum cia402_fail，仅 pending == FAILED 时有效 */
@@ -78,8 +78,8 @@ struct cia402_device {
 		uint8_t cancel; /* enum cia402_cancel_reason */
 	} mailbox;
 
-	enum cia402_outcome outbox; /* 待取走的成功或失败结局 */
-	enum cia402_fail failure;   /* 最近一次真实执行失败的归类 */
+	enum cia402_operation_result outbox; /* 待取走的成功或失败结果 */
+	enum cia402_fail failure;            /* 最近一次真实执行失败的归类 */
 	/* 最近一笔发起的事务：失败时把 abort 码和对象对上号，只在本层打印用 */
 	struct {
 		uint16_t index;

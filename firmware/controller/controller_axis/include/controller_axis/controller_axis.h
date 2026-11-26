@@ -32,6 +32,7 @@ enum controller_axes_result {
 struct controller_axes_failure {
 	uint8_t mask;              /* 真正失败的轴位图 */
 	uint8_t first_axis;        /* 本拍首个失败轴号 */
+	uint8_t driver_mask;       /* 归类为驱动器故障的轴位图 */
 	struct axis_failure first; /* 首个失败轴的归类 */
 };
 
