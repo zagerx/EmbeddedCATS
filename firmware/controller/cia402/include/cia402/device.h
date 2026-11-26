@@ -68,12 +68,6 @@ enum cia402_fail {
 	CIA402_FAIL_CHECK
 };
 
-/* 最近一次失败诊断；与操作结果分开，只有 FAILED 后才读取 */
-struct cia402_failure_info {
-	enum cia402_fail fail;
-	uint32_t abort_code; /* fail == SDO 时有效 */
-};
-
 /* 实例存储定义见 device_instance.h；普通调用方只使用不透明指针 */
 struct cia402_device;
 
@@ -94,8 +88,8 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms);
 /* 是否还有已受理的流程（含未出邮箱）需要执行或取消清理 */
 int cia402_is_running(const struct cia402_device *d);
 
-/* 失败时单独读取诊断；NULL 入参安全。 */
-void cia402_get_failure(const struct cia402_device *d, struct cia402_failure_info *out);
+/* 失败时单独读取归类；只在 FAILED 后有意义，NULL 入参不写。 */
+void cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out);
 
 /* 取走一次操作结局；取消不会生成结局。 */
 enum cia402_outcome cia402_take_result(struct cia402_device *d);

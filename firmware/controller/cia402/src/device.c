@@ -5,7 +5,7 @@
  *   cia402_init()     装配
  *   cia402_request()  投递（只回答收不收）
  *   cia402_poll()     推进协议流程
- *   cia402_get_failure() / cia402_take_result() 读诊断 / 消费结局
+ *   cia402_failure_of() / cia402_take_result() 读归类 / 消费结局
  *
  * 内部原语（dev_read / dev_write / dev_finish …）在 device_internal.c，
  * 状态骨架在 states/，操作流程在 operations/。本文件只负责把「邮箱、事务结果、取消」
@@ -92,7 +92,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 	cancel = d->mailbox.cancel;
 
 	if (d->sdo_unstarted != 0u) {
-		/* ENTRY 内不能再转移：现在从实际状态处理取消，保证真正回到空闲 */
+		/* 未受理已在发起时判过失败；这里只把状态机从实际子状态带出去 */
 		d->sdo_unstarted = 0u;
 		dispatch_cancel(d, cancel != CIA402_CANCEL_NONE ? cancel : CIA402_CANCEL_REQUEST,
 				NULL);
@@ -116,7 +116,6 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 			d->mailbox.cancel = CIA402_CANCEL_NONE;
 			d->cw.pending_valid = 0u;
 			d->sdo_pending = 0u;
-			d->sdo_unstarted = 0u;
 			return;
 		}
 		d->sdo_pending = 0u;
@@ -161,11 +160,11 @@ int cia402_is_running(const struct cia402_device *d)
 }
 
 /**
- * cia402_get_failure - 读取最近一次执行失败的诊断
+ * cia402_failure_of - 读取最近一次执行失败的归类
  * @d: 设备对象；NULL 安全
- * @out: 诊断输出；NULL 时直接返回
+ * @out: 归类输出；NULL 时直接返回
  */
-void cia402_get_failure(const struct cia402_device *d, struct cia402_failure_info *out)
+void cia402_failure_of(const struct cia402_device *d, enum cia402_fail *out)
 {
 	if (d != NULL && out != NULL) {
 		*out = d->failure;
@@ -248,7 +247,6 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	d->mailbox.pending = 1u;
 	/* 新流程只清掉未取的旧结局；取消不生成任何新结局 */
 	d->outbox = CIA402_OUTCOME_NONE;
-	d->failure.abort_code = 0u;
 	/* 整条流程的总期限：任何一步静默卡住都由父状态看门狗在此兜底 */
 	d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
 	if (urgent) {

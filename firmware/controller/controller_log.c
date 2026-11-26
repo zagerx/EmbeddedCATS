@@ -86,18 +86,16 @@ uint8_t controller_log_event_axis(const struct controller_evt *evt, uint8_t fall
  * @stage: 失败时的业务状态
  * @reason: 已归类的失败原因
  * @axis: 失败轴；NO_AXIS 表示未定位
- * @abort_code: SDO abort 码；无证据时传 0
  */
 void controller_log_fault(enum controller_state stage, enum controller_fault_reason reason,
-			  uint8_t axis, uint32_t abort_code)
+			  uint8_t axis)
 {
 	struct timespec ts;
 
 	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
-	fprintf(stderr,
-		"[controller][%lld.%03ld] 执行失败: state=%s, axis=%u, reason=%d, abort=0x%08X\n",
+	fprintf(stderr, "[controller][%lld.%03ld] 执行失败: state=%s, axis=%u, reason=%d\n",
 		(long long)ts.tv_sec, ts.tv_nsec / 1000000L, state_name(stage), (unsigned)axis,
-		(int)reason, (unsigned)abort_code);
+		(int)reason);
 }
 
 static const char *request_name(enum controller_sig sig)

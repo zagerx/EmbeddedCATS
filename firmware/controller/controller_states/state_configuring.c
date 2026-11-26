@@ -61,7 +61,7 @@ sm_ret_t st_configuring(struct sm_hsm *const me, const struct sm_event *const e)
 		if (elapsed > CONFIG_TIMEOUT_MS) {
 			controller_set_fault(ctl, CONTROLLER_STATE_CONFIGURING,
 					     CONTROLLER_FAULT_REASON_BIZ_TIMEOUT,
-					     CONTROLLER_FAULT_NO_AXIS, 0u);
+					     CONTROLLER_FAULT_NO_AXIS);
 		}
 		return SM_SUPER(&st_root);
 	}

@@ -14,7 +14,7 @@
 | 界面动作 / 显示项 | 接哪一层 |
 |---|---|
 | CANopen 事件循环 | `controller_event_poll()` |
-| 状态、故障、轴反馈与 SDO abort | `controller_info_get()`（一次加锁读取完整信息） |
+| 状态、故障与轴反馈 | `controller_info_get()`（一次加锁读取完整信息） |
 | 运动、暂停、急停、解除急停按钮 | `controller_move()` / `controller_halt()` / `controller_estop()` / `controller_clear_estop()` |
 | 回零按钮 | `controller_home()`（全部轴；只在 `HOLDING` 可用，回零期间暂停不生效） |
 

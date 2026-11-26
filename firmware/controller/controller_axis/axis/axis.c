@@ -100,23 +100,6 @@ int axis_home(struct axis *a)
 }
 
 /**
- * axis_abort_code - 读取轴最近一次 SDO abort 码
- * @a: 轴对象；NULL 安全
- *
- * Return: abort 码；无记录或 @a 为 NULL 时返回 0。
- */
-uint32_t axis_abort_code(const struct axis *a)
-{
-	struct cia402_failure_info failure;
-
-	if (a == NULL) {
-		return 0U;
-	}
-	cia402_get_failure(&a->dev, &failure);
-	return failure.abort_code;
-}
-
-/**
  * axis_is_running - 查询轴是否还有待执行或取消清理的流程
  * @a: 轴对象；NULL 安全
  *
@@ -146,11 +129,7 @@ enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure)
 
 	result = cia402_take_result(&a->dev);
 	if (result == CIA402_OUTCOME_FAILED && failure != NULL) {
-		struct cia402_failure_info detail;
-
-		cia402_get_failure(&a->dev, &detail);
-		failure->fail = detail.fail;
-		failure->abort_code = detail.abort_code;
+		cia402_failure_of(&a->dev, &failure->fail);
 	}
 	if (result == CIA402_OUTCOME_DONE) {
 		return AXIS_MOTION_DONE;

@@ -36,7 +36,6 @@ enum axis_motion {
 /* 一次失败的主站归类；仅在 AXIS_MOTION_FAILED 时读取 */
 struct axis_failure {
 	enum cia402_fail fail; /* 超时 / 驱动器故障 / 回零错误 / abort / 回读不符 */
-	uint32_t abort_code;   /* 仅 fail == CIA402_FAIL_SDO 时有效；0 = 没有 */
 };
 
 /* 推进一次设备状态机；仅 CANopen 工作线程调用 */
@@ -58,9 +57,6 @@ int axis_is_running(const struct axis *a);
 
 /* 取上一段动作的结论（取走后回 NONE）；failure 可为 NULL，失败时带回原因 */
 enum axis_motion axis_take_motion(struct axis *a, struct axis_failure *failure);
-
-/* 本轴最近一次失败时驱动器回的 SDO abort；0 = 不是 abort 引起的 */
-uint32_t axis_abort_code(const struct axis *a);
 
 /* 写运动模式（PP）：已配过的轴会被设备层拒绝，不算错 */
 int axis_config_movemode(struct axis *a);

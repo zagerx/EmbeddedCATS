@@ -80,9 +80,9 @@ static void test_multiple_failures(void)
 	cia402_init(&ctl.axes[0].dev, NULL);
 	cia402_init(&ctl.axes[1].dev, NULL);
 	ctl.axes[0].dev.outbox = CIA402_OUTCOME_FAILED;
-	ctl.axes[0].dev.failure.fail = CIA402_FAIL_DRIVER;
+	ctl.axes[0].dev.failure = CIA402_FAIL_DRIVER;
 	ctl.axes[1].dev.outbox = CIA402_OUTCOME_FAILED;
-	ctl.axes[1].dev.failure.fail = CIA402_FAIL_TIMEOUT;
+	ctl.axes[1].dev.failure = CIA402_FAIL_TIMEOUT;
 	CHECK(controller_axes_collect(ctl.axes, 2u, &done, &failure) == CONTROLLER_AXES_FAILED);
 	CHECK(failure.mask == 3u);
 	controller_set_axes_fault(&ctl, CONTROLLER_STATE_CONFIGURING, &failure);

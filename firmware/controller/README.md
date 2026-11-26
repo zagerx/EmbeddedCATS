@@ -74,7 +74,7 @@ FAULT / ESTOP 为终态。
 | 命令与查询 | UI 等其他线程 | 否；入队后 eventfd 唤醒 |
 
 跨线程只保留命令队列和 `controller_info` 的锁。状态机锁存故障、反馈采集保存样本时都
-直接写入 `controller_info`；每轮末尾 `controller_info_update()` 统一更新状态与 abort。
+直接写入 `controller_info`；每轮末尾 `controller_info_update()` 统一更新状态。
 位置与速度在反馈保存时已转换为 mm / mm·s⁻¹，查询直接拷贝转换后的值。CANopen、SDO、
 CiA402 与整机状态机均在同一工作线程内推进。参考实现：
 `apps/qt/bindings/can_thread.cpp`、`apps/tools/master_probe/main.c`。

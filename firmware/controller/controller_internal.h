@@ -76,11 +76,11 @@ void controller_stm_init(struct controller *app);
 struct controller *control_ctx(void);
 
 /*
- * 锁存首个故障：stage / reason / first_axis / abort_code 只在无故障时写入，
+ * 锁存首个故障：stage / reason / first_axis 只在无故障时写入，
  * axis_mask 每次调用都累积。axis 不在已装配范围时按“未定位”记录。
  */
 void controller_set_fault(struct controller *ctl, enum controller_state stage,
-			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code);
+			  enum controller_fault_reason reason, uint8_t axis);
 /* 一次集合动作可能同拍失败多轴：完整保留失败位图，主快照仍由首个故障决定 */
 void controller_set_axes_fault(struct controller *ctl, enum controller_state stage,
 			       const struct controller_axes_failure *failure);

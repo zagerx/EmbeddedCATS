@@ -50,7 +50,7 @@ class AppBinder : public QObject
 	bool fillMove(uint8_t axis, struct controller_move_req *out); /* 读卡片参数并校验 */
 	void updateCommands(enum controller_state s);     /* 按钮可用性跟随状态 */
 	void publish(const struct controller_info &info); /* 整机状态与故障 → 界面 */
-	void updateAxisCards(const struct controller_info &info); /* 两轴反馈与 abort → 界面 */
+	void updateAxisCards(const struct controller_info &info); /* 两轴反馈 → 界面 */
 	void pushLog(const QString &line);                        /* 往日志面板追加一行 */
 
 	CanThread worker_; /* 唯一的 CANopen 工作线程 */
@@ -67,7 +67,6 @@ class AppBinder : public QObject
 	QPushButton *btn_halt_ = nullptr;
 	QPushButton *btn_estop_ = nullptr;
 	QPushButton *btn_clear_estop_ = nullptr;
-	uint32_t last_abort_[2] = {0U, 0U}; /* 上次已打过日志的 abort，防刷屏 */
 
 	enum controller_state last_state_ = CONTROLLER_STATE_COUNT;
 	struct controller_fault last_fault_ = {};

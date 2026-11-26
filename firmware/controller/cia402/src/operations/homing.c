@@ -38,11 +38,11 @@ enum home_abort_stage {
 static sm_state_t home_step(struct cia402_device *d, const struct sdo_result *result);
 static sm_state_t home_judge(struct cia402_device *d, uint16_t sw);
 static sm_state_t home_verdict(struct cia402_device *d, uint16_t sw);
-static void home_issue(struct cia402_device *d);
+static sm_state_t home_issue(struct cia402_device *d);
 
 static sm_state_t home_abort_step(struct cia402_device *d, const struct sdo_result *result);
 static sm_state_t home_abort_judge(struct cia402_device *d, const struct sdo_result *result);
-static void home_abort_issue(struct cia402_device *d);
+static sm_state_t home_abort_issue(struct cia402_device *d);
 
 static sm_state_t home_settle_done(struct cia402_device *d, enum home_abort_stage first);
 static sm_state_t home_settle_fail(struct cia402_device *d, enum cia402_fail fail,
@@ -141,8 +141,7 @@ static sm_state_t home_step(struct cia402_device *d, const struct sdo_result *re
 			return end;
 		}
 	}
-	home_issue(d);
-	return NULL;
+	return home_issue(d);
 }
 
 /**
@@ -208,24 +207,20 @@ static sm_state_t home_verdict(struct cia402_device *d, uint16_t sw)
  * home_issue - 发起主流程当前步骤的那笔事务
  * @d: 设备对象
  */
-static void home_issue(struct cia402_device *d)
+static sm_state_t home_issue(struct cia402_device *d)
 {
 	switch (d->operation.stage) {
 	case HOME_WRITE_MODE:
-		dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_HM, 1u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_HM, 1u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case HOME_READ_MODE:
-		dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_read(d, CIA402_OD_MODE_ACTUAL, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case HOME_START:
-		dev_start_write(d, CIA402_OD_CONTROLWORD,
-				(uint32_t)(d->cw.confirmed | CIA402_CW_HOMING_START), 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       (uint32_t)(d->cw.confirmed | CIA402_CW_HOMING_START), 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	default: /* HOME_WAIT */
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
 }
 
@@ -247,8 +242,7 @@ static sm_state_t home_abort_step(struct cia402_device *d, const struct sdo_resu
 			return end;
 		}
 	}
-	home_abort_issue(d);
-	return NULL;
+	return home_abort_issue(d);
 }
 
 /**
@@ -297,7 +291,7 @@ static sm_state_t home_abort_judge(struct cia402_device *d, const struct sdo_res
  * home_abort_issue - 发起中止链当前步骤的那笔事务
  * @d: 设备对象
  */
-static void home_abort_issue(struct cia402_device *d)
+static sm_state_t home_abort_issue(struct cia402_device *d)
 {
 	switch (d->operation.stage) {
 	case HOME_ABORT_HALT:
@@ -305,28 +299,24 @@ static void home_abort_issue(struct cia402_device *d)
 		 * 必须先从镜像里清掉 bit4 再置 halt：halt 链本身只动 bit8，
 		 * bit4 若还挂着，下一次写控制字会把它带回来，驱动器会重启回零。
 		 */
-		dev_start_write(d, CIA402_OD_CONTROLWORD,
-				(d->cw.confirmed & (uint16_t)~CIA402_CW_HOMING_START) |
-					CIA402_CW_HALT,
-				2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       (d->cw.confirmed & (uint16_t)~CIA402_CW_HOMING_START) |
+					       CIA402_CW_HALT,
+				       2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case HOME_ABORT_WAIT_STOP:
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case HOME_ABORT_RESTORE_CW:
 		/*
 		 * 清两位而不是硬写 0x0F：镜像里可能有别的位（bit9 等），
 		 * 硬写会把它们一起抹掉。
 		 */
-		dev_start_write(d, CIA402_OD_CONTROLWORD,
-				d->cw.confirmed &
-					(uint16_t)~(CIA402_CW_HALT | CIA402_CW_HOMING_START),
-				2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(
+			d, CIA402_OD_CONTROLWORD,
+			d->cw.confirmed & (uint16_t) ~(CIA402_CW_HALT | CIA402_CW_HOMING_START), 2u,
+			CIA402_DEVICE_SDO_TIMEOUT_MS);
 	default: /* HOME_ABORT_RESTORE_MODE */
-		dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_MODE, CIA402_MODE_PP, 1u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
 }
 

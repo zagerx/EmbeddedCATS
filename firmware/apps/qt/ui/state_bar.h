@@ -32,16 +32,14 @@ class StateBar : public QWidget
 	/* 纯显示接口：state 决定颜色与圆点，text 由绑定层提供 */
 	void setState(State state, const QString &text);
 
-	/* 1.1.2 故障四项：阶段 / 原因 / 轴 / abort 码，文字由绑定层提供 */
-	void setFault(const QString &stage, const QString &reason, const QString &axis,
-		      const QString &abort);
+	/* 1.1.2 故障三项：阶段 / 原因 / 轴，文字由绑定层提供 */
+	void setFault(const QString &stage, const QString &reason, const QString &axis);
 
       private:
 	StatusLed *led_ = nullptr;      /* 1.1.1：圆点 + 状态文字 */
 	QLabel *stage_value_ = nullptr; /* 1.1.2：阶段 */
 	QLabel *cause_value_ = nullptr; /* 1.1.2：原因 */
 	QLabel *axis_value_ = nullptr;  /* 1.1.2：轴位图 */
-	QLabel *abort_value_ = nullptr; /* 1.1.2：abort 码 */
 };
 
 #endif /* STATE_BAR_H */

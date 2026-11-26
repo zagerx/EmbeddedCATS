@@ -106,16 +106,6 @@ QString axis_text(const struct controller_fault &fault)
 	return text;
 }
 
-/* abort 码只在传输失败时才有意义，其他原因显示破折号 */
-QString abort_text(const struct controller_fault &fault)
-{
-	if (fault.reason != CONTROLLER_FAULT_REASON_SDO || fault.abort_code == 0U) {
-		return QStringLiteral("—");
-	}
-	return QStringLiteral("0x") +
-	       QString::number(fault.abort_code, 16).toUpper().rightJustified(8, QLatin1Char('0'));
-}
-
 /* app 的运行状态 → 状态条档位（只决定颜色与圆点） */
 StateBar::State to_bar_state(enum controller_state s)
 {
@@ -400,18 +390,6 @@ void AppBinder::updateAxisCards(const struct controller_info &info)
 
 		/* 错误码只有一来源：驱动器的 603F（主站的故障判断不往这里写） */
 		card->setError(hex16(feedback.error_code));
-
-		/* SDO abort 是传输层失败原因，不属于驱动器错误码：只进日志 */
-		const uint32_t abort = info.abort[i];
-
-		if (abort != last_abort_[i]) {
-			last_abort_[i] = abort;
-			if (abort != 0U) {
-				pushLog(QStringLiteral("axis%1 SDO abort 0x%2")
-						.arg(i + 1)
-						.arg(abort, 8, 16, QLatin1Char('0')));
-			}
-		}
 	}
 }
 
@@ -446,13 +424,13 @@ void AppBinder::publish(const struct controller_info &info)
 	if (state_bar_ != nullptr) {
 		state_bar_->setState(to_bar_state(info.state), state_text(info.state));
 		state_bar_->setFault(state_text(info.fault.stage), reason_text(info.fault.reason),
-				     axis_text(info.fault), abort_text(info.fault));
+				     axis_text(info.fault));
 	}
 
 	if (info.fault.reason != CONTROLLER_FAULT_REASON_NONE) {
-		pushLog(QStringLiteral("故障：阶段 %1 / 原因 %2 / 轴 %3 / 码 %4")
+		pushLog(QStringLiteral("故障：阶段 %1 / 原因 %2 / 轴 %3")
 				.arg(state_text(info.fault.stage), reason_text(info.fault.reason),
-				     axis_text(info.fault), abort_text(info.fault)));
+				     axis_text(info.fault)));
 	} else {
 		pushLog(QStringLiteral("状态 %1").arg(state_text(info.state)));
 	}

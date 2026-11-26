@@ -125,7 +125,7 @@ enum controller_result controller_deinit(void)
 	memset(&ctl->info.fault, 0, sizeof(ctl->info.fault));
 	ctl->info.fault.first_axis = CONTROLLER_FAULT_NO_AXIS;
 	memset(ctl->info.feedback, 0, sizeof(ctl->info.feedback));
-	memset(ctl->info.abort, 0, sizeof(ctl->info.abort));
+	memset(&ctl->info.fault, 0, sizeof(ctl->info.fault));
 	pthread_mutex_unlock(&ctl->info_lock);
 	return CONTROLLER_OK;
 }

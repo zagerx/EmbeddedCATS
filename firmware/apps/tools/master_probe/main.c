@@ -229,15 +229,10 @@ int main(int argc, char **argv)
 			last = info.state;
 			printf("[%6u] state = %d", (unsigned)(now - s_base_ms), (int)last);
 			if (last == CONTROLLER_STATE_FAULT) {
-				/* 故障快照：失败阶段 / 原因 / 首个失败轴 / 失败轴位图 / abort */
-				printf(" (stage = %d, reason = %d, axis = %d, mask = 0x%02X",
+				/* 故障快照：失败阶段 / 原因 / 首个失败轴 / 失败轴位图 */
+				printf(" (stage = %d, reason = %d, axis = %d, mask = 0x%02X)",
 				       (int)info.fault.stage, (int)info.fault.reason,
 				       (int)info.fault.first_axis, (unsigned)info.fault.axis_mask);
-				if (info.fault.reason == CONTROLLER_FAULT_REASON_SDO &&
-				    info.fault.abort_code != 0U) {
-					printf(", abort = 0x%08X", (unsigned)info.fault.abort_code);
-				}
-				printf(")");
 			}
 			/* 配置完成、停在空闲态时自动请求使能；--no-enable 可关掉以验证停在 IDLE */
 			if (last == CONTROLLER_STATE_IDLE && !cmd.no_enable) {

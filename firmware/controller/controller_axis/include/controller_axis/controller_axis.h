@@ -32,7 +32,7 @@ enum controller_axes_result {
 struct controller_axes_failure {
 	uint8_t mask;              /* 真正失败的轴位图 */
 	uint8_t first_axis;        /* 本拍首个失败轴号 */
-	struct axis_failure first; /* 首个失败轴的归类与 abort 码 */
+	struct axis_failure first; /* 首个失败轴的归类 */
 };
 
 /* 配置运动模式：0 = 已下发；-1 = 轴号越界、未装配或参数为空 */

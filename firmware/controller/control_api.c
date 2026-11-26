@@ -30,9 +30,6 @@ void controller_info_update(struct controller *ctl)
 			break;
 		}
 	}
-	for (i = 0u; i < ctl->axis_count; i++) {
-		ctl->info.abort[i] = axis_abort_code(&ctl->axes[i]);
-	}
 	pthread_mutex_unlock(&ctl->info_lock);
 }
 
@@ -237,7 +234,7 @@ enum controller_result controller_home_axis(uint8_t axis)
  * controller_info_get - 读取完整控制器信息
  * @out: 输出信息；NULL 时返回 PARAM
  *
- * 在同一次加锁里复制全部字段，保证状态、故障、反馈和 abort 属于同一时刻。
+ * 在同一次加锁里复制全部字段，保证状态、故障和反馈属于同一时刻。
  *
  * Return: OK 已填充；PARAM 参数为空；STATE 控制层未初始化。
  */

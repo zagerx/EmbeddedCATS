@@ -46,8 +46,7 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 
 			if (axis_take_motion(&ctl->axes[i], &failure) == AXIS_MOTION_FAILED) {
 				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-						     controller_fault_reason_of(failure.fail), i,
-						     failure.abort_code);
+						     controller_fault_reason_of(failure.fail), i);
 			}
 		}
 		/* 新批次里撤掉的轴：减速停、保持使能，不能让它留在那儿自己跑 */
@@ -82,8 +81,8 @@ sm_ret_t st_moving(struct sm_hsm *const me, const struct sm_event *const e)
 			switch (axis_take_motion(&ctl->axes[axis], &failure)) {
 			case AXIS_MOTION_FAILED:
 				controller_set_fault(ctl, CONTROLLER_STATE_MOVING,
-						     controller_fault_reason_of(failure.fail), axis,
-						     failure.abort_code);
+						     controller_fault_reason_of(failure.fail),
+						     axis);
 				ctl->move_done |= (uint8_t)(1u << i);
 				break;
 			case AXIS_MOTION_DONE:

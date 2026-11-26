@@ -4,8 +4,10 @@
 
 `enum cia402_outcome` 只表示一次操作的结局：`NONE` / `DONE` / `FAILED`。
 `cia402_take_result()` 取走结局；取消不交付结局。
-`struct cia402_failure_info` 独立保存失败诊断，只在 `FAILED` 后通过
-`cia402_get_failure()` 读取 `fail` 与 `abort_code`。
+`cia402_failure_of()` 在 `FAILED` 后单独读取失败归类。
+
+SDO abort 码属于 CiA 301 的协议知识，不往上层传：`dev_fail()` 收到对端 abort 时
+直接打到 stderr（带对象号），上层只看得到归类。
 
 设备不缓存驱动器实时状态。当前模式、PDS 状态、位置速度由控制器自行读取，
 402 只提供对象索引；详见 `边界.md`。
@@ -108,13 +110,13 @@ enum cia402_outcome cia402_take_result(struct cia402_device *d);
 一个设备在等应答不会占住循环。
 
 `outcome` 保持到下一次请求被受理，或被 `cia402_take_result()` 取走；取走后为 NONE。
-`fail` 与 `abort_code` 保留用于诊断。轴层不保存回执副本。
+`fail` 保留用于诊断。轴层不保存回执副本。
 
 被抢占的旧流程不交付结局；事务超时属于真实失败，由 `st_idle` 收尾。
 回零被抢占时仍完成停机与模式恢复，但不交付回零成功或失败。
 
 急停是特例：`st_qstop_write` 只写一帧 `6040 = 0x0002`，收到写应答即进终态
-`st_qstop_hold`；写失败只记 abort 码并报失败，**不重读状态字、不重试、不写断使能**。
+`st_qstop_hold`；写失败只报失败，**不重读状态字、不重试、不写断使能**。
 驱动器停在哪个状态由它自己的 `605A` 决定（本项目驱动器出厂 6 = quick stop 状态，
 仍保持使能），本层不推断也不跟踪。
 

@@ -33,7 +33,7 @@ enum move_stage {
 static sm_state_t move_step(struct cia402_device *d, const struct sdo_result *result);
 static sm_state_t move_arrived(struct cia402_device *d, uint16_t sw);
 static void move_advance(struct cia402_device *d);
-static void move_issue(struct cia402_device *d);
+static sm_state_t move_issue(struct cia402_device *d);
 static void arm_arrive(struct cia402_device *d);
 static void take_retarget(struct cia402_device *d);
 
@@ -87,8 +87,7 @@ static sm_state_t move_step(struct cia402_device *d, const struct sdo_result *re
 			move_advance(d);
 		}
 	}
-	move_issue(d);
-	return NULL;
+	return move_issue(d);
 }
 
 /**
@@ -165,41 +164,37 @@ static void move_advance(struct cia402_device *d)
  * move_issue - 发起当前步骤的那笔事务
  * @d: 设备对象
  */
-static void move_issue(struct cia402_device *d)
+static sm_state_t move_issue(struct cia402_device *d)
 {
 	switch (d->operation.stage) {
 	case MOVE_WRITE_VELOCITY:
-		dev_start_write(d, CIA402_OD_PROFILE_VELOCITY, (uint32_t)d->operation.pp.velocity,
-				4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_PROFILE_VELOCITY,
+				       (uint32_t)d->operation.pp.velocity, 4u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case MOVE_WRITE_ACCEL:
-		dev_start_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->operation.pp.accel, 4u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_PROFILE_ACCEL, (uint32_t)d->operation.pp.accel,
+				       4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case MOVE_WRITE_DECEL:
-		dev_start_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->operation.pp.decel, 4u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_PROFILE_DECEL, (uint32_t)d->operation.pp.decel,
+				       4u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case MOVE_WRITE_TARGET:
-		dev_start_write(d, CIA402_OD_TARGET_POSITION, (uint32_t)d->operation.pp.target, 4u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_TARGET_POSITION,
+				       (uint32_t)d->operation.pp.target, 4u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case MOVE_TRIGGER_HIGH:
 		if (d->operation.pp.online != 0u) {
-			dev_start_pulse(d, CIA402_CW_ONLINE_SETPOINT, CIA402_DEVICE_SDO_TIMEOUT_MS);
-			break;
+			return dev_start_pulse(d, CIA402_CW_ONLINE_SETPOINT,
+					       CIA402_DEVICE_SDO_TIMEOUT_MS);
 		}
-		dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_NEW_SETPOINT,
-				2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       d->cw.confirmed | CIA402_CW_NEW_SETPOINT, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case MOVE_TRIGGER_LOW:
-		dev_start_write(d, CIA402_OD_CONTROLWORD,
-				d->cw.confirmed & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       d->cw.confirmed & (uint16_t)~CIA402_CW_NEW_SETPOINT, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	default: /* MOVE_WAIT_ARRIVE */
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
 }
 

@@ -36,6 +36,9 @@ enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
+		d->txn.index = index;
+		d->txn.subindex = 0u;
+		d->txn.dir = (uint8_t)SDO_DIR_READ;
 	}
 	return started;
 }
@@ -83,6 +86,9 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
+		d->txn.index = index;
+		d->txn.subindex = sub;
+		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
 		if (index == CIA402_OD_CONTROLWORD) {
 			d->cw.pending = (uint16_t)value;
 			d->cw.pending_valid = 1u;
@@ -113,77 +119,79 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
 	started = sdo_client_start(d->client, &req);
 	if (started == SDO_START_ACCEPTED) {
 		d->sdo_pending = 1u;
+		d->txn.index = CIA402_OD_CONTROLWORD;
+		d->txn.subindex = 0u;
+		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
 	}
 	return started;
 }
 
 /**
- * dev_not_started - 未受理事务的立即收尾
+ * dev_start_failed - 事务没被受理：当场判失败，并登记下一拍退出
  * @d: 设备对象
- * @started: 客户端的未受理原因
+ * @started: 客户端的未受理原因（BUSY / INVALID）
  *
- * 只登记取消请求，下一拍由实际活动状态退出流程且不交付结局。
+ * 没发起就没有结果事件，不能留在流程里等。这里当场把流程判失败（回执立刻
+ * 可读），同时登记标志：ENTRY 里返回的转移会被内核丢弃，所以还需要下一拍用
+ * 取消事件把状态机从实际子状态带出去。
+ *
+ * Return: 要迁移到的状态（st_idle）；SDO_DONE 路径直接用它，ENTRY 路径靠标志。
  */
-void dev_not_started(struct cia402_device *d, enum sdo_start_result started)
+static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started)
 {
-	fprintf(stderr, "[cia402] 请求未执行: kind=%d, reason=%s\n", (int)d->operation.kind,
+	fprintf(stderr, "[cia402] 事务未发起: kind=%d, reason=%s\n", (int)d->operation.kind,
 		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
 	d->sdo_unstarted = 1u;
-	d->cw.pending_valid = 0u;
+	dev_finish(d, CIA402_FAIL_SDO);
+	return &st_idle;
 }
 
 /**
- * dev_start_read - 发起读事务并处理未受理
+ * dev_start_read - 发起读事务
  * @d: 设备对象
  * @index: 对象索引
  * @timeout_ms: 本笔事务的期限
  *
- * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
+ * Return: NULL 已受理，等结果事件；非 NULL 未受理，已当场收尾，返回要迁移到的状态。
  */
-void dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+sm_state_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_read(d, index, timeout_ms);
 
-	if (started != SDO_START_ACCEPTED) {
-		dev_not_started(d, started);
-	}
+	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
 }
 
 /**
- * dev_start_write - 发起写事务并处理未受理
+ * dev_start_write - 发起写事务
  * @d: 设备对象
  * @index: 对象索引
  * @value: 待写值
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限
  *
- * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
+ * Return: NULL 已受理；非 NULL 未受理，已当场收尾。
  */
-void dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
-		     uint32_t timeout_ms)
+sm_state_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+			   uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_write(d, index, value, size, timeout_ms);
 
-	if (started != SDO_START_ACCEPTED) {
-		dev_not_started(d, started);
-	}
+	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
 }
 
 /**
- * dev_start_pulse - 发起一次性控制字写并处理未受理
+ * dev_start_pulse - 发起一次性控制字写
  * @d: 设备对象
  * @value: 控制字值
  * @timeout_ms: 本笔事务的期限
  *
- * 事件一律视为已消费：受理后等结果事件，未受理则留待下一拍取消流程。
+ * Return: NULL 已受理；非 NULL 未受理，已当场收尾。
  */
-void dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+sm_state_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
 	enum sdo_start_result started = dev_write_pulse(d, value, timeout_ms);
 
-	if (started != SDO_START_ACCEPTED) {
-		dev_not_started(d, started);
-	}
+	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
 }
 
 /**
@@ -205,7 +213,7 @@ void dev_done(struct cia402_device *d)
 void dev_finish(struct cia402_device *d, enum cia402_fail fail)
 {
 	d->outbox = CIA402_OUTCOME_FAILED;
-	d->failure.fail = fail;
+	d->failure = fail;
 	d->operation.running = 0u;
 	d->cw.pending_valid = 0u;
 }
@@ -222,10 +230,14 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 	if (result == NULL) {
 		return;
 	}
-	d->failure.abort_code = result->abort_code;
 	if (result->status == SDO_STATUS_TIMEOUT || result->abort_code == 0u) {
 		/* 通道判定期限到，或没有 abort 码的失败：驱动器没按期应答 */
 		fail = CIA402_FAIL_TIMEOUT;
+	} else {
+		/* abort 码是 CiA 301 的协议知识，只在本层用掉，不往上层传 */
+		fprintf(stderr, "[cia402] %s %04Xh:%02X 被对端拒绝 abort=0x%08X\n",
+			d->txn.dir == SDO_DIR_WRITE ? "写" : "读", d->txn.index,
+			(unsigned)d->txn.subindex, (unsigned)result->abort_code);
 	}
 	dev_finish(d, fail);
 }

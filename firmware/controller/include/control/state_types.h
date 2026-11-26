@@ -71,14 +71,12 @@ enum controller_fault_reason {
 
 /*
  * 首个故障的快照：进入 FAULT 时确定，之后只有 axis_mask 继续累积。
- * abort_code 只在 reason == SDO 时是 abort 码，其余原因下无意义。
  */
 struct controller_fault {
 	enum controller_state stage;         /* 失败时所处状态 */
 	enum controller_fault_reason reason; /* 失败原因 */
 	uint8_t first_axis;                  /* 首个失败轴；NO_AXIS = 未定位 */
 	uint8_t axis_mask;                   /* 全部失败轴位图 */
-	uint32_t abort_code;                 /* SDO abort 码；0 = 没有 */
 };
 
 #ifdef __cplusplus

@@ -32,7 +32,7 @@ struct fx {
 	struct fake_client fake;
 	struct cia402_device dev;
 	enum cia402_outcome st;
-	struct cia402_failure_info failure;
+	enum cia402_fail failure;
 	uint32_t t;
 };
 
@@ -235,7 +235,7 @@ static void fx_poll_at(struct fx *f, uint32_t t)
 	cia402_poll(&f->dev, t);
 	f->st = cia402_take_result(&f->dev);
 	if (f->st == CIA402_OUTCOME_FAILED) {
-		cia402_get_failure(&f->dev, &f->failure);
+		cia402_failure_of(&f->dev, &f->failure);
 	}
 }
 
@@ -510,11 +510,10 @@ static void fx_home_restore(struct fx *f, uint16_t sw)
 	fx_poll(f);
 }
 
-/* 回零出错：bit13 = 回零错误，要与 PDS 故障区分，且不占用 abort 码 */
+/* 回零出错：bit13 = 回零错误，要与 PDS 故障区分 */
 static void test_home_bit13(void)
 {
 	struct fx f;
-	struct cia402_failure_info status;
 
 	fx_init(&f);
 	f.dev.cw.confirmed = CIA402_CW_ENABLE_OP;
@@ -523,10 +522,7 @@ static void test_home_bit13(void)
 
 	fx_home_restore(&f, 0x2637u); /* bit13：回零错误 */
 	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure.fail == CIA402_FAIL_HOMING);
-
-	cia402_get_failure(&f.dev, &status);
-	CHECK(status.abort_code == 0u);                   /* 回零错误不是 abort 码 */
+	CHECK(f.failure == CIA402_FAIL_HOMING);
 	CHECK(f.dev.cw.confirmed == CIA402_CW_ENABLE_OP); /* bit4 已落，halt 也清了 */
 }
 
@@ -551,7 +547,7 @@ static void test_home_fault(void)
 
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
 	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure.fail == CIA402_FAIL_DRIVER);
+	CHECK(f.failure == CIA402_FAIL_DRIVER);
 }
 
 /* 单笔事务超时把回零打断：要报超时，不能冒充驱动器故障 */
@@ -575,7 +571,7 @@ static void test_home_cancel(void)
 
 	fx_home_restore(&f, 0x0737u | CIA402_SW_TARGET_REACHED);
 	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 }
 
 /* 抢占回零：完成停机与模式恢复，但取消不是回零成功或失败 */
@@ -697,7 +693,7 @@ static void test_quick_stop_write_failure(void)
 	fx_complete(&f, SDO_STATUS_TIMEOUT, 0u);
 	fx_poll(&f);
 	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 
 	/* 失败也不补发、不补断使能 */
 	f.fake.started = 0u;
@@ -749,11 +745,11 @@ static void test_start_rejected(void)
 	fx_request(&f, CIA402_REQ_MOVE);
 
 	f.fake.refuse = 1u; /* 让 fake_start 直接拒绝 */
-	fx_poll(&f);
-	fx_poll(&f);
-	fx_poll(&f); /* 连续空转也不能把未受理变成失败结果 */
+	fx_poll(&f);        /* 未受理：当场判失败，不再静默取消 */
+	CHECK(f.st == CIA402_OUTCOME_FAILED);
+	CHECK(f.failure == CIA402_FAIL_SDO);
 
-	CHECK(f.st == CIA402_OUTCOME_NONE);
+	fx_poll(&f); /* 下一拍把状态机从实际子状态带出去 */
 	CHECK(f.dev.operation.running == 0u);
 	CHECK(sm_hsm_state(&f.dev.hsm) == &st_idle);
 
@@ -840,7 +836,7 @@ static void test_timeout(void)
 	fx_poll(&f);
 
 	CHECK(f.st == CIA402_OUTCOME_FAILED);
-	CHECK(f.failure.fail == CIA402_FAIL_TIMEOUT);
+	CHECK(f.failure == CIA402_FAIL_TIMEOUT);
 }
 
 /* 通道还在等结果时，402 不得自作主张判超时 */

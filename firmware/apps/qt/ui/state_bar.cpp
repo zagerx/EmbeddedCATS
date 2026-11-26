@@ -96,13 +96,10 @@ StateBar::StateBar(QWidget *parent) : QWidget(parent)
 	cause_value_ = make_value(fault_area);
 	fault_layout->addWidget(cause_value_, 1, 3);
 
-	/* 第二行：轴位图 / abort 码 */
+	/* 第二行：轴位图 */
 	fault_layout->addWidget(make_tag(QStringLiteral("轴"), fault_area), 2, 0);
 	axis_value_ = make_value(fault_area);
 	fault_layout->addWidget(axis_value_, 2, 1);
-	fault_layout->addWidget(make_tag(QStringLiteral("码"), fault_area), 2, 2);
-	abort_value_ = make_value(fault_area);
-	fault_layout->addWidget(abort_value_, 2, 3);
 
 	fault_layout->setColumnStretch(4, 1); /* 右侧留白，不把字段拉伸 */
 	root->addWidget(fault_area);
@@ -117,11 +114,9 @@ void StateBar::setState(State state, const QString &text)
 	led_->setText(text);
 }
 
-void StateBar::setFault(const QString &stage, const QString &reason, const QString &axis,
-		      const QString &abort)
+void StateBar::setFault(const QString &stage, const QString &reason, const QString &axis)
 {
 	stage_value_->setText(stage);
 	cause_value_->setText(reason);
 	axis_value_->setText(axis);
-	abort_value_->setText(abort);
 }

@@ -39,7 +39,6 @@ struct controller_info {
 	enum controller_state state;
 	struct controller_feedback feedback[CONTROLLER_AXIS_COUNT];
 	struct controller_fault fault;
-	uint32_t abort[CONTROLLER_AXIS_COUNT]; /* 每轴最新 abort，实时诊断用 */
 };
 
 /* 在接口名指定的 SocketCAN 通道上登记节点 1、2 并装配状态机 */

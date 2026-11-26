@@ -78,10 +78,17 @@ struct cia402_device {
 		uint8_t cancel; /* enum cia402_cancel_reason */
 	} mailbox;
 
-	enum cia402_outcome outbox;         /* 待取走的成功或失败结局 */
-	struct cia402_failure_info failure; /* 最近一次真实执行失败的诊断 */
-	uint8_t sdo_pending;                /* 本设备有一笔已受理且未取走的事务 */
-	uint8_t sdo_unstarted; /* 上一步未受理，下一拍用取消事件退出流程 */
+	enum cia402_outcome outbox; /* 待取走的成功或失败结局 */
+	enum cia402_fail failure;   /* 最近一次真实执行失败的归类 */
+	/* 最近一笔发起的事务：失败时把 abort 码和对象对上号，只在本层打印用 */
+	struct {
+		uint16_t index;
+		uint8_t subindex;
+		uint8_t dir; /* enum sdo_dir */
+	} txn;
+	uint8_t sdo_pending; /* 本设备有一笔已受理且未取走的事务 */
+	/* 上一步事务未受理：流程已判失败，下一拍还要退出实际状态 */
+	uint8_t sdo_unstarted;
 
 	/* 内部执行状态：一个 operation 可依次包含多笔 SDO 事务，事务状态由通道持有 */
 	struct sm_hsm hsm;

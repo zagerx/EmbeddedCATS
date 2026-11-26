@@ -13,22 +13,20 @@
  * @stage: 失败时所处状态
  * @reason: 失败原因；NONE 表示不是故障，直接返回
  * @axis: 失败轴号；超出已装配范围时记作未定位
- * @abort_code: 首个失败轴的 abort 码；非 SDO 类故障传 0
  */
 void controller_set_fault(struct controller *ctl, enum controller_state stage,
-			  enum controller_fault_reason reason, uint8_t axis, uint32_t abort_code)
+			  enum controller_fault_reason reason, uint8_t axis)
 {
 	if (ctl == NULL || reason == CONTROLLER_FAULT_REASON_NONE) {
 		return;
 	}
-	controller_log_fault(stage, reason, axis, abort_code);
+	controller_log_fault(stage, reason, axis);
 	pthread_mutex_lock(&ctl->info_lock);
 	if (ctl->info.fault.reason == CONTROLLER_FAULT_REASON_NONE) {
 		ctl->info.fault.stage = stage;
 		ctl->info.fault.reason = reason;
 		ctl->info.fault.first_axis =
 			(axis < CONTROLLER_AXIS_COUNT) ? axis : CONTROLLER_FAULT_NO_AXIS;
-		ctl->info.fault.abort_code = abort_code;
 	}
 	if (axis < CONTROLLER_AXIS_COUNT) {
 		ctl->info.fault.axis_mask |= (uint8_t)(1u << axis);
@@ -52,13 +50,12 @@ void controller_set_axes_fault(struct controller *ctl, enum controller_state sta
 		return;
 	}
 	reason = controller_fault_reason_of(failure->first.fail);
-	controller_log_fault(stage, reason, failure->first_axis, failure->first.abort_code);
+	controller_log_fault(stage, reason, failure->first_axis);
 	pthread_mutex_lock(&ctl->info_lock);
 	if (ctl->info.fault.reason == CONTROLLER_FAULT_REASON_NONE) {
 		ctl->info.fault.stage = stage;
 		ctl->info.fault.reason = reason;
 		ctl->info.fault.first_axis = failure->first_axis;
-		ctl->info.fault.abort_code = failure->first.abort_code;
 	}
 	for (i = 0u; i < CONTROLLER_AXIS_COUNT; i++) {
 		if ((failure->mask & (uint8_t)(1u << i)) != 0u) {

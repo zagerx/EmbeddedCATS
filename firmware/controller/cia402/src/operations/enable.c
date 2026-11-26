@@ -35,7 +35,7 @@ static sm_state_t enable_route(struct cia402_device *d, enum cia402_pds_state pd
 static sm_state_t enable_wait(struct cia402_device *d, uint16_t sw, enum cia402_pds_state want,
 			      enum enable_stage next);
 static void enable_advance(struct cia402_device *d);
-static void enable_issue(struct cia402_device *d);
+static sm_state_t enable_issue(struct cia402_device *d);
 static int enable_expired(const struct cia402_device *d);
 
 /**
@@ -85,8 +85,7 @@ static sm_state_t enable_step(struct cia402_device *d, const struct sdo_result *
 			return end;
 		}
 	}
-	enable_issue(d);
-	return NULL;
+	return enable_issue(d);
 }
 
 /**
@@ -223,7 +222,7 @@ static void enable_advance(struct cia402_device *d)
  * enable_issue - 发起当前步骤的那笔事务
  * @d: 设备对象
  */
-static void enable_issue(struct cia402_device *d)
+static sm_state_t enable_issue(struct cia402_device *d)
 {
 	switch (d->operation.stage) {
 	case ENABLE_READ_PDS:
@@ -231,28 +230,22 @@ static void enable_issue(struct cia402_device *d)
 	case ENABLE_WAIT_READY:
 	case ENABLE_WAIT_SWITCHED_ON:
 	case ENABLE_WAIT_ENABLED:
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case ENABLE_RESET_LOW:
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case ENABLE_RESET_HIGH:
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_FAULT_RESET, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_FAULT_RESET, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case ENABLE_WRITE_SHUTDOWN:
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_SHUTDOWN, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case ENABLE_WRITE_SWITCH_ON:
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_SWITCH_ON, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_SWITCH_ON, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	default: /* ENABLE_WRITE_ENABLE_OP */
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		break;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_ENABLE_OP, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
 }
 

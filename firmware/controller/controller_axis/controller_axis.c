@@ -108,7 +108,6 @@ enum controller_axes_result controller_axes_collect(struct axis *axes, uint8_t c
 	if (failure != NULL) {
 		failure->mask = 0u;
 		failure->first_axis = 0u;
-		failure->first.abort_code = 0u;
 	}
 	for (i = 0u; i < count; i++) {
 		struct axis_failure detail;

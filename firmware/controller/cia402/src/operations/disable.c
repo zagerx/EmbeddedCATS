@@ -68,10 +68,8 @@ static sm_state_t disable_step(struct cia402_device *d, const struct sdo_result 
 	}
 
 	if (d->operation.stage == DISABLE_WRITE) {
-		dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-	} else {
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, CIA402_CW_DISABLE, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
-	return NULL;
+	return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 }

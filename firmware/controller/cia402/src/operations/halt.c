@@ -82,16 +82,13 @@ static sm_state_t halt_step(struct cia402_device *d, const struct sdo_result *re
 
 	switch (d->operation.stage) {
 	case HALT_WRITE:
-		dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_HALT, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return NULL;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD, d->cw.confirmed | CIA402_CW_HALT,
+				       2u, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	case HALT_READ:
-		dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return NULL;
+		return dev_start_read(d, CIA402_OD_STATUSWORD, CIA402_DEVICE_SDO_TIMEOUT_MS);
 	default: /* HALT_CLEAR */
-		dev_start_write(d, CIA402_OD_CONTROLWORD,
-				d->cw.confirmed & (uint16_t)~CIA402_CW_HALT, 2u,
-				CIA402_DEVICE_SDO_TIMEOUT_MS);
-		return NULL;
+		return dev_start_write(d, CIA402_OD_CONTROLWORD,
+				       d->cw.confirmed & (uint16_t)~CIA402_CW_HALT, 2u,
+				       CIA402_DEVICE_SDO_TIMEOUT_MS);
 	}
 }

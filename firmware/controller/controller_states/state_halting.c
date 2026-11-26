@@ -63,8 +63,8 @@ sm_ret_t st_halting(struct sm_hsm *const me, const struct sm_event *const e)
 			m = axis_take_motion(&ctl->axes[axis], &failure);
 			if (m == AXIS_MOTION_FAILED) {
 				controller_set_fault(ctl, CONTROLLER_STATE_HALTING,
-						     controller_fault_reason_of(failure.fail), axis,
-						     failure.abort_code);
+						     controller_fault_reason_of(failure.fail),
+						     axis);
 				ctl->move_done |= (uint8_t)(1u << i);
 			} else if (m == AXIS_MOTION_DONE || !axis_is_running(&ctl->axes[axis])) {
 				ctl->move_done |= (uint8_t)(1u << i);

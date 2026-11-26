@@ -36,7 +36,6 @@ sm_ret_t st_idle(struct sm_hsm *const me, const struct sm_event *const e)
 			break; /* 本来就在空闲 */
 		}
 		if (reason == CIA402_CANCEL_TIMEOUT) {
-			d->failure.abort_code = 0u;
 			dev_finish(d, CIA402_FAIL_TIMEOUT);
 		}
 		/* 被抢占：这条流程的结论作废，不留下结果 */

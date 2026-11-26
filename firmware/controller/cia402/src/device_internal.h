@@ -70,13 +70,14 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 				    uint32_t value, uint8_t size, uint32_t timeout_ms);
 /* 写不进控制字镜像的一次性 6040 指令，例如在线变位 0x103F */
 enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
-/* 未受理事务的立即收尾；只登记取消请求，不产生操作结局 */
-void dev_not_started(struct cia402_device *d, enum sdo_start_result started);
-/* 发起读写；未受理时登记取消请求，返回值恒为「事件已消费」故不返回 */
-void dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
-void dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
-		     uint32_t timeout_ms);
-void dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
+/*
+ * 发起读写：已受理返回 NULL（等结果事件）；未受理当场收尾并返回要迁移到的状态。
+ * 调用方直接 `return dev_start_write(...)` 即可，不需要额外的失败分支。
+ */
+sm_state_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
+sm_state_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+			   uint32_t timeout_ms);
+sm_state_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
 /* 成功结束；失败结束并保存诊断；被取消的流程不交付结局 */
 void dev_done(struct cia402_device *d);
 void dev_finish(struct cia402_device *d, enum cia402_fail fail);

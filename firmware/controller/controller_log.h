@@ -25,6 +25,6 @@ void controller_log_not_executed(struct controller *ctl, enum controller_sig sig
 void controller_log_queue_cleared(struct controller *ctl);
 uint8_t controller_log_event_axis(const struct controller_evt *evt, uint8_t fallback);
 void controller_log_fault(enum controller_state stage, enum controller_fault_reason reason,
-			  uint8_t axis, uint32_t abort_code);
+			  uint8_t axis);
 
 #endif /* CONTROLLER_LOG_H */

@@ -59,7 +59,7 @@ sm_ret_t st_enabling(struct sm_hsm *const me, const struct sm_event *const e)
 		if (elapsed > ENABLE_TIMEOUT_MS) {
 			controller_set_fault(ctl, CONTROLLER_STATE_ENABLING,
 					     CONTROLLER_FAULT_REASON_BIZ_TIMEOUT,
-					     CONTROLLER_FAULT_NO_AXIS, 0u);
+					     CONTROLLER_FAULT_NO_AXIS);
 		}
 		return SM_SUPER(&st_root);
 	}
