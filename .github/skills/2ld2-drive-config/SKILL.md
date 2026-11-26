@@ -1,25 +1,27 @@
 ---
 name: 2ld2-drive-config
-description: '把一台新的 2LD2-CAN7020B 双轴驱动器配置成与台架基准完全一致并验收。Use when: 新驱动器上机、更换驱动器、驱动器恢复出厂、需要在另一台电脑复刻配置、驱动器配置验收。步骤：can0 500k 起链路 → 心跳探活 → 只读核对 → 写输入分配/方向 → 保存 → 断电重启 → drive_setup 配 TPDO/回零/急停/抱闸 → 按开关复验 → PP 点动与回零验收。基准值见 docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md。铁律：写 2403h 必须先于 2404h；所有写入后必须 save；必须断电重启后复验；拔改拨码后必须断电重启；不改 180x:03 禁止时间；605Ah 保存后必须重启才生效。'
+description: '只配置 2LD2-CAN7020B 驱动器本体的持久参数，使其与台架基准一致并回读验收；不依赖电机、滑台、限位开关，不做点动/回零。Use when: 新驱动器上机前预配置、更换驱动器、驱动器恢复出厂、在另一台电脑复刻配置、纯参数核对。步骤：can0 500k 起链路 → 心跳探活 → 只读核对 → 写输入分配/方向 → save → 断电重启 → 回读 → drive_setup 配 TPDO/回零/急停/抱闸参数 → 复验。基准值见 docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md。铁律：写 2403h 必须先于 2404h；所有写入后必须 save；必须断电重启后复验；改拨码后必须断电重启；不改 180x:03 禁止时间；605Ah 保存后必须重启才生效。'
 argument-hint: '<CAN 接口名，默认 can0>'
 ---
 
-# 2LD2-CAN7020B 驱动器配置（照基准复刻）
+# 2LD2-CAN7020B 驱动器配置（纯参数版）
 
 ## 何时使用
 
-- 一台新驱动器/换机/恢复出厂后，要配置成与台架基准一致。
-- 需要验收某台驱动器是否符合基准。
+- 新驱动器上机前，先把它配置成与台架基准一致（此时可以没接电机、没接机械）。
+- 更换驱动器 / 驱动器恢复出厂后重配。
+- 核对某台驱动器的持久参数是否符合基准。
 
 ## 前提
 
 - Linux + SocketCAN + PEAK PCAN-USB（FD）适配器；`python-can` 已安装（`pip install python-can`）。
-- 驱动器上电：48V 主电 + STO 24V 短接；`SW6=on`；站号旋码 1/2；波特率拨码 500k。
+- **驱动器本体**上电：24V 控制电即可通 CAN；48V 主电 + STO 24V 短接仅在点动/整机验收时需要；`SW6=on`；
+  站号旋码 1/2；波特率拨码 500k。
 - **没有其他程序占用 CAN**（`cats_qt` / `master_probe` / `drive_setup` 同时只能跑一个）。
 - 接口操作需要 root（sudo 由人工执行）。
 
-不要凭记忆写值——本 skill 的所有数字以
-`docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md` 为准。
+本 skill 只写**驱动器侧持久参数**；不要求电机/滑台/限位开关连接，不做点动与回零。
+所有数字以 `docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md` 为准，不要凭记忆写值。
 
 ## 步骤
 
@@ -45,8 +47,10 @@ python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py probe can0
 python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py check can0
 ```
 
-必须全部 PASS：`1000h`=0x00020192、`6502h`=0x3002D、`608Fh`=131072/1、`6092h:01`=10000、
-`2023h`=1/2、`2024h`=2、`6079h`≈47~48V。
+身份值必须全部 PASS：`1000h`=0x00020192、`6502h`=0x3002D、`608Fh`=131072/1、
+`6092h:01`=10000、`2023h`=1/2、`2024h`=2。
+`6079h`≈47~48V 仅在 48V 主电已上时有意义（只有 24V 时该项会 FAIL，可忽略）。
+（参数项此时可能还不是基准值，下一步会写。）
 
 ### 4. 写输入分配与方向（顺序不可颠倒）
 
@@ -67,7 +71,7 @@ python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py apply can0
 python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py check can0
 ```
 
-`2403h/2404h/2405h/607Eh` 必须保持 `0 / 0x16 / 0x01 / 128`。
+必须全部 PASS：`2403h`=0、`2404h`=0x16、`2405h`=0x01、`607Eh`=128（断电后保留）。
 
 ### 7. 配 TPDO / 回零 / 急停 / 抱闸（仓库工具）
 
@@ -80,49 +84,29 @@ cd firmware/apps/tools/drive_setup && python3 drive_setup.py --save && python3 d
 - `--check` 必须全 PASS。
 - **`605Ah` 保存后必须再断电重启一次才生效。**
 
-### 8. 按开关复验输入
+### 8. 最终核对
 
-```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py watch can0
-```
+断电重启后重跑 `check`（步骤 6）与 `drive_setup.py --check`。两者全 PASS 即完成配置。
 
-60 s 内依次按压：轴1 近端 → 轴1 远端 → 轴2 近端 → 轴2 远端。
-期望依次出现 `HOME`（bit2）、`POT`（bit1）、`HOME`、`POT`，释放即复位。
-
-### 9. PP 点动验收（两轴各一次）
-
-```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py jog can0 1 10000
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py jog can0 2 10000
-```
-
-期望：位移 = 10000 指令单位（±10，正好 1 圈）；转向 = 面向出轴逆时针（滑台远离电机）；
-`6041h` bit10 到位、`603Fh`=0；结束后已断使能、模式回 PP。
-
-### 10. 回零验收（方法 21）
-
-```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py home can0 1
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py home can0 2
-```
-
-脚本提示后，在电机运动期间**挡住原点开关**，再松开。期望：挡开关后减速反向、松开处停下，
-`6041h` bit12=1、`6064h`=0。（`6040h` bit4 全程保持 1，是电平触发。）
-
-## 验收清单
+## 验收清单（参数级）
 
 | # | 项 | 通过标准 |
 |---|---|---|
 | 1 | 通信 | 两轴心跳 1 Hz，无 BUS-OFF |
-| 2 | 识别 | `2023h`=1/2，`2024h`=2，§2.3 读值全对 |
-| 3 | 参数 | `2403h`=0、`2404h`=0x16、`2405h`=0x01、`607Eh`=128（断电后保留） |
-| 4 | 输入 | 近端 HOME / 远端 POT，按压干净置位 |
-| 5 | 使能 | 06→07→0F：`0x0631→0x0633→0x8637` |
-| 6 | 点动 | 10000 单位 = 1 圈（±10），约 5 s，bit10 到位 |
-| 7 | 方向 | 正方向 = 面向出轴逆时针 |
-| 8 | 限位 | 按住时向该方向运动被拒绝，反向正常 |
-| 9 | 回零 | 方法 21：bit12=1，`6064h`=0 |
-| 10 | TPDO | `drive_setup.py --check` 全 PASS，周期 10 ms |
+| 2 | 识别 | `2023h`=1/2，`2024h`=2，识别读值全对 |
+| 3 | 输入分配 | `2403h`=0、`2404h`=0x16、`2405h`=0x01（断电后保留） |
+| 4 | 方向 | `607Eh`=128（断电后保留） |
+| 5 | TPDO/回零/急停/抱闸 | `drive_setup.py --check` 全 PASS |
+
+## 可选：整机验收（装好电机/滑台/限位开关后再做）
+
+以下依赖机械与开关，不属于“只配驱动器”的范围：
+
+- 按开关：近端 → `60FD` bit2（HOME）；远端 → `60FD` bit1（POT）（工具：`baseline_sdo.py watch can0`）
+- PP 点动：`baseline_sdo.py jog can0 <node> 10000` → 位移 10000 单位（1 圈，±10），
+  转向 = 面向出轴逆时针
+- 回零：`baseline_sdo.py home can0 <node>` → 方法 21，`6041h` bit12=1、`6064h`=0
+- 限位：按住时向该方向运动被拒绝（位移≈0），反向正常
 
 ## 常见问题（事实）
 
@@ -130,9 +114,8 @@ python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py home can0 2
 |---|---|
 | 发帧后 BUS-OFF、无应答 | 总线上没人 ACK：驱动器未上电 / 波特率不是 500k / 接错通道，先 `probe` 再查 |
 | `No buffer space available` | 有程序占着接口或总线无 ACK；停掉其它 CAN 程序后重起接口 |
-| `6041h` 恒 `0x0400` | 未发 NMT Start；或 48V/STO 缺失 |
+| `6041h` 恒 `0x0400` | 未发 NMT Start（`drive_setup --check` 会自己切 Operational）；或 48V/STO 缺失 |
 | 写 `2404h` 报错 | 忘了先清 `2403h`（HOME 重复分配） |
-| 急停后无法再使能 | `605A` 未生效：需 `--save` + 断电重启；先写 `6040=0x0000` 恢复 |
 | 写 `1801:03` 被拒（`0x06010002`） | 轴2 禁止时间只读，**不要写** |
 | 看不到 TPDO | COB-ID 还是 `0x8000xxxx`：跑 `drive_setup.py` 启用 |
-| 上电位置不是上次的值 | 无电池盒、`2015h=0` 增量模式，属基线行为：需回零或主站记忆恢复 |
+| `605Ah` 改了不生效 | 必须 `--save` + 断电重启 |
