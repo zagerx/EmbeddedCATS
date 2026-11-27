@@ -54,7 +54,6 @@ struct sdo_done_evt {
 
 struct cancel_evt {
 	struct sm_event super;
-	struct sdo_result result; /* 被取消的那笔事务的原始结果，全部为 0 表示无在途事务 */
 	uint8_t reason; /* enum cia402_cancel_reason */
 };
 

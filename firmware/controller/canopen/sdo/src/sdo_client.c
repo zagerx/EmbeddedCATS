@@ -80,12 +80,10 @@ bool sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 	}
 	t->dir = (uint8_t)req->dir;
 	t->state = SDO_CLIENT_RUNNING;
-	t->cancel = 0u;
-	t->timed_out = 0u;
+	t->abort_cause = SDO_ABORT_NONE;
 	t->timeout_us = req->timeout_ms * 1000u;
 	t->elapsed_us = 0u;
 	t->abort_elapsed_us = 0u;
-	t->abort_timed_out = 0u;
 	t->result = (struct sdo_result){.status = SDO_STATUS_FAIL};
 	return true;
 }
@@ -125,10 +123,11 @@ void sdo_client_take_result(struct sdo_client *s, struct sdo_result *result)
  */
 void sdo_client_abort(struct sdo_client *s)
 {
-	if (s == NULL || s->txn.state != SDO_CLIENT_RUNNING) {
+	if (s == NULL || s->txn.state != SDO_CLIENT_RUNNING ||
+	    s->txn.abort_cause != SDO_ABORT_NONE) {
 		return;
 	}
-	s->txn.cancel = 1u;
+	s->txn.abort_cause = SDO_ABORT_CALLER;
 }
 
 /**
@@ -143,6 +142,7 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 	struct sdo_transaction *t;
 	CO_SDO_return_t r;
 	bool_t send_abort;
+	bool abort_expired;
 
 	if (s == NULL) {
 		return;
@@ -156,11 +156,10 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 	} else {
 		t->elapsed_us += dt_us;
 	}
-	if (t->cancel == 0u && t->elapsed_us >= t->timeout_us) {
-		t->cancel = 1u;
-		t->timed_out = 1u;
+	if (t->abort_cause == SDO_ABORT_NONE && t->elapsed_us >= t->timeout_us) {
+		t->abort_cause = SDO_ABORT_TIMEOUT;
 	}
-	send_abort = t->cancel != 0u;
+	send_abort = t->abort_cause != SDO_ABORT_NONE;
 	if (t->dir == SDO_DIR_WRITE) {
 		r = CO_SDOclientDownload(s->co, dt_us, send_abort, false, &abort_code, NULL,
 					 timer_next_us);
@@ -168,27 +167,26 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 		r = CO_SDOclientUpload(s->co, dt_us, send_abort, &abort_code, NULL, NULL,
 				       timer_next_us);
 	}
-	if (t->cancel != 0u) {
+	if (send_abort) {
 		t->abort_elapsed_us = sc_sat_add(t->abort_elapsed_us, dt_us);
 	}
-	if (r == CO_SDO_RT_ok_communicationEnd && t->dir == SDO_DIR_READ && t->timed_out == 0u) {
+	if (r == CO_SDO_RT_ok_communicationEnd && t->dir == SDO_DIR_READ &&
+	    t->abort_cause != SDO_ABORT_TIMEOUT) {
 		uint8_t data[4] = {0u, 0u, 0u, 0u};
 
 		(void)CO_SDOclientUploadBufRead(s->co, data, sizeof(data));
 		t->result.value = (uint32_t)data[0] | ((uint32_t)data[1] << 8u) |
 				  ((uint32_t)data[2] << 16u) | ((uint32_t)data[3] << 24u);
 	}
-	if (t->cancel != 0u && t->abort_elapsed_us >= sc_abort_timeout(t)) {
-		t->abort_timed_out = 1u;
-	}
-	if (r == CO_SDO_RT_ok_communicationEnd || r < 0 || t->abort_timed_out != 0u) {
+	abort_expired = send_abort && t->abort_elapsed_us >= sc_abort_timeout(t);
+	if (r == CO_SDO_RT_ok_communicationEnd || r < 0 || abort_expired) {
 		CO_SDOclientClose(s->co);
-		if (r == CO_SDO_RT_ok_communicationEnd && t->timed_out == 0u) {
-			/* 本拍收到正常完成，取消不能倒改已经完成的协议事务 */
+		if (r == CO_SDO_RT_ok_communicationEnd && t->abort_cause != SDO_ABORT_TIMEOUT) {
+			/* 本拍收到正常完成，调用方取消不能倒改已经完成的协议事务 */
 			t->result.status = SDO_STATUS_OK;
-		} else if (t->timed_out != 0u) {
+		} else if (t->abort_cause == SDO_ABORT_TIMEOUT) {
 			t->result.status = SDO_STATUS_TIMEOUT;
-		} else if (t->cancel != 0u) {
+		} else if (t->abort_cause == SDO_ABORT_CALLER) {
 			t->result.status = SDO_STATUS_CANCELLED;
 		} else {
 			t->result.status = SDO_STATUS_FAIL;
@@ -201,7 +199,7 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 			t->result.value = 0u;
 		}
 		t->state = SDO_CLIENT_DONE;
-		t->cancel = 0u;
+		t->abort_cause = SDO_ABORT_NONE;
 	}
 }
 

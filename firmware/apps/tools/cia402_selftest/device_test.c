@@ -268,7 +268,7 @@ static void fx_poll(struct fx *f)
 static void fx_complete(struct fx *f, int status, uint32_t value)
 {
 	memset(&f->fake.result, 0, sizeof(f->fake.result));
-	f->fake.result.status = (int8_t)status;
+	f->fake.result.status = (enum sdo_status)status;
 	f->fake.result.value = value;
 	f->fake.result_ready = 1u;
 }

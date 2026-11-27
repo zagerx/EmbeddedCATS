@@ -27,8 +27,7 @@ static int pop_request(struct cia402_device *d, struct cia402_request *out);
 static void dispatch_request(struct cia402_device *d, const struct cia402_request *req);
 static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *result);
 static uint32_t cia402_flow_timeout_ms(enum cia402_kind kind);
-static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
-			    const struct sdo_result *result);
+static void dispatch_cancel(struct cia402_device *d, uint8_t reason);
 static void dispatch_tick(struct cia402_device *d);
 
 /**
@@ -51,6 +50,7 @@ void cia402_init(struct cia402_device *d, struct sdo_client *client)
  * @req: 请求；HALT / QUICK_STOP 会抢占在途流程，MOVE 会改在途 PP 的目标
  *
  * 仅 CANopen 工作线程调用；请求直接登记，状态迁移由 poll 统一完成。
+ * HALT / QUICK_STOP 还会立即通知通道取消在途事务。
  *
  * Return: 见 enum cia402_response；HALT / QUICK_STOP 不受 BUSY 限制，
  *         在途 PP 的新目标也不受 BUSY 限制。
@@ -81,8 +81,8 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 {
 	struct sdo_result result;
 	struct cia402_request req;
-	enum sdo_client_state state;
 	uint8_t cancel;
+	int popped;
 
 	if (d == NULL || d->client == NULL) {
 		return;
@@ -90,47 +90,40 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 	d->now_ms = now_ms;
 	cancel = d->mailbox.cancel;
 
-	/*
-	 * 通道自己就是唯一的事实来源：DONE 有结果，RUNNING 在途，IDLE 空闲。
-	 * 每拍都问一次，本层不另外记账。
-	 */
-	state = sdo_client_get_state(d->client);
-	if (state == SDO_CLIENT_RUNNING) {
-		if (cancel != CIA402_CANCEL_NONE) {
-			sdo_client_abort(d->client); /* 登记取消，通道收尾后仍交 CANCELLED */
-		}
-		return;
-	}
-	if (state == SDO_CLIENT_DONE) {
+	/* 通道自己就是唯一的事实来源，每拍都问一次，本层不另外记账 */
+	switch (sdo_client_get_state(d->client)) {
+	case SDO_CLIENT_RUNNING:
+		/* 在途：本拍什么都不做，等通道收尾或应答 */
+		break;
+	case SDO_CLIENT_DONE:
 		sdo_client_take_result(d->client, &result);
 		if (cancel != CIA402_CANCEL_NONE) {
-			dispatch_cancel(d, cancel, &result);
-			return;
+			dispatch_cancel(d, cancel);
+		} else {
+			if (result.status == SDO_STATUS_CANCELLED) {
+				/* 未请求取消却收到取消结果，不能冒充新操作的失败 */
+				d->cw.pending_valid = 0u;
+			} else if (result.status == SDO_STATUS_TIMEOUT) {
+				dispatch_cancel(d, CIA402_CANCEL_TIMEOUT);
+			} else {
+				dispatch_sdo_done(d, &result);
+			}
 		}
-		if (result.status == SDO_STATUS_CANCELLED) {
-			/* 未请求取消却收到取消结果，不能冒充新操作的失败 */
-			d->cw.pending_valid = 0u;
-			return;
+		break;
+	case SDO_CLIENT_IDLE:
+		if (cancel != CIA402_CANCEL_NONE) {
+			dispatch_cancel(d, cancel);
+		} else {
+			/* 跑着流程时不开箱：取出来也没人受理，只会丢请求 */
+			popped = d->operation.running == 0u && pop_request(d, &req) != 0;
+			if (popped) {
+				dispatch_request(d, &req);
+			} else {
+				dispatch_tick(d);
+			}
 		}
-		if (result.status == SDO_STATUS_TIMEOUT) {
-			dispatch_cancel(d, CIA402_CANCEL_TIMEOUT, &result);
-			return;
-		}
-		dispatch_sdo_done(d, &result);
-		return;
+		break;
 	}
-
-	/* 通道空闲：才能谈取消、取新请求或推进流程 */
-	if (cancel != CIA402_CANCEL_NONE) {
-		dispatch_cancel(d, cancel, NULL);
-		return;
-	}
-	/* 邮箱只在没有在跑流程时开箱：跑着的时候取出来也没人受理，只会丢请求 */
-	if (d->operation.running == 0u && pop_request(d, &req) != 0) {
-		dispatch_request(d, &req);
-		return;
-	}
-	dispatch_tick(d);
 }
 
 /**
@@ -237,6 +230,7 @@ static int admit(struct cia402_device *d, const struct cia402_request *req)
 	d->operation.flow_deadline = d->now_ms + cia402_flow_timeout_ms(req->kind);
 	if (urgent) {
 		d->mailbox.cancel = CIA402_CANCEL_REQUEST; /* 抢占在途流程 */
+		sdo_client_abort(d->client); /* 通道在途则开始收尾，否则无动作 */
 	}
 	return CIA402_ACCEPTED;
 }
@@ -278,18 +272,12 @@ static void dispatch_sdo_done(struct cia402_device *d, const struct sdo_result *
 	sm_hsm_dispatch(&d->hsm, &evt.super);
 }
 
-static void dispatch_cancel(struct cia402_device *d, uint8_t reason,
-			    const struct sdo_result *result)
+static void dispatch_cancel(struct cia402_device *d, uint8_t reason)
 {
 	struct cancel_evt evt;
 
 	d->mailbox.cancel = CIA402_CANCEL_NONE;
 	d->operation.cancel = reason;
-	if (result != NULL) {
-		evt.result = *result;
-	} else {
-		memset(&evt.result, 0, sizeof(evt.result));
-	}
 	evt.super.sig = CIA402_SIG_CANCEL;
 	evt.reason = reason;
 	sm_hsm_dispatch(&d->hsm, &evt.super);

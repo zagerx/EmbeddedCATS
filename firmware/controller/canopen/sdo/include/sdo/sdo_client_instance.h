@@ -18,6 +18,13 @@
 extern "C" {
 #endif
 
+/* 取消指令的发令方：调用方登记，或通道期限到后自己发出 */
+enum sdo_abort_cause {
+	SDO_ABORT_NONE = 0,
+	SDO_ABORT_CALLER,
+	SDO_ABORT_TIMEOUT
+};
+
 /*
  * 一笔在途事务的全部状态与结果。
  * 一条通道同时最多一笔事务，因此事务就嵌在通道里，不单独分配。
@@ -25,9 +32,7 @@ extern "C" {
 struct sdo_transaction {
 	uint8_t dir;               /* enum sdo_dir */
 	uint8_t state;             /* enum sdo_client_state */
-	uint8_t cancel;            /* 已登记取消 */
-	uint8_t timed_out;         /* 超时触发的取消 */
-	uint8_t abort_timed_out;   /* 取消收尾已到本地期限 */
+	uint8_t abort_cause;       /* enum sdo_abort_cause；非 NONE 即已进入取消收尾 */
 	uint32_t timeout_us;       /* 事务总期限 */
 	uint32_t elapsed_us;       /* 事务已用时间 */
 	uint32_t abort_elapsed_us; /* 取消收尾已用时间 */

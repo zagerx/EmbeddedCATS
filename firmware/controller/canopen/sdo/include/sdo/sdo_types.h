@@ -21,6 +21,12 @@ enum sdo_dir {
 	SDO_DIR_WRITE
 };
 
+/*
+ * 三件事分开：
+ *   状态 sdo_client_state：通道现在在干什么，由 step 推进；
+ *   指令 sdo_client_abort()：外部要求取消，不是状态；
+ *   完成原因 sdo_status：为什么走到 DONE，仅 DONE 后有效。
+ */
 enum sdo_status {
 	SDO_STATUS_OK = 0,        /* 对端正常应答 */
 	SDO_STATUS_FAIL = -1,     /* 已受理事务以对端 abort 或协议错误结束 */
@@ -28,8 +34,9 @@ enum sdo_status {
 	SDO_STATUS_CANCELLED = -3 /* 上层取消，已按协议或本地期限收尾 */
 };
 
+/* value 仅 OK 且为读时有效，abort_code 仅 FAIL / TIMEOUT 可能非零，其余恒为 0 */
 struct sdo_result {
-	int8_t status; /* enum sdo_status */
+	enum sdo_status status;
 	uint32_t value;
 	uint32_t abort_code;
 };
