@@ -4,7 +4,7 @@
 配置内容：
   TPDO1  1A00 = 6041:16 + 603F:16 + 6061:8    1800:05 = 10 ms
   TPDO2  1A01 = 6064:32 + 606C:32             1801:05 = 10 ms
-  回零    6098 = 21、6099:01 = 2000、6099:02 = 500、609A = 2000
+  回零    6098 = 21、6099:01 = 100000（50 mm/s）、6099:02 = 4000（2 mm/s）、609A = 1000000（500 mm/s²）
   急停    605A = 2（按 6085 减速后自动断使能并抱闸）、6085 = 2000 mm/s²、
           2437/2438 = 100 ms（抱闸延时打开 / 等抱闸完全打开）
 TPDO3/TPDO4 保持出厂禁用，禁止时间（1800:03/1801:03）不写：
@@ -47,9 +47,9 @@ EVENT_TIMER_MS = 10
 # 2000 = 0.2 圈/s（台架实测可用，实机按行程重算）。
 HOMING_PARAMS = [
     ("6098h 回零方法", 0x6098, 0, 21, 1),
-    ("6099:01 搜索速度", 0x6099, 1, 2000, 4),
-    ("6099:02 一级速度", 0x6099, 2, 500, 4),
-    ("609Ah 回零加减速", 0x609A, 0, 2000, 4),
+    ("6099:01 搜索速度", 0x6099, 1, 100000, 4),
+    ("6099:02 一级速度", 0x6099, 2, 4000, 4),
+    ("609Ah 回零加减速", 0x609A, 0, 1000000, 4),
 ]
 
 # 急停与抱闸：急停后由驱动器自己减速、自己断使能、抱闸自动抱住。
@@ -208,7 +208,13 @@ def apply_safety(client: SdoClient) -> bool:
 
 
 def ensure_disabled(client: SdoClient) -> None:
-    """写参数前先断使能：使能态下参数可能被驱动器拒写。"""
+    """写参数前先断使能：使能态下参数可能被驱动器拒写。
+
+    Not ready（刚上电未 NMT Start）状态下写 6040 无效，先切 Operational 让状态机就绪。
+    """
+    if client.read(0x6041) & STATUS_MASK == 0:
+        client.nmt(0x01, client.node_id)
+        time.sleep(0.1)
     client.write(0x6040, 0, 0x0000, 2)
     for _ in range(10):
         if client.read(0x6041) & STATUS_MASK == STATUS_SWITCH_ON_DISABLED:
@@ -219,9 +225,15 @@ def ensure_disabled(client: SdoClient) -> None:
 
 def apply_node(client: SdoClient, node_id: int) -> None:
     """配置单个从站。配置期间节点处于 Pre-operational，且保持断使能。"""
+    ensure_disabled(client)
     client.nmt(0x00, node_id)  # Pre-operational：映射只能在配置态写
     time.sleep(0.05)
-    ensure_disabled(client)
+
+    # 映射在 PDO 启用时只读——先置 bit31 禁用，写完映射再由 apply_cob_id 启用。
+    for index in (0x1800, 0x1801):
+        current = client.read(index, 1)
+        if current & 0x80000000 == 0:
+            client.write(index, 1, current | 0x80000000, 4)
 
     changed = apply_mapping(client, 0x1A00, MAP_TPDO1)
     changed |= apply_mapping(client, 0x1A01, MAP_TPDO2)

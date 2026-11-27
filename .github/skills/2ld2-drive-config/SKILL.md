@@ -1,6 +1,6 @@
 ---
 name: 2ld2-drive-config
-description: '只配置 2LD2-CAN7020B 驱动器本体的持久参数，使其与台架基准一致并回读验收；不依赖电机、滑台、限位开关，不做点动/回零。Use when: 新驱动器上机前预配置、更换驱动器、驱动器恢复出厂、在另一台电脑复刻配置、纯参数核对。步骤：can0 500k 起链路 → 心跳探活 → 只读核对 → 写输入分配/方向 → save → 断电重启 → 回读 → drive_setup 配 TPDO/回零/急停/抱闸参数 → 复验。基准值见 docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md。铁律：写 2403h 必须先于 2404h；所有写入后必须 save；必须断电重启后复验；改拨码后必须断电重启；不改 180x:03 禁止时间；605Ah 保存后必须重启才生效。'
+description: '只配置 2LD2-CAN7020B 驱动器本体的持久参数，使其与台架基准一致并回读验收；不依赖电机、滑台、限位开关，不做点动/回零。Use when: 新驱动器上机前预配置、更换驱动器、驱动器恢复出厂、在另一台电脑复刻配置、纯参数核对。用法：setup can0（一键完成全部写入+保存+回读）→ 断电重启（唯一人工动作，605A 需重启生效）→ verify can0（一键验收，打印“可以运行 Qt”）。基准值见 docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md。'
 argument-hint: '<CAN 接口名，默认 can0>'
 ---
 
@@ -23,70 +23,45 @@ argument-hint: '<CAN 接口名，默认 can0>'
 本 skill 只写**驱动器侧持久参数**；不要求电机/滑台/限位开关连接，不做点动与回零。
 所有数字以 `docs/02_驱动器说明/2LD2-CAN7020B驱动器配置基准.md` 为准，不要凭记忆写值。
 
-## 步骤
+## 执行（两条命令 + 一次断电）
 
-### 1. 起链路
+### 准备（人工）
+
+- 按 §1 接线，驱动器上电（24V 控制电即可通 CAN）；`SW6=on`；站号 1/2；拨码 500k。
+- 关闭所有占用 CAN 的程序（`cats_qt` / `master_probe` / 其它脚本）。
+- 接口拉起（需 root）：
 
 ```bash
 sudo ip link set can0 down
 sudo ip link set can0 up type can bitrate 500000 restart-ms 100
-ip -details link show can0 | sed -n '3,4p'
 ```
 
-### 2. 心跳探活
+### 1. 一键配置（一条命令）
 
 ```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py probe can0
+python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py setup can0
 ```
 
-期望 3 s 内收到 `0x701` 和 `0x702`（1 Hz）。收不到 → 查 `SW6`、接线、拨码是否 500k（改过拨码必须断电重启）。
+内部顺序（无需手工分步）：
 
-### 3. 只读核对
+1. 心跳探活（两轴 0x701/0x702）
+2. 写输入分配/方向：`2403h=0` → `2404h=0x16` → `2405h=0x01` → `607Eh=128` → `1010h:01` save
+3. 调用 `firmware/apps/tools/drive_setup/drive_setup.py --save`（已内置 NMT 就绪与 PDO 禁用/恢复，写 TPDO、`6098h=21`、回零速度、`605Ah=2`、`6085h`、`2437h/2438h` 并保存）
+4. 全量 `check` 回读
+
+看到 **“参数已全部写入并保存”** 才继续。
+
+### 2. 断电重启（唯一人工动作）
+
+断电、等几秒再上电。`605A` 急停参数需要这次重启才生效；接口不受影响。
+
+### 3. 一键验收（一条命令）
 
 ```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py check can0
+python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py verify can0
 ```
 
-身份值必须全部 PASS：`1000h`=0x00020192、`6502h`=0x3002D、`608Fh`=131072/1、
-`6092h:01`=10000、`2023h`=1/2、`2024h`=2。
-`6079h`≈47~48V 仅在 48V 主电已上时有意义（只有 24V 时该项会 FAIL，可忽略）。
-（参数项此时可能还不是基准值，下一步会写。）
-
-### 4. 写输入分配与方向（顺序不可颠倒）
-
-```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py apply can0
-```
-
-脚本执行：`2403h=0` → `2404h=0x16` → `2405h=0x01` → `607Eh=128` → 回读 → `1010h:01` save。
-（`2403h` 必须先清空，否则 HOME 功能重复分配会 Err210/211。）
-
-### 5. 断电重启
-
-人工断电、等几秒再上电。重新 `ip link set can0 up ... 500000`（接口会掉）。
-
-### 6. 回读复验
-
-```bash
-python3 .github/skills/2ld2-drive-config/scripts/baseline_sdo.py check can0
-```
-
-必须全部 PASS：`2403h`=0、`2404h`=0x16、`2405h`=0x01、`607Eh`=128（断电后保留）。
-
-### 7. 配 TPDO / 回零 / 急停 / 抱闸（仓库工具）
-
-```bash
-cd firmware/apps/tools/drive_setup && python3 drive_setup.py --save && python3 drive_setup.py --check
-```
-
-- 写入 TPDO1（`6041+603F+6061`，10 ms）、TPDO2（`6064+606C`，10 ms）、
-  `6098h=21`、`6099h`=2000/500、`609Ah`=2000、`605Ah=2`、`6085h=4000000`、`2437h/2438h=100ms`。
-- `--check` 必须全 PASS。
-- **`605Ah` 保存后必须再断电重启一次才生效。**
-
-### 8. 最终核对
-
-断电重启后重跑 `check`（步骤 6）与 `drive_setup.py --check`。两者全 PASS 即完成配置。
+看到 **`==== 配置完成，可以运行 Qt（cats_qt） ====`** 即可启动 Qt 进行整机操作（回零方法 21、方向 `607E=128` 均已就绪）。
 
 ## 验收清单（参数级）
 
@@ -116,6 +91,7 @@ cd firmware/apps/tools/drive_setup && python3 drive_setup.py --save && python3 d
 | `No buffer space available` | 有程序占着接口或总线无 ACK；停掉其它 CAN 程序后重起接口 |
 | `6041h` 恒 `0x0400` | 未发 NMT Start（`drive_setup --check` 会自己切 Operational）；或 48V/STO 缺失 |
 | 写 `2404h` 报错 | 忘了先清 `2403h`（HOME 重复分配） |
+| 写 `607Eh` 报 ABORT `0x08000000` | `607Eh` 是 **1 字节对象**，必须 1 字节写（脚本已修正） |
 | 写 `1801:03` 被拒（`0x06010002`） | 轴2 禁止时间只读，**不要写** |
 | 看不到 TPDO | COB-ID 还是 `0x8000xxxx`：跑 `drive_setup.py` 启用 |
 | `605Ah` 改了不生效 | 必须 `--save` + 断电重启 |

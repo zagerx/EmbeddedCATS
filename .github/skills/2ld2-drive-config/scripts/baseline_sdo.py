@@ -2,6 +2,8 @@
 """2LD2-CAN7020B 配置基准的 SDO 工具（供 skill 使用）。
 
 命令：
+  setup [iface]                 一键配置：探活 -> 写输入分配/方向+save -> drive_setup --save -> check
+  verify [iface]                重启后验收：probe + check + drive_setup --check
   probe [iface]                 监听 3 s，报告两轴心跳
   check [iface]                 只读核对基线（身份值 + 配置参数），PASS/FAIL
   apply [iface]                 写 2403=0 -> 2404=0x16 -> 2405=0x01 -> 607E=128，
@@ -14,6 +16,8 @@
 """
 import sys
 import time
+from pathlib import Path
+import subprocess
 
 import can
 
@@ -49,7 +53,7 @@ class Sdo:
                     return "ABORT:%08X" % int.from_bytes(d[4:8], "little")
                 if d[0] & 0x01:
                     n = 4 - ((d[0] >> 2) & 3)
-                    return int.from_bytes(d[4:4 + n], "little", signed=True)
+                    return int.from_bytes(d[4:4 + n], "little", signed=(n == 4))
                 return None
         return "TIMEOUT"
 
@@ -78,7 +82,9 @@ def cmd_probe(bus):
     for node in (1, 2):
         st = seen.get(0x700 + node)
         print("节点%d 心跳: %s" % (node, ("状态 0x%s" % st) if st else "无"))
-    print("结果:", "PASS" if 0x701 in seen and 0x702 in seen else "FAIL")
+    ok = 0x701 in seen and 0x702 in seen
+    print("结果:", "PASS" if ok else "FAIL")
+    return ok
 
 
 EXPECT_PARAMS = [
@@ -106,11 +112,12 @@ def cmd_check(bus):
         note = "" if isinstance(mv, int) and mv >= 40000 else "（仅 48V 上电时有意义，可忽略）"
         print("  6079 母线电压 = %s mV %s" % (mv, note))
     print("结果:", "PASS" if ok else "FAIL")
+    return ok
 
 
 def cmd_apply(bus):
     sdo = Sdo(bus)
-    steps = [(0x2403, 0, 4), (0x2404, 0x16, 4), (0x2405, 0x01, 4), (0x607E, 128, 4)]
+    steps = [(0x2403, 0, 4), (0x2404, 0x16, 4), (0x2405, 0x01, 4), (0x607E, 128, 1)]
     for node in (1, 2):
         print("== 节点%d ==" % node)
         for idx, val, size in steps:
@@ -214,12 +221,63 @@ def cmd_home(bus, node, timeout=60):
     _disable(sdo, node)
 
 
+def drive_setup_script():
+    root = Path(__file__).resolve().parents[4]
+    return root / "firmware/apps/tools/drive_setup/drive_setup.py"
+
+
+def run_drive_setup(*args):
+    script = drive_setup_script()
+    cmd = [sys.executable, str(script), *args]
+    print("\n>> " + " ".join(cmd), flush=True)
+    return subprocess.call(cmd)
+
+
+def cmd_setup(iface):
+    """一键配置：探活 -> 写输入分配/方向+save -> drive_setup --save -> check。"""
+    bus = make_bus(iface)
+    try:
+        if not cmd_probe(bus):
+            print("中止：两轴心跳不全。")
+            return False
+        cmd_apply(bus)
+        ok = cmd_check(bus)
+    finally:
+        bus.shutdown()
+    rc = run_drive_setup("--save")
+    if rc != 0 or not ok:
+        print("\n配置未完成：drive_setup rc=%d，check=%s" % (rc, ok))
+        return False
+    print("\n参数已全部写入并保存。")
+    print("下一步（必须）：断电重启驱动器（605A 急停参数要重启才生效）。")
+    print("重启后执行：python3 baseline_sdo.py verify %s" % iface)
+    return True
+
+
+def cmd_verify(iface):
+    """重启后总验收：probe -> check -> drive_setup --check。全过则提示可运行 Qt。"""
+    bus = make_bus(iface)
+    try:
+        p = cmd_probe(bus)
+        c = cmd_check(bus)
+    finally:
+        bus.shutdown()
+    d = run_drive_setup("--check") == 0
+    ok = p and c and d
+    print("\n==== %s ====" % ("配置完成，可以运行 Qt（cats_qt）" if ok else "验收未通过，见上方 FAIL 项"))
+    return ok
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return 1
     cmd = sys.argv[1]
     iface = sys.argv[2] if len(sys.argv) > 2 else "can0"
+    if cmd == "setup":
+        return 0 if cmd_setup(iface) else 1
+    if cmd == "verify":
+        return 0 if cmd_verify(iface) else 1
     bus = make_bus(iface)
     try:
         if cmd == "probe":
