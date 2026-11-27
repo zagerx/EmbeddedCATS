@@ -98,17 +98,17 @@ enum cia402_operation_result cia402_take_result(struct cia402_device *d);
 
 单笔事务的在途状态和期限全部由 `sdo_client` 持有，`cia402` **不另外记账**。
 `dev_read()` / `dev_write()` 直接调用 `sdo_client_start()` 并检查受理结果；
-`cia402_poll()` 每拍无条件调用一次 `sdo_client_poll()`，用它的三种返回决定这一拍做什么：
+`cia402_poll()` 每拍无条件调用一次 `sdo_client_get_state()`，按通道状态决定这一拍做什么：
 
-| `sdo_client_poll()` | 含义 | 本拍动作 |
+| `sdo_client_get_state()` | 含义 | 本拍动作 |
 |---|---|---|
-| `DONE` | 结果已取走、通道已释放 | 分发取消或 `SDO_DONE` |
-| `WAITING` | 有一笔在途 | 什么都不做（要取消就先 `sdo_client_abort()`） |
+| `DONE` | 结果待取走 | `sdo_client_take_result()` 取走并释放通道，分发取消或 `SDO_DONE` |
+| `RUNNING` | 有一笔在途 | 什么都不做（要取消就先 `sdo_client_abort()`） |
 | `IDLE` | 通道空闲 | 分发取消 / 取新请求 / 送 `TICK` |
 
-`IDLE` 时 `sdo_client_poll()` 只读状态、不修改任何东西，因此每拍调用是安全的。
+`sdo_client_get_state()` 是纯查询、不修改任何东西，因此每拍调用是安全的。
 
-`BUSY / INVALID` 在发起的那一时刻就当场判失败：`TICK` 的返回值内核接受，可以直接迁回
+`sdo_client_start()` 返回 `false`（未受理）在发起的那一时刻就当场判失败：`TICK` 的返回值内核接受，可以直接迁回
 `st_idle` 并交出一个真实结局。通道如果真的丢了已受理事务，`flow_deadline` 看门狗会把
 它兜成真实的 `TIMEOUT` 结局，不需要本层自己再记一份在途标志。
 `TIMEOUT` 是已受理事务的真实失败；`CANCELLED` 只用于取消旧事务和继续安全请求，

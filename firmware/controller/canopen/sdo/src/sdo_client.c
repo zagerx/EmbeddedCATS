@@ -12,10 +12,8 @@
 #include <sdo/sdo_client_instance.h>
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
-
-/* 校验并由上游立即发起一笔事务；未受理时不修改事务状态 */
-static enum sdo_start_result sc_start(struct sdo_client *s, const struct sdo_request *req);
 
 /* 取消协议收尾的期限；零期限使用一毫秒，确保每拍至少尝试协议 abort */
 static uint32_t sc_abort_timeout(const struct sdo_transaction *t);
@@ -37,39 +35,86 @@ void sdo_client_init(struct sdo_client *s, CO_SDOclient_t *client)
 
 /**
  * sdo_client_start - 启动一笔异步事务
- * @s: 通道对象；NULL 返回 INVALID
- * @req: 请求描述；NULL 返回 INVALID
+ * @s: 通道对象；NULL 视为未受理
+ * @req: 请求描述；NULL 视为未受理
  *
  * 读忽略 size / value，固定读取 4 字节。
  *
- * Return: ACCEPTED 后必须取走结果；其余返回均不生成结果。
+ * Return: true 已受理，必须取走结果；false 未受理，不生成结果。
  */
-enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
+bool sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 {
-	return sc_start(s, req);
+	struct sdo_transaction *t;
+	CO_SDO_return_t r;
+
+	if (s == NULL || s->co == NULL || req == NULL || req->timeout_ms > 0xFFFFu ||
+	    (req->dir == SDO_DIR_WRITE && (req->size == 0u || req->size > 4u))) {
+		fprintf(stderr, "[sdo] 未受理：参数无效或通道未装配\n");
+		return false;
+	}
+	t = &s->txn;
+	if (t->state != SDO_CLIENT_IDLE) {
+		fprintf(stderr, "[sdo] 未受理：通道有事务在途或结果未取走\n");
+		return false;
+	}
+	if (req->dir == SDO_DIR_WRITE) {
+		uint8_t buf[4];
+		uint8_t i;
+
+		r = CO_SDOclientDownloadInitiate(s->co, req->index, req->subindex,
+						 (size_t)req->size, (uint16_t)req->timeout_ms,
+						 false);
+		for (i = 0u; i < req->size; i++) {
+			buf[i] = (uint8_t)((req->value >> (8u * i)) & 0xFFu);
+		}
+		if (r >= 0) {
+			(void)CO_SDOclientDownloadBufWrite(s->co, buf, (size_t)req->size);
+		}
+	} else {
+		r = CO_SDOclientUploadInitiate(s->co, req->index, req->subindex,
+					       (uint16_t)req->timeout_ms, false);
+	}
+	if (r < 0) {
+		fprintf(stderr, "[sdo] 未受理：上游客户端拒绝发起 r=%d\n", (int)r);
+		return false;
+	}
+	t->dir = (uint8_t)req->dir;
+	t->state = SDO_CLIENT_RUNNING;
+	t->cancel = 0u;
+	t->timed_out = 0u;
+	t->timeout_us = req->timeout_ms * 1000u;
+	t->elapsed_us = 0u;
+	t->abort_elapsed_us = 0u;
+	t->abort_timed_out = 0u;
+	t->result = (struct sdo_result){.status = SDO_STATUS_FAIL};
+	return true;
 }
 
 /**
- * sdo_client_poll - 查询并取走一笔已受理事务的结果
+ * sdo_client_get_state - 查询通道状态
+ * @s: 通道对象；NULL 视为 IDLE
+ *
+ * Return: IDLE 空闲；RUNNING 在途；DONE 结果待取走。
+ */
+enum sdo_client_state sdo_client_get_state(struct sdo_client *s)
+{
+	return (s == NULL) ? SDO_CLIENT_IDLE : (enum sdo_client_state)s->txn.state;
+}
+
+/**
+ * sdo_client_take_result - 取走一笔已受理事务的结果
  * @s: 通道对象；NULL 安全
  * @result: 结果输出；NULL 安全，非 DONE 时不修改
  *
- * Return: DONE 表示结果已取走并释放通道；WAITING 表示尚不能发起新事务。
+ * 仅 DONE 时生效：拷出结果并释放通道。
  */
-enum sdo_poll sdo_client_poll(struct sdo_client *s, struct sdo_result *result)
+void sdo_client_take_result(struct sdo_client *s, struct sdo_result *result)
 {
-	struct sdo_transaction *t;
-
-	if (s == NULL || result == NULL) {
-		return SDO_POLL_IDLE;
+	if (s == NULL || result == NULL || s->txn.state != SDO_CLIENT_DONE) {
+		return;
 	}
-	t = &s->txn;
-	if (t->state == SDO_CLIENT_DONE) {
-		*result = t->result;
-		t->state = SDO_CLIENT_IDLE;
-		return SDO_POLL_DONE;
-	}
-	return (t->state == SDO_CLIENT_RUNNING) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
+	*result = s->txn.result;
+	s->txn.state = SDO_CLIENT_IDLE;
 }
 
 /**
@@ -158,51 +203,6 @@ void sdo_client_step(struct sdo_client *s, uint32_t dt_us, uint32_t *timer_next_
 		t->state = SDO_CLIENT_DONE;
 		t->cancel = 0u;
 	}
-}
-
-static enum sdo_start_result sc_start(struct sdo_client *s, const struct sdo_request *req)
-{
-	struct sdo_transaction *t;
-	CO_SDO_return_t r;
-
-	if (s == NULL || s->co == NULL || req == NULL || req->timeout_ms > 0xFFFFu ||
-	    (req->dir == SDO_DIR_WRITE && (req->size == 0u || req->size > 4u))) {
-		return SDO_START_INVALID;
-	}
-	t = &s->txn;
-	if (t->state != SDO_CLIENT_IDLE) {
-		return SDO_START_BUSY;
-	}
-	if (req->dir == SDO_DIR_WRITE) {
-		uint8_t buf[4];
-		uint8_t i;
-
-		r = CO_SDOclientDownloadInitiate(s->co, req->index, req->subindex,
-						 (size_t)req->size, (uint16_t)req->timeout_ms,
-						 false);
-		for (i = 0u; i < req->size; i++) {
-			buf[i] = (uint8_t)((req->value >> (8u * i)) & 0xFFu);
-		}
-		if (r >= 0) {
-			(void)CO_SDOclientDownloadBufWrite(s->co, buf, (size_t)req->size);
-		}
-	} else {
-		r = CO_SDOclientUploadInitiate(s->co, req->index, req->subindex,
-					       (uint16_t)req->timeout_ms, false);
-	}
-	if (r < 0) {
-		return SDO_START_INVALID;
-	}
-	t->dir = (uint8_t)req->dir;
-	t->state = SDO_CLIENT_RUNNING;
-	t->cancel = 0u;
-	t->timed_out = 0u;
-	t->timeout_us = req->timeout_ms * 1000u;
-	t->elapsed_us = 0u;
-	t->abort_elapsed_us = 0u;
-	t->abort_timed_out = 0u;
-	t->result = (struct sdo_result){.status = SDO_STATUS_FAIL};
-	return SDO_START_ACCEPTED;
 }
 
 static uint32_t sc_abort_timeout(const struct sdo_transaction *t)

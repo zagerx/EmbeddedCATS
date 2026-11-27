@@ -81,7 +81,7 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 {
 	struct sdo_result result;
 	struct cia402_request req;
-	enum sdo_poll state;
+	enum sdo_client_state state;
 	uint8_t cancel;
 
 	if (d == NULL || d->client == NULL) {
@@ -91,17 +91,18 @@ void cia402_poll(struct cia402_device *d, uint32_t now_ms)
 	cancel = d->mailbox.cancel;
 
 	/*
-	 * 通道自己就是唯一的事实来源：DONE 有结果，WAITING 在途，IDLE 空闲。
+	 * 通道自己就是唯一的事实来源：DONE 有结果，RUNNING 在途，IDLE 空闲。
 	 * 每拍都问一次，本层不另外记账。
 	 */
-	state = sdo_client_poll(d->client, &result);
-	if (state == SDO_POLL_WAITING) {
+	state = sdo_client_get_state(d->client);
+	if (state == SDO_CLIENT_RUNNING) {
 		if (cancel != CIA402_CANCEL_NONE) {
 			sdo_client_abort(d->client); /* 登记取消，通道收尾后仍交 CANCELLED */
 		}
 		return;
 	}
-	if (state == SDO_POLL_DONE) {
+	if (state == SDO_CLIENT_DONE) {
+		sdo_client_take_result(d->client, &result);
 		if (cancel != CIA402_CANCEL_NONE) {
 			dispatch_cancel(d, cancel, &result);
 			return;

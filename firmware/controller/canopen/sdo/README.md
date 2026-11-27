@@ -13,14 +13,16 @@ sdo/
 
 公开接口没有函数指针表，也没有跨线程请求队列：
 
-- `sdo_client_start()`：按 `struct sdo_request` 立即发起，返回 `ACCEPTED` / `BUSY` / `INVALID`；
+- `sdo_client_start()`：按 `struct sdo_request` 立即发起，返回 `bool`，`true` 已受理、`false` 未受理（原因由本模块记日志）；
 - `sdo_client_step()`：由 CANopen 工作循环推进 CANopenNode 协议；
-- `sdo_client_poll()`：取结果，返回 `DONE` / `WAITING` / `IDLE`；
+- `sdo_client_get_state()`：纯查询，返回 `IDLE` / `RUNNING` / `DONE`；
+- `sdo_client_take_result()`：仅在 `DONE` 时取走结果并释放通道，其他状态什么都不做；
 - `sdo_client_abort()`：登记取消，由后续 `step()` 推进协议 abort 或执行有界本地收尾。
 
 核心不变量：
 
-- 只有 `ACCEPTED` 表示本笔事务已受理，之后必有一笔结果；`BUSY / INVALID` 未受理，不生成结果。
+- 只有 `start` 返回 `true` 表示本笔事务已受理，之后必有一笔结果；返回 `false` 未受理，不生成结果。
+  `start` 只回答“放不放得进通道”，事务成败要等 `take_result` 取出的 `sdo_status`。
 - 每条通道同时最多一笔事务。内部为 `IDLE → RUNNING → DONE → IDLE`，取走 `DONE` 才释放通道。
   事务状态按 1:1 内嵌在通道里（`struct sdo_transaction`），不单独分配、不排队。
 - 受理即开始计时，到期由通道尝试 abort，交付 `TIMEOUT`。
@@ -34,7 +36,7 @@ sdo/
 
 ```text
 cia402 状态入口      → sdo_client_start()
-cia402_poll()        → sdo_client_poll()（只轮询自己已受理的事务）
+cia402_poll()        → sdo_client_get_state() / sdo_client_take_result()（只处理自己已受理的事务）
 controller 工作循环  → sdo_client_step() → CO_SDOclientUpload() / Download()
 ```
 

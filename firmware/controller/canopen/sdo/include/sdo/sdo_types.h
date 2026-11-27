@@ -1,8 +1,8 @@
 /*
  * sdo_types.h — 异步对象访问的公共事务类型
  *
- * 受理与结果分开：只有 ACCEPTED 表示事务已经发起，随后必须取走一笔结果。
- * BUSY / INVALID 未受理，不改变当前事务与结果槽，也不生成虚假结果。
+ * 受理与结果分开：sdo_client_start() 返回 true 表示事务已受理，随后必须取走一笔结果。
+ * 返回 false 未受理，不改变当前事务与结果槽，也不生成虚假结果。
  *
  * Author: zager
  */
@@ -21,12 +21,6 @@ enum sdo_dir {
 	SDO_DIR_WRITE
 };
 
-enum sdo_start_result {
-	SDO_START_ACCEPTED = 0, /* 已受理：之后必须 poll 到 DONE */
-	SDO_START_BUSY,         /* 有事务在途或结果未取走：本次未受理 */
-	SDO_START_INVALID       /* 参数无效或客户端未装配：本次未受理 */
-};
-
 enum sdo_status {
 	SDO_STATUS_OK = 0,        /* 对端正常应答 */
 	SDO_STATUS_FAIL = -1,     /* 已受理事务以对端 abort 或协议错误结束 */
@@ -40,10 +34,10 @@ struct sdo_result {
 	uint32_t abort_code;
 };
 
-enum sdo_poll {
-	SDO_POLL_DONE = 0, /* 已取走结果，通道回到空闲 */
-	SDO_POLL_WAITING,  /* 在途事务尚无结果，或结果尚未取走 */
-	SDO_POLL_IDLE      /* 没有事务或可取结果 */
+enum sdo_client_state {
+	SDO_CLIENT_IDLE = 0, /* 没有事务，可以受理新请求 */
+	SDO_CLIENT_RUNNING,  /* 已受理，结果未到 */
+	SDO_CLIENT_DONE      /* 结果已到，等待取走 */
 };
 
 /*

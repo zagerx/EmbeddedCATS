@@ -17,7 +17,7 @@
 #include <stdio.h>
 
 /* 事务没被受理：当场收尾，并回传要迁移到的状态 */
-static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started);
+static sm_state_t dev_start_failed(struct cia402_device *d);
 
 /**
  * dev_read - 发起一笔读事务
@@ -25,24 +25,24 @@ static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_resul
  * @index: 对象索引
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
+ * Return: true 表示本设备拥有在途事务；false 未受理，没有结果。
  */
-enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
+bool dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_READ,
 		.index = index,
 		.timeout_ms = timeout_ms,
 	};
-	enum sdo_start_result started;
+	bool accepted;
 
-	started = sdo_client_start(d->client, &req);
-	if (started == SDO_START_ACCEPTED) {
+	accepted = sdo_client_start(d->client, &req);
+	if (accepted) {
 		d->txn.index = index;
 		d->txn.subindex = 0u;
 		d->txn.dir = (uint8_t)SDO_DIR_READ;
 	}
-	return started;
+	return accepted;
 }
 
 /**
@@ -53,10 +53,10 @@ enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
+ * Return: true 表示本设备拥有在途事务；false 未受理，没有结果。
  */
-enum sdo_start_result dev_write(struct cia402_device *d, uint16_t index, uint32_t value,
-				uint8_t size, uint32_t timeout_ms)
+bool dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+	       uint32_t timeout_ms)
 {
 	return dev_write_sub(d, index, 0u, value, size, timeout_ms);
 }
@@ -70,10 +70,10 @@ enum sdo_start_result dev_write(struct cia402_device *d, uint16_t index, uint32_
  * @size: 字节数
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
+ * Return: true 表示本设备拥有在途事务；false 未受理，没有结果。
  */
-enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub,
-				    uint32_t value, uint8_t size, uint32_t timeout_ms)
+bool dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
+		   uint8_t size, uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_WRITE,
@@ -83,10 +83,10 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 		.value = value,
 		.timeout_ms = timeout_ms,
 	};
-	enum sdo_start_result started;
+	bool accepted;
 
-	started = sdo_client_start(d->client, &req);
-	if (started == SDO_START_ACCEPTED) {
+	accepted = sdo_client_start(d->client, &req);
+	if (accepted) {
 		d->txn.index = index;
 		d->txn.subindex = sub;
 		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
@@ -95,7 +95,7 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
 			d->cw.pending_valid = 1u;
 		}
 	}
-	return started;
+	return accepted;
 }
 
 /**
@@ -104,9 +104,9 @@ enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uin
  * @value: 控制字值
  * @timeout_ms: 本笔事务的期限，由通道掌握
  *
- * Return: ACCEPTED 表示本设备拥有在途事务；其余返回没有结果。
+ * Return: true 表示本设备拥有在途事务；false 未受理，没有结果。
  */
-enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
+bool dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_WRITE,
@@ -115,15 +115,15 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
 		.value = (uint32_t)value,
 		.timeout_ms = timeout_ms,
 	};
-	enum sdo_start_result started;
+	bool accepted;
 
-	started = sdo_client_start(d->client, &req);
-	if (started == SDO_START_ACCEPTED) {
+	accepted = sdo_client_start(d->client, &req);
+	if (accepted) {
 		d->txn.index = CIA402_OD_CONTROLWORD;
 		d->txn.subindex = 0u;
 		d->txn.dir = (uint8_t)SDO_DIR_WRITE;
 	}
-	return started;
+	return accepted;
 }
 
 /**
@@ -136,9 +136,7 @@ enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, u
  */
 sm_state_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms)
 {
-	enum sdo_start_result started = dev_read(d, index, timeout_ms);
-
-	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
+	return dev_read(d, index, timeout_ms) ? NULL : dev_start_failed(d);
 }
 
 /**
@@ -154,9 +152,7 @@ sm_state_t dev_start_read(struct cia402_device *d, uint16_t index, uint32_t time
 sm_state_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
 			   uint32_t timeout_ms)
 {
-	enum sdo_start_result started = dev_write(d, index, value, size, timeout_ms);
-
-	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
+	return dev_write(d, index, value, size, timeout_ms) ? NULL : dev_start_failed(d);
 }
 
 /**
@@ -169,9 +165,7 @@ sm_state_t dev_start_write(struct cia402_device *d, uint16_t index, uint32_t val
  */
 sm_state_t dev_start_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms)
 {
-	enum sdo_start_result started = dev_write_pulse(d, value, timeout_ms);
-
-	return (started == SDO_START_ACCEPTED) ? NULL : dev_start_failed(d, started);
+	return dev_write_pulse(d, value, timeout_ms) ? NULL : dev_start_failed(d);
 }
 
 /**
@@ -224,10 +218,9 @@ void dev_fail(struct cia402_device *d, const struct sdo_result *result)
 }
 
 /* 没发起就没有结果事件，不能留在流程里等；这里只收尾，迁移由调用方执行 */
-static sm_state_t dev_start_failed(struct cia402_device *d, enum sdo_start_result started)
+static sm_state_t dev_start_failed(struct cia402_device *d)
 {
-	fprintf(stderr, "[cia402] 事务未发起: kind=%d, reason=%s\n", (int)d->operation.kind,
-		started == SDO_START_BUSY ? "CHANNEL_BUSY" : "INVALID");
+	fprintf(stderr, "[cia402] 事务未发起: kind=%d\n", (int)d->operation.kind);
 	dev_finish(d, CIA402_FAIL_NOT_STARTED);
 	return &st_idle;
 }

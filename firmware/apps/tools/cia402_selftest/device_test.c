@@ -36,9 +36,8 @@ struct fx {
 	uint32_t t;
 };
 
-static enum sdo_start_result fake_start(struct fake_client *fake, uint8_t dir, uint16_t index,
-					uint8_t sub, uint32_t value, uint8_t size,
-					uint32_t timeout_ms);
+static bool fake_start(struct fake_client *fake, uint8_t dir, uint16_t index, uint8_t sub,
+		       uint32_t value, uint8_t size, uint32_t timeout_ms);
 
 static void fx_init(struct fx *f);
 static void fx_request(struct fx *f, enum cia402_kind kind);
@@ -69,9 +68,9 @@ static void test_cancel_beats_pending_failure(void);
 static void test_timeout(void);
 static void test_waiting_not_timed_out(void);
 
-static enum sdo_start_result fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms);
-static enum sdo_start_result fake_write(struct sdo_client *s, uint16_t index, uint32_t value,
-					uint8_t size, uint32_t timeout_ms);
+static bool fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms);
+static bool fake_write(struct sdo_client *s, uint16_t index, uint32_t value, uint8_t size,
+		       uint32_t timeout_ms);
 
 static int failures;
 
@@ -126,19 +125,19 @@ int cia402_device_tests(void)
  * @s: 假客户端对象
  * @req: 请求描述
  *
- * Return: 仅 ACCEPTED 产生结果；BUSY / INVALID 不占用通道。
+ * Return: true 才产生结果；false 不占用通道。
  */
-enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
+bool sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 {
 	if (req == NULL) {
-		return SDO_START_INVALID;
+		return false;
 	}
 	return fake_start((struct fake_client *)s, (uint8_t)req->dir, req->index, req->subindex,
 			  req->value, req->size, req->timeout_ms);
 }
 
 /* 测试内部：读 / 写请求的简写 */
-static enum sdo_start_result fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms)
+static bool fake_read(struct sdo_client *s, uint16_t index, uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_READ,
@@ -149,8 +148,8 @@ static enum sdo_start_result fake_read(struct sdo_client *s, uint16_t index, uin
 	return sdo_client_start(s, &req);
 }
 
-static enum sdo_start_result fake_write(struct sdo_client *s, uint16_t index, uint32_t value,
-					uint8_t size, uint32_t timeout_ms)
+static bool fake_write(struct sdo_client *s, uint16_t index, uint32_t value, uint8_t size,
+		       uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_WRITE,
@@ -164,23 +163,36 @@ static enum sdo_start_result fake_write(struct sdo_client *s, uint16_t index, ui
 }
 
 /**
- * sdo_client_poll - 取走测试事务结果
+ * sdo_client_get_state - 查询测试通道状态
+ * @s: 假客户端对象
+ */
+enum sdo_client_state sdo_client_get_state(struct sdo_client *s)
+{
+	const struct fake_client *fake = (const struct fake_client *)s;
+
+	if (fake->result_ready != 0u) {
+		return SDO_CLIENT_DONE;
+	}
+	return (fake->started != 0u) ? SDO_CLIENT_RUNNING : SDO_CLIENT_IDLE;
+}
+
+/**
+ * sdo_client_take_result - 取走测试事务结果
  * @s: 假客户端对象
  * @result: 结果输出
  *
- * Return: DONE 取走结果并释放通道；其他结果不改变输出。
+ * 仅 DONE 时取走并释放通道。
  */
-enum sdo_poll sdo_client_poll(struct sdo_client *s, struct sdo_result *result)
+void sdo_client_take_result(struct sdo_client *s, struct sdo_result *result)
 {
 	struct fake_client *fake = (struct fake_client *)s;
 
-	if (fake->result_ready != 0u) {
-		*result = fake->result;
-		fake->result_ready = 0u;
-		fake->started = 0u;
-		return SDO_POLL_DONE;
+	if (fake->result_ready == 0u) {
+		return;
 	}
-	return (fake->started != 0u) ? SDO_POLL_WAITING : SDO_POLL_IDLE;
+	*result = fake->result;
+	fake->result_ready = 0u;
+	fake->started = 0u;
 }
 
 /**
@@ -196,18 +208,17 @@ void sdo_client_abort(struct sdo_client *s)
 	}
 }
 
-static enum sdo_start_result fake_start(struct fake_client *fake, uint8_t dir, uint16_t index,
-					uint8_t sub, uint32_t value, uint8_t size,
-					uint32_t timeout_ms)
+static bool fake_start(struct fake_client *fake, uint8_t dir, uint16_t index, uint8_t sub,
+		       uint32_t value, uint8_t size, uint32_t timeout_ms)
 {
 	(void)sub;
 	(void)timeout_ms;
 	if (fake->started != 0u) {
-		return SDO_START_BUSY;
+		return false;
 	}
 	if (fake->refuse != 0u || timeout_ms == 0u ||
 	    (dir == SDO_DIR_WRITE && (size == 0u || size > 4u))) {
-		return SDO_START_INVALID;
+		return false;
 	}
 	fake->started = 1u;
 	fake->dir = dir;
@@ -215,7 +226,7 @@ static enum sdo_start_result fake_start(struct fake_client *fake, uint8_t dir, u
 	fake->value = value;
 	fake->size = size;
 	fake->result_ready = 0u;
-	return SDO_START_ACCEPTED;
+	return true;
 }
 
 static void fx_init(struct fx *f)
@@ -794,17 +805,20 @@ static void test_client_contract(void)
 
 	fx_init(&f);
 	fx_complete(&f, SDO_STATUS_FAIL, 0xDEADu);
-	CHECK(fake_write(client, CIA402_OD_CONTROLWORD, 0u, 0u, 200u) == SDO_START_INVALID);
+	CHECK(!fake_write(client, CIA402_OD_CONTROLWORD, 0u, 0u, 200u));
 	CHECK(f.fake.started == 0u);
 	CHECK(f.fake.result.value == 0xDEADu);
-	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE); /* 清理上一笔外部结果 */
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_DONE);
+	sdo_client_take_result(client, &result); /* 清理上一笔外部结果 */
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_IDLE);
 
-	CHECK(fake_read(client, CIA402_OD_STATUSWORD, 200u) == SDO_START_ACCEPTED);
-	CHECK(fake_read(client, CIA402_OD_STATUSWORD, 200u) == SDO_START_BUSY);
+	CHECK(fake_read(client, CIA402_OD_STATUSWORD, 200u));
+	CHECK(!fake_read(client, CIA402_OD_STATUSWORD, 200u));
 	fx_complete(&f, SDO_STATUS_CANCELLED, 0u);
-	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE);
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_DONE);
+	sdo_client_take_result(client, &result);
 	CHECK(result.status == SDO_STATUS_CANCELLED);
-	CHECK(sdo_client_poll(client, &result) == SDO_POLL_IDLE);
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_IDLE);
 
 	fx_request(&f, CIA402_REQ_ENABLE);
 	fx_poll(&f); /* REQUEST：只设步骤 */

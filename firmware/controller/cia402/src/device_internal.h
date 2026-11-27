@@ -60,16 +60,16 @@ struct cancel_evt {
 
 /* ---- 状态函数共用原语（device.c） ---- */
 
-/* 发起一笔读；受理后才由 cia402_poll 取结果 */
-enum sdo_start_result dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
+/* 发起一笔读；true 已受理，之后才由 cia402_poll 取结果 */
+bool dev_read(struct cia402_device *d, uint16_t index, uint32_t timeout_ms);
 /* 发起一笔写；6040 仅在事务成功后更新控制字镜像 */
-enum sdo_start_result dev_write(struct cia402_device *d, uint16_t index, uint32_t value,
-				uint8_t size, uint32_t timeout_ms);
+bool dev_write(struct cia402_device *d, uint16_t index, uint32_t value, uint8_t size,
+	       uint32_t timeout_ms);
 /* 带子索引的写：数组类对象（如 6099h 的回零速度）用 */
-enum sdo_start_result dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub,
-				    uint32_t value, uint8_t size, uint32_t timeout_ms);
+bool dev_write_sub(struct cia402_device *d, uint16_t index, uint8_t sub, uint32_t value,
+		   uint8_t size, uint32_t timeout_ms);
 /* 写不进控制字镜像的一次性 6040 指令，例如在线变位 0x103F */
-enum sdo_start_result dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
+bool dev_write_pulse(struct cia402_device *d, uint16_t value, uint32_t timeout_ms);
 /*
  * 发起读写：已受理返回 NULL（等结果事件）；未受理当场收尾并返回要迁移到的状态。
  * 调用方直接 `return dev_start_write(...)` 即可，不需要额外的失败分支。

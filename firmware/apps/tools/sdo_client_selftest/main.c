@@ -17,9 +17,9 @@ static int failures;
 static void finish(struct sdo_client *client, int status);
 
 /* 测试内部：读 / 写请求的简写 */
-static enum sdo_start_result start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms);
-static enum sdo_start_result start_write(struct sdo_client *c, uint16_t index, uint32_t value,
-					 uint8_t size, uint32_t timeout_ms);
+static bool start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms);
+static bool start_write(struct sdo_client *c, uint16_t index, uint32_t value, uint8_t size,
+			uint32_t timeout_ms);
 
 #define CHECK(cond)                                                                                \
 	do {                                                                                       \
@@ -40,31 +40,33 @@ int main(void)
 	co.initiate = CO_SDO_RT_waitingResponse;
 
 	/* 非法参数与底层拒绝均不生成结果 */
-	CHECK(start_write(&client, 0x6040u, 0x0Fu, 0u, 100u) == SDO_START_INVALID);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_IDLE);
+	CHECK(!start_write(&client, 0x6040u, 0x0Fu, 0u, 100u));
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_IDLE);
 	co.initiate = CO_SDO_RT_abort;
-	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_INVALID);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_IDLE);
+	CHECK(!start_read(&client, 0x6041u, 100u));
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_IDLE);
 	co.initiate = CO_SDO_RT_waitingResponse;
 
 	/* 正常读完成：小端值解码，取走结果后才释放通道 */
 	co.next = CO_SDO_RT_ok_communicationEnd;
 	co.read_value = 0x12345678u;
-	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_ACCEPTED);
-	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 100u) == SDO_START_BUSY);
+	CHECK(start_read(&client, 0x6041u, 100u));
+	CHECK(!start_write(&client, 0x6040u, 0x0Fu, 2u, 100u));
 	sdo_client_step(&client, 1000u, NULL);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_DONE);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_DONE);
+	sdo_client_take_result(&client, &result);
 	CHECK(result.status == SDO_STATUS_OK);
 	CHECK(result.value == 0x12345678u);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_IDLE);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_IDLE);
 
 	/* 取消与正常完成同拍发生：尊重已完成事务，不倒改为取消 */
 	co.next = CO_SDO_RT_ok_communicationEnd;
 	co.read_value = 0x89ABCDEFu;
-	CHECK(start_read(&client, 0x6041u, 100u) == SDO_START_ACCEPTED);
+	CHECK(start_read(&client, 0x6041u, 100u));
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_DONE);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_DONE);
+	sdo_client_take_result(&client, &result);
 	CHECK(result.status == SDO_STATUS_OK);
 	CHECK(result.value == 0x89ABCDEFu);
 
@@ -72,10 +74,10 @@ int main(void)
 	co.next = CO_SDO_RT_waitingResponse;
 	co.abort_code = CO_SDO_AB_TIMEOUT;
 	co.closes = 0u;
-	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 100u) == SDO_START_ACCEPTED);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 100u));
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_WAITING);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_RUNNING);
 	co.next = CO_SDO_RT_endedWithClientAbort;
 	sdo_client_step(&client, 1000u, NULL);
 	finish(&client, SDO_STATUS_CANCELLED);
@@ -84,9 +86,9 @@ int main(void)
 	/* 自身期限：即使发送缓冲一直满，也有界结束为 TIMEOUT */
 	co.next = CO_SDO_RT_transmittBufferFull;
 	co.closes = 0u;
-	CHECK(start_read(&client, 0x6041u, 2u) == SDO_START_ACCEPTED);
+	CHECK(start_read(&client, 0x6041u, 2u));
 	sdo_client_step(&client, 1000u, NULL);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_WAITING);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_RUNNING);
 	sdo_client_step(&client, 1000u, NULL);
 	sdo_client_step(&client, 1000u, NULL);
 	sdo_client_step(&client, 1000u, NULL);
@@ -96,11 +98,11 @@ int main(void)
 	/* 主动取消后发送缓冲一直满：本地 Close 释放通道，不宣称协议 abort 成功 */
 	co.next = CO_SDO_RT_transmittBufferFull;
 	co.closes = 0u;
-	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 3u) == SDO_START_ACCEPTED);
+	CHECK(start_write(&client, 0x6040u, 0x0Fu, 2u, 3u));
 	sdo_client_abort(&client);
 	sdo_client_step(&client, 1000u, NULL);
 	sdo_client_step(&client, 1000u, NULL);
-	CHECK(sdo_client_poll(&client, &result) == SDO_POLL_WAITING);
+	CHECK(sdo_client_get_state(&client) == SDO_CLIENT_RUNNING);
 	sdo_client_step(&client, 1000u, NULL);
 	finish(&client, SDO_STATUS_CANCELLED);
 	CHECK(co.closes == 1u);
@@ -111,7 +113,7 @@ int main(void)
 	return failures == 0 ? 0 : 1;
 }
 
-static enum sdo_start_result start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms)
+static bool start_read(struct sdo_client *c, uint16_t index, uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_READ,
@@ -122,8 +124,8 @@ static enum sdo_start_result start_read(struct sdo_client *c, uint16_t index, ui
 	return sdo_client_start(c, &req);
 }
 
-static enum sdo_start_result start_write(struct sdo_client *c, uint16_t index, uint32_t value,
-					 uint8_t size, uint32_t timeout_ms)
+static bool start_write(struct sdo_client *c, uint16_t index, uint32_t value, uint8_t size,
+			uint32_t timeout_ms)
 {
 	const struct sdo_request req = {
 		.dir = SDO_DIR_WRITE,
@@ -222,7 +224,8 @@ static void finish(struct sdo_client *client, int status)
 	struct sdo_result result;
 
 	memset(&result, 0xA5, sizeof(result));
-	CHECK(sdo_client_poll(client, &result) == SDO_POLL_DONE);
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_DONE);
+	sdo_client_take_result(client, &result);
 	CHECK(result.status == status);
-	CHECK(sdo_client_poll(client, &result) == SDO_POLL_IDLE);
+	CHECK(sdo_client_get_state(client) == SDO_CLIENT_IDLE);
 }

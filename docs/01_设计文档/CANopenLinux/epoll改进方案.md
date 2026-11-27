@@ -230,9 +230,9 @@ SDO 步进使用 epoll 提供的真实时间差，不再假定每次调用恰好
 
 保留 `sdo_client` 所表达的异步对象访问语义：
 
-- `sdo_client_read()` / `sdo_client_write()` 直接发起后立即返回；
-- 只有 `ACCEPTED` 才有后续结果，`BUSY / INVALID` 不生成结果；
-- 通信完成后用 `sdo_client_poll()` 取结果；
+- `sdo_client_start()` 直接发起后立即返回；
+- 只有返回 `true`（已受理）才有后续结果，返回 `false` 不生成结果；
+- 通信完成后用 `sdo_client_take_result()` 取结果；
 - CiA 402 不依赖 CANopenNode 类型；
 - 每笔已受理请求独立记录成功、失败、取消和 abort code。
 

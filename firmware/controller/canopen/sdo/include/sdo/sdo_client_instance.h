@@ -18,24 +18,18 @@
 extern "C" {
 #endif
 
-enum sdo_client_state {
-	SDO_CLIENT_IDLE = 0,
-	SDO_CLIENT_RUNNING,
-	SDO_CLIENT_DONE
-};
-
 /*
  * 一笔在途事务的全部状态与结果。
  * 一条通道同时最多一笔事务，因此事务就嵌在通道里，不单独分配。
  */
 struct sdo_transaction {
-	uint8_t dir;            /* enum sdo_dir */
-	uint8_t state;          /* enum sdo_client_state */
-	uint8_t cancel;         /* 已登记取消 */
-	uint8_t timed_out;      /* 超时触发的取消 */
-	uint8_t abort_timed_out; /* 取消收尾已到本地期限 */
-	uint32_t timeout_us;    /* 事务总期限 */
-	uint32_t elapsed_us;    /* 事务已用时间 */
+	uint8_t dir;               /* enum sdo_dir */
+	uint8_t state;             /* enum sdo_client_state */
+	uint8_t cancel;            /* 已登记取消 */
+	uint8_t timed_out;         /* 超时触发的取消 */
+	uint8_t abort_timed_out;   /* 取消收尾已到本地期限 */
+	uint32_t timeout_us;       /* 事务总期限 */
+	uint32_t elapsed_us;       /* 事务已用时间 */
 	uint32_t abort_elapsed_us; /* 取消收尾已用时间 */
 	struct sdo_result result;
 };

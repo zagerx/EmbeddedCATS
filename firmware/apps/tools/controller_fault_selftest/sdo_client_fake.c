@@ -12,25 +12,31 @@
 /**
  * sdo_client_start - 拒绝测试中的意外事务
  *
- * Return: INVALID；不生成事务结果。
+ * Return: false；不生成事务结果。
  */
-enum sdo_start_result sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
+bool sdo_client_start(struct sdo_client *s, const struct sdo_request *req)
 {
 	(void)s;
 	(void)req;
-	return SDO_START_INVALID;
+	return false;
 }
 
 /**
- * sdo_client_poll - 查询空测试通道
- *
- * Return: IDLE；结果输出保持不变。
+ * sdo_client_get_state - 空测试通道永远空闲
  */
-enum sdo_poll sdo_client_poll(struct sdo_client *s, struct sdo_result *result)
+enum sdo_client_state sdo_client_get_state(struct sdo_client *s)
+{
+	(void)s;
+	return SDO_CLIENT_IDLE;
+}
+
+/**
+ * sdo_client_take_result - 空测试通道没有结果可取
+ */
+void sdo_client_take_result(struct sdo_client *s, struct sdo_result *result)
 {
 	(void)s;
 	(void)result;
-	return SDO_POLL_IDLE;
 }
 
 /**
